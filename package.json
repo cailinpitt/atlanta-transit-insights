@@ -2,7 +2,6 @@
   "name": "atlanta-transit-insights",
   "version": "0.0.1",
   "description": "Bluesky bots that turn MARTA train and bus tracker data into Atlanta-specific transit visualizations",
-  "main": "index.js",
   "dependencies": {
     "@atproto/api": "^0.18.16",
     "axios": "^1.15.0",
@@ -50,6 +49,7 @@
     "lint": "biome lint .",
     "format": "biome format --write .",
     "check": "biome check --write .",
+    "knip": "knip --include files,dependencies",
     "prepare": "husky"
   },
   "lint-staged": {
@@ -60,6 +60,7 @@
   "devDependencies": {
     "@biomejs/biome": "^2.4.13",
     "husky": "^9.1.7",
+    "knip": "^6.16.1",
     "lint-staged": "^16.4.0"
   }
 }

@@ -1,0 +1,17 @@
+{
+  "$schema": "https://unpkg.com/knip@6/schema.json",
+  "entry": [
+    "bin/**/*.js",
+    "scripts/**/*.js",
+    "test/**/*.test.js"
+  ],
+  "project": [
+    "src/**/*.js",
+    "bin/**/*.js",
+    "scripts/**/*.js"
+  ],
+  "ignoreBinaries": [
+    "ffmpeg",
+    "rclone"
+  ]
+}

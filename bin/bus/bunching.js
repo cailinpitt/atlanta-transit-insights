@@ -1,0 +1,397 @@
+#!/usr/bin/env node
+require('../../src/shared/env');
+
+const argv = require('minimist')(process.argv.slice(2));
+
+const { getVehiclesCachedOrFresh } = require('../../src/bus/api');
+const { allRoutes: bunchingRoutes } = require('../../src/bus/routes');
+const {
+  detectAllBunching,
+  computeGapBehind,
+  assignBusNumbers,
+  findParkedBusVids,
+  PARKED_WINDOW_MS,
+} = require('../../src/bus/bunching');
+const { expectedTripMinutes, scheduleDeviationMin } = require('../../src/shared/gtfs');
+const { getRecentBusObservationsByRoute } = require('../../src/shared/observations');
+const { loadPattern, findNearestStop } = require('../../src/bus/patterns');
+const { renderBunchingMap } = require('../../src/map');
+const {
+  fetchSignalsInBbox,
+  filterSignalsOnRoute,
+  dedupeNearbySignals,
+  annotateSignalOrientations,
+} = require('../../src/bus/trafficSignals');
+const { getPatternStops } = require('../../src/bus/stops');
+const { captureBunchingVideo } = require('../../src/bus/bunchingVideo');
+const { loginBus, postWithImage, postWithVideo, postText } = require('../../src/bus/bluesky');
+const { isOnCooldown } = require('../../src/shared/state');
+const { commitAndPost } = require('../../src/shared/postDetection');
+const { terminalZoneFt: terminalZoneFor } = require('../../src/shared/geo');
+const history = require('../../src/shared/history');
+const { setup, writeDryRunAsset, runBin } = require('../../src/shared/runBin');
+const {
+  buildPostText,
+  buildAltText,
+  buildVideoPostText,
+  buildVideoAltText,
+} = require('../../src/bus/bunchingPost');
+
+const BUS_BUNCHING_DAILY_CAP = 3;
+
+async function main() {
+  setup();
+  const routes = bunchingRoutes;
+  const { vehicles, now, source } = await getVehiclesCachedOrFresh(routes);
+  console.log(
+    `Got ${vehicles.length} vehicles (${source}, snapshot ${new Date(now).toISOString()})`,
+  );
+
+  // "Confirmed parked" buses (barely moved over the last 5 min, with enough
+  // history to be sure). Used as a cluster gate in the candidate loop below: a
+  // candidate is dropped only if it lacks ≥2 non-parked members, so a cluster
+  // of stopped buses (the Route 9 phantom: 4 parked + 1 moving) is suppressed
+  // while a real moving bunch — even creeping through traffic — still posts.
+  const nowMs = now instanceof Date ? now.getTime() : now;
+  const recentByRoute = getRecentBusObservationsByRoute(routes, nowMs - PARKED_WINDOW_MS);
+  const parkedVids = new Set();
+  for (const rows of recentByRoute.values()) {
+    for (const vid of findParkedBusVids(rows)) parkedVids.add(vid);
+  }
+
+  const bunches = detectAllBunching(vehicles, now);
+  if (bunches.length === 0) {
+    console.log('No bunching detected');
+    return;
+  }
+
+  console.log(`Found ${bunches.length} candidate bunch(es); picking best available:`);
+  for (const b of bunches) {
+    console.log(
+      `  route ${b.route} pid ${b.pid} — ${b.vehicles.length} buses, span ${b.spanFt} ft, maxGap ${b.maxGapFt} ft`,
+    );
+  }
+
+  let bunch = null;
+  // Set when the chosen candidate broke through an active cooldown via the
+  // severity-escalation gate. commitAndPost needs to know so it can clear
+  // the stale cooldown stamp before the atomic acquireCooldown.
+  let cooldownOverridden = false;
+  let pattern = null;
+  let chosenStop = null;
+  for (const candidate of bunches) {
+    // A real bunch is moving vehicles that caught up to each other. If fewer
+    // than 2 of the clustered buses are actually moving (the rest confirmed
+    // parked), it's a knot of stopped buses, not a pileup — skip without
+    // recording, so stale clusters don't pollute analytics or the feed.
+    const movingCount = candidate.vehicles.filter((v) => !parkedVids.has(v.vid)).length;
+    if (movingCount < 2) {
+      console.log(
+        `  skip pid ${candidate.pid}: only ${movingCount} moving member(s) of ${candidate.vehicles.length} (rest parked)`,
+      );
+      continue;
+    }
+
+    // Terminal layovers aren't real bunches — filter before recording, so
+    // they don't pollute analytics. Cooldown skips DO record (posted=0).
+    const candidatePattern = await loadPattern(candidate.pid);
+    const firstBus = candidate.vehicles[0];
+    const lastBus = candidate.vehicles[candidate.vehicles.length - 1];
+    const midPdist = (firstBus.pdist + lastBus.pdist) / 2;
+    const stop = findNearestStop(candidatePattern, midPdist);
+    const stops = candidatePattern.points.filter((p) => p.type === 'S' && p.stopName);
+
+    const terminalZoneFt = terminalZoneFor(candidatePattern.lengthFt);
+    const isAtStartTerminalStop = stop === stops[0];
+    const isAtEndTerminalStop = stop === stops[stops.length - 1];
+    const inStartZone = firstBus.pdist < terminalZoneFt;
+    const inEndZone = candidatePattern.lengthFt - lastBus.pdist < terminalZoneFt;
+    if (isAtStartTerminalStop || isAtEndTerminalStop || inStartZone || inEndZone) {
+      const reason =
+        isAtStartTerminalStop || isAtEndTerminalStop
+          ? `nearest stop "${stop.stopName}" is a terminal`
+          : inStartZone
+            ? `within ${Math.round(terminalZoneFt)}ft of start terminal`
+            : `within ${Math.round(terminalZoneFt)}ft of end terminal`;
+      console.log(`  skip pid ${candidate.pid}: ${reason}`);
+      continue;
+    }
+
+    // Route-level cooldown stops opposite-direction pids from posting minutes apart.
+    const routeKey = `route:${candidate.route}`;
+    if (!argv['dry-run']) {
+      const pidCd = isOnCooldown(candidate.pid);
+      const routeCd = isOnCooldown(routeKey);
+      // Both pid and route cooldown allow strictly-more-severe escalations
+      // through, mirroring the daily cap's dominance override. Pid used to
+      // be unconditionally strict — but a 9-bus #66 monster bunch was
+      // suppressed on 2026-05-05 by a cooldown left from an earlier 2-bus
+      // post on the same pid, which is exactly the case the override exists
+      // to handle. Same severity gate (`bunchingCooldownAllows`) for both
+      // since "this is the same incident, just bigger" is judged the same
+      // way regardless of which key triggered.
+      const cooldownAllows = history.bunchingCooldownAllows({
+        kind: 'bus',
+        route: candidate.route,
+        candidate: { vehicleCount: candidate.vehicles.length, severityFt: candidate.spanFt },
+      });
+      const pidCdOverride = pidCd && cooldownAllows;
+      const routeCdOverride = routeCd && cooldownAllows;
+      if ((pidCd && !pidCdOverride) || (routeCd && !routeCdOverride)) {
+        const which = pidCd && !pidCdOverride ? 'pid' : 'route';
+        console.log(`  skip pid ${candidate.pid}: ${which} on cooldown`);
+        history.recordBunching({
+          kind: 'bus',
+          route: candidate.route,
+          direction: candidate.pid,
+          vehicleCount: candidate.vehicles.length,
+          severityFt: candidate.spanFt,
+          nearStop: stop.stopName,
+          posted: false,
+        });
+        history.recordMetaSignal({
+          kind: 'bus',
+          line: candidate.route,
+          direction: candidate.pid,
+          source: 'bunching',
+          severity: Math.min(1, candidate.vehicles.length / 4),
+          detail: {
+            vehicles: candidate.vehicles.length,
+            span_ft: candidate.spanFt,
+            suppressed: 'cooldown',
+          },
+          posted: false,
+        });
+        continue;
+      }
+      if (pidCdOverride || routeCdOverride) {
+        const which = pidCdOverride ? 'pid' : 'route';
+        console.log(
+          `  override ${which} cooldown for pid ${candidate.pid}: ${candidate.vehicles.length} buses / ${candidate.spanFt} ft beats prior post`,
+        );
+        cooldownOverridden = true;
+      }
+      const capAllows = history.bunchingCapAllows({
+        kind: 'bus',
+        route: candidate.route,
+        candidate: { vehicleCount: candidate.vehicles.length, severityFt: candidate.spanFt },
+        cap: BUS_BUNCHING_DAILY_CAP,
+      });
+      if (!capAllows) {
+        console.log(
+          `  skip pid ${candidate.pid}: route ${candidate.route} at daily cap (${BUS_BUNCHING_DAILY_CAP}) and not more severe than today's posts`,
+        );
+        history.recordBunching({
+          kind: 'bus',
+          route: candidate.route,
+          direction: candidate.pid,
+          vehicleCount: candidate.vehicles.length,
+          severityFt: candidate.spanFt,
+          nearStop: stop.stopName,
+          posted: false,
+        });
+        history.recordMetaSignal({
+          kind: 'bus',
+          line: candidate.route,
+          direction: candidate.pid,
+          source: 'bunching',
+          severity: Math.min(1, candidate.vehicles.length / 4),
+          detail: {
+            vehicles: candidate.vehicles.length,
+            span_ft: candidate.spanFt,
+            suppressed: 'cap',
+          },
+          posted: false,
+        });
+        continue;
+      }
+    }
+    bunch = candidate;
+    pattern = candidatePattern;
+    chosenStop = stop;
+    break;
+  }
+
+  if (!bunch) {
+    console.log('All candidates filtered (cooldown or terminal layover), nothing to post');
+    return;
+  }
+
+  console.log(
+    `Posting: route ${bunch.route} pid ${bunch.pid} — ${bunch.vehicles.length} buses, ${bunch.spanFt} ft`,
+  );
+
+  const stop = chosenStop;
+
+  // Callouts must be computed before recordBunching writes this event.
+  const callouts = history.bunchingCallouts({
+    kind: 'bus',
+    route: bunch.route,
+    routeLabel: `Route ${bunch.route}`,
+    vehicleCount: bunch.vehicles.length,
+    severityFt: bunch.spanFt,
+  });
+  if (callouts.length > 0) console.log(`Callouts: ${callouts.join(' · ')}`);
+  // All-time record check also pre-record: previousMaxBunchingVehicleCount
+  // queries posted=1 rows, and recordBunching only flips posted=1 after
+  // commitAndPost succeeds.
+  const previousRecord = history.previousMaxBunchingVehicleCount('bus');
+  const isAllTimeRecord = bunch.vehicles.length > previousRecord;
+  if (isAllTimeRecord) {
+    console.log(`🥇 new all-time record: ${bunch.vehicles.length} buses (was ${previousRecord})`);
+  }
+
+  console.log('Rendering map...');
+  // Full-pattern bbox (vs the still-image bbox) — the video reframes as buses
+  // move, so a narrow fetch leaves intersections blank when the viewport drifts.
+  const patternBbox = {
+    minLat: Math.min(...pattern.points.map((p) => p.lat)),
+    maxLat: Math.max(...pattern.points.map((p) => p.lat)),
+    minLon: Math.min(...pattern.points.map((p) => p.lon)),
+    maxLon: Math.max(...pattern.points.map((p) => p.lon)),
+  };
+  const bboxSignals = await fetchSignalsInBbox(patternBbox);
+  const onRoute = filterSignalsOnRoute(bboxSignals, pattern.points);
+  const signals = annotateSignalOrientations(dedupeNearbySignals(onRoute), pattern.points);
+  console.log(
+    `Signals: ${bboxSignals.length} in pattern bbox → ${onRoute.length} on route → ${signals.length} after dedupe`,
+  );
+  const stops = getPatternStops(pattern);
+  console.log(`Stops: ${stops.length} in pattern`);
+  const labels = assignBusNumbers(bunch.vehicles);
+  let image;
+  try {
+    image = await renderBunchingMap(bunch, pattern, signals, stops, { labels });
+  } catch (e) {
+    console.warn(`Map render failed (${e.message}); will post text-only`);
+    image = null;
+  }
+
+  const gapBehind = computeGapBehind({
+    vehicles,
+    pid: bunch.pid,
+    bunchVehicles: bunch.vehicles,
+    lengthFt: pattern.lengthFt,
+    tripMinutes: expectedTripMinutes(bunch.route, pattern, now),
+  });
+  if (gapBehind) {
+    console.log(
+      `Gap behind: next bus #${gapBehind.followerVid} ${gapBehind.distFt} ft / ~${gapBehind.minutes ?? '?'} min back`,
+    );
+  }
+
+  // Schedule adherence per bus (+ late / − early), tied to the disc number in
+  // the post. Buses we can't confidently place (no stst, no GTFS match, off
+  // path) are simply absent from the map and keep the bare number.
+  const deviations = new Map();
+  for (const v of bunch.vehicles) {
+    const dev = scheduleDeviationMin(v, now);
+    if (dev != null) deviations.set(v.vid, dev);
+  }
+  if (deviations.size > 0) {
+    console.log(
+      `Schedule adherence: ${[...deviations.entries()].map(([vid, m]) => `#${vid} ${m >= 0 ? '+' : ''}${m.toFixed(1)}m`).join(', ')}`,
+    );
+  }
+
+  const text = buildPostText(bunch, pattern, stop, callouts, {
+    isAllTimeRecord,
+    previousRecord,
+    gapBehind,
+    deviations,
+  });
+  const alt = buildAltText(bunch, pattern, stop);
+
+  if (argv['dry-run']) {
+    const outPath = writeDryRunAsset(
+      image,
+      `bunching-${bunch.route}-${pattern.direction.toLowerCase()}-${bunch.pid}-${Date.now()}.jpg`,
+    );
+    console.log(`\n--- DRY RUN ---\n${text}\n\nAlt: ${alt}\nImage: ${outPath}`);
+    if (argv.video) {
+      const ticks = argv.ticks ? parseInt(argv.ticks, 10) : undefined;
+      const tickMs = argv['tick-ms'] ? parseInt(argv['tick-ms'], 10) : undefined;
+      const interpolate = argv.interpolate ? parseInt(argv.interpolate, 10) : undefined;
+      console.log(
+        `\nCapturing video (ticks=${ticks || 'default'}, tickMs=${tickMs || 'default'}, interpolate=${interpolate || 'default'})...`,
+      );
+      const result = await captureBunchingVideo(bunch, pattern, {
+        ticks,
+        tickMs,
+        interpolate,
+        signals,
+        stops,
+      });
+      if (!result) {
+        console.log('Video capture produced <2 frames, skipped');
+      } else {
+        const videoPath = writeDryRunAsset(
+          result.buffer,
+          `bunching-${bunch.route}-${pattern.direction.toLowerCase()}-${bunch.pid}-${Date.now()}.mp4`,
+        );
+        console.log(`Video: ${videoPath}`);
+        console.log(
+          `  ticks=${result.ticksCaptured}, elapsed=${result.elapsedSec}s, span ${result.initialSpanFt}ft → ${result.finalSpanFt ?? '?'}ft`,
+        );
+      }
+    }
+    return;
+  }
+
+  const baseEvent = {
+    kind: 'bus',
+    route: bunch.route,
+    direction: bunch.pid,
+    vehicleCount: bunch.vehicles.length,
+    severityFt: bunch.spanFt,
+    nearStop: stop.stopName,
+  };
+  const result = await commitAndPost({
+    cooldownKeys: [bunch.pid, `route:${bunch.route}`],
+    forceClearCooldown: cooldownOverridden,
+    recordSkip: () => history.recordBunching({ ...baseEvent, posted: false }),
+    agentLogin: loginBus,
+    image,
+    text,
+    alt,
+    // See train/bunching.js for rationale.
+    recordPosted: (primary) => {
+      history.recordBunching({ ...baseEvent, posted: true, postUri: primary.uri });
+      history.recordMetaSignal({
+        kind: 'bus',
+        line: bunch.route,
+        direction: bunch.pid,
+        source: 'bunching',
+        severity: Math.min(1, bunch.vehicles.length / 4),
+        detail: { vehicles: bunch.vehicles.length, nearStop: baseEvent.nearStop },
+        posted: true,
+      });
+    },
+    postWithImage,
+    postText,
+  });
+  if (!result) return;
+  const { agent, primary } = result;
+
+  // Timelapse reply is non-fatal — the primary alert already went out.
+  try {
+    console.log('Capturing bunching timelapse...');
+    const video = await captureBunchingVideo(bunch, pattern, { signals, stops });
+    if (!video) {
+      console.log('Timelapse capture produced <2 frames, skipping reply');
+      return;
+    }
+    const videoText = buildVideoPostText(video, bunch, pattern);
+    const videoAlt = buildVideoAltText(bunch, pattern, stop, video);
+    const replyRef = {
+      root: { uri: primary.uri, cid: primary.cid },
+      parent: { uri: primary.uri, cid: primary.cid },
+    };
+    const reply = await postWithVideo(agent, videoText, video.buffer, videoAlt, replyRef);
+    console.log(`Timelapse reply: ${reply.url}`);
+  } catch (e) {
+    console.warn(`Timelapse reply failed: ${e.message}`);
+  }
+}
+
+runBin(main);

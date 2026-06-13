@@ -1,0 +1,274 @@
+#!/usr/bin/env node
+require('../../src/shared/env');
+
+const argv = require('minimist')(process.argv.slice(2));
+
+const { getAllTrainPositions, LINE_COLORS, LINE_NAMES } = require('../../src/train/api');
+const {
+  detectAllTrainBunching,
+  computeTrainGapBehind,
+  assignTrainNumbers,
+} = require('../../src/train/bunching');
+const { buildLinePolyline } = require('../../src/train/speedmap');
+const { expectedTrainTripMinutes } = require('../../src/shared/gtfs');
+const { renderTrainBunching } = require('../../src/map');
+const { captureTrainBunchingVideo } = require('../../src/train/bunchingVideo');
+const { loginTrain, postWithImage, postWithVideo, postText } = require('../../src/train/bluesky');
+const { isOnCooldown } = require('../../src/shared/state');
+const { commitAndPost } = require('../../src/shared/postDetection');
+const history = require('../../src/shared/history');
+const { setup, writeDryRunAsset, runBin } = require('../../src/shared/runBin');
+const {
+  buildPostText,
+  buildAltText,
+  buildVideoPostText,
+  buildVideoAltText,
+} = require('../../src/train/bunchingPost');
+const trainLines = require('../../src/train/data/trainLines.json');
+const trainStations = require('../../src/train/data/trainStations.json');
+
+const TRAIN_BUNCHING_DAILY_CAP = 2;
+
+async function main() {
+  setup();
+
+  console.log('Fetching train positions...');
+  const trains = await getAllTrainPositions();
+  console.log(`Got ${trains.length} trains`);
+
+  const bunches = detectAllTrainBunching(trains, trainLines);
+  if (bunches.length === 0) {
+    console.log('No train bunching detected');
+    return;
+  }
+
+  console.log(`Found ${bunches.length} candidate bunch(es); picking best available:`);
+  for (const b of bunches) {
+    console.log(
+      `  ${LINE_NAMES[b.line]} Line toward ${b.trains[0].destination} — ${b.trains.length} trains span ${Math.round(b.spanFt)}ft, maxGap ${Math.round(b.maxGapFt)}ft`,
+    );
+  }
+
+  // Two cooldown layers: line+direction (specific) and line-wide (prevents
+  // opposite-direction posts within the hour). Mirrors bus pid + route cooldowns.
+  let bunch = null;
+  let dirCooldownKey = null;
+  let lineCooldownKey = null;
+  // Set when the chosen candidate broke through an active cooldown via the
+  // severity-escalation gate (see commitAndPost for why this matters).
+  let cooldownOverridden = false;
+  for (const candidate of bunches) {
+    const candDirKey = `train_${candidate.line}_${candidate.trDr}`;
+    const candLineKey = `train_line_${candidate.line}`;
+    if (!argv['dry-run']) {
+      const dirCd = isOnCooldown(candDirKey);
+      const lineCd = isOnCooldown(candLineKey);
+      // Both direction and line cooldown allow strictly-more-severe
+      // escalations through, mirroring the daily cap's dominance override.
+      // Direction used to be strict — same problem as bus pid before
+      // 2026-05-05: an early small bunch on the same direction blocked a
+      // dramatic later one from posting. Same severity gate for both keys
+      // since "this is the same incident, just bigger" is judged the same
+      // way regardless of which key triggered.
+      const cooldownAllows = history.bunchingCooldownAllows({
+        kind: 'train',
+        route: candidate.line,
+        candidate: { vehicleCount: candidate.trains.length, severityFt: candidate.spanFt },
+      });
+      const dirCdOverride = dirCd && cooldownAllows;
+      const lineCdOverride = lineCd && cooldownAllows;
+      if ((dirCd && !dirCdOverride) || (lineCd && !lineCdOverride)) {
+        const which = dirCd && !dirCdOverride ? 'direction' : 'line';
+        console.log(`  skip ${LINE_NAMES[candidate.line]} ${candidate.trDr}: ${which} on cooldown`);
+        history.recordBunching({
+          kind: 'train',
+          route: candidate.line,
+          direction: candidate.trDr,
+          vehicleCount: candidate.trains.length,
+          severityFt: candidate.spanFt,
+          nearStop: candidate.trains[0].nextStation,
+          posted: false,
+        });
+        continue;
+      }
+      if (dirCdOverride || lineCdOverride) {
+        const which = dirCdOverride ? 'direction' : 'line';
+        console.log(
+          `  override ${which} cooldown for ${LINE_NAMES[candidate.line]} ${candidate.trDr}: ${candidate.trains.length} trains / ${Math.round(candidate.spanFt)} ft beats prior post`,
+        );
+        cooldownOverridden = true;
+      }
+      const capAllows = history.bunchingCapAllows({
+        kind: 'train',
+        route: candidate.line,
+        candidate: { vehicleCount: candidate.trains.length, severityFt: candidate.spanFt },
+        cap: TRAIN_BUNCHING_DAILY_CAP,
+      });
+      if (!capAllows) {
+        console.log(
+          `  skip ${LINE_NAMES[candidate.line]} ${candidate.trDr}: line at daily cap (${TRAIN_BUNCHING_DAILY_CAP}) and not more severe than today's posts`,
+        );
+        history.recordBunching({
+          kind: 'train',
+          route: candidate.line,
+          direction: candidate.trDr,
+          vehicleCount: candidate.trains.length,
+          severityFt: candidate.spanFt,
+          nearStop: candidate.trains[0].nextStation,
+          posted: false,
+        });
+        continue;
+      }
+    }
+    bunch = candidate;
+    dirCooldownKey = candDirKey;
+    lineCooldownKey = candLineKey;
+    break;
+  }
+
+  if (!bunch) {
+    console.log('All candidates filtered (cooldown or daily cap), nothing to post');
+    return;
+  }
+
+  console.log(
+    `Posting: ${LINE_NAMES[bunch.line]} Line toward ${bunch.trains[0].destination} — ${bunch.trains.length} trains span ${Math.round(bunch.spanFt)}ft`,
+  );
+
+  const callouts = history.bunchingCallouts({
+    kind: 'train',
+    route: bunch.line,
+    routeLabel: `${LINE_NAMES[bunch.line]} Line`,
+    vehicleCount: bunch.trains.length,
+    severityFt: bunch.spanFt,
+  });
+  if (callouts.length > 0) console.log(`Callouts: ${callouts.join(' · ')}`);
+
+  console.log('Rendering map...');
+  const labels = assignTrainNumbers(bunch.trains);
+  let image;
+  try {
+    image = await renderTrainBunching(bunch, LINE_COLORS, trainLines, trainStations, { labels });
+  } catch (e) {
+    console.warn(`Map render failed (${e.message}); will post text-only`);
+    image = null;
+  }
+
+  const { points: gapPoints, cumDist: gapCum } = buildLinePolyline(trainLines, bunch.line);
+  const destName = bunch.trains[0].destination;
+  const destStation = trainStations.find((s) => s.name === destName);
+  const gapBehind = computeTrainGapBehind({
+    trains,
+    line: bunch.line,
+    trDr: bunch.trDr,
+    bunchTrains: bunch.trains,
+    points: gapPoints,
+    cumDist: gapCum,
+    destPoint: destStation ? { lat: destStation.lat, lon: destStation.lon } : null,
+    tripMinutes: expectedTrainTripMinutes(bunch.line, destName, new Date()),
+  });
+  if (gapBehind) {
+    console.log(
+      `Gap behind: next train #${gapBehind.followerRn} ${gapBehind.distFt} ft / ~${gapBehind.minutes ?? '?'} min back`,
+    );
+  }
+
+  const text = buildPostText(bunch, callouts, { gapBehind });
+  const alt = buildAltText(bunch);
+
+  if (argv['dry-run']) {
+    const outPath = writeDryRunAsset(
+      image,
+      `train-bunching-${LINE_NAMES[bunch.line].toLowerCase()}-${Date.now()}.jpg`,
+    );
+    console.log(`\n--- DRY RUN ---\n${text}\n\nAlt: ${alt}\nImage: ${outPath}`);
+    if (argv.video) {
+      const ticks = argv.ticks ? parseInt(argv.ticks, 10) : undefined;
+      const tickMs = argv['tick-ms'] ? parseInt(argv['tick-ms'], 10) : undefined;
+      const interpolate = argv.interpolate ? parseInt(argv.interpolate, 10) : undefined;
+      console.log(
+        `\nCapturing video (ticks=${ticks || 'default'}, tickMs=${tickMs || 'default'}, interpolate=${interpolate || 'default'})...`,
+      );
+      const result = await captureTrainBunchingVideo(
+        bunch,
+        LINE_COLORS,
+        trainLines,
+        trainStations,
+        { ticks, tickMs, interpolate },
+      );
+      if (!result) {
+        console.log('Video capture produced <2 frames, skipped');
+      } else {
+        const videoPath = writeDryRunAsset(
+          result.buffer,
+          `train-bunching-${LINE_NAMES[bunch.line].toLowerCase()}-${Date.now()}.mp4`,
+        );
+        console.log(`Video: ${videoPath}`);
+        console.log(
+          `  ticks=${result.ticksCaptured}, elapsed=${result.elapsedSec}s, gap ${result.initialDistFt}ft → ${result.finalDistFt ?? '?'}ft`,
+        );
+      }
+    }
+    return;
+  }
+
+  const baseEvent = {
+    kind: 'train',
+    route: bunch.line,
+    direction: bunch.trDr,
+    vehicleCount: bunch.trains.length,
+    severityFt: bunch.spanFt,
+    nearStop: bunch.trains[0].nextStation,
+  };
+  const result = await commitAndPost({
+    cooldownKeys: [dirCooldownKey, lineCooldownKey],
+    forceClearCooldown: cooldownOverridden,
+    recordSkip: () => history.recordBunching({ ...baseEvent, posted: false }),
+    agentLogin: loginTrain,
+    image,
+    text,
+    alt,
+    // Also write a posted meta_signal so incident-roundup can correlate
+    // this bunching with other detectors firing on the same line. Severity
+    // scales with vehicle count, ceilinged at 1.0 — 4+ trains piled up is
+    // already loud.
+    recordPosted: (primary) => {
+      history.recordBunching({ ...baseEvent, posted: true, postUri: primary.uri });
+      history.recordMetaSignal({
+        kind: 'train',
+        line: bunch.line,
+        direction: bunch.trDr,
+        source: 'bunching',
+        severity: Math.min(1, bunch.trains.length / 4),
+        detail: { vehicles: bunch.trains.length, nearStop: baseEvent.nearStop },
+        posted: true,
+      });
+    },
+    postWithImage,
+    postText,
+  });
+  if (!result) return;
+  const { agent, primary } = result;
+
+  // Timelapse reply is non-fatal — primary alert already went out.
+  try {
+    console.log('Capturing train bunching timelapse...');
+    const video = await captureTrainBunchingVideo(bunch, LINE_COLORS, trainLines, trainStations);
+    if (!video) {
+      console.log('Timelapse capture produced <2 frames, skipping reply');
+      return;
+    }
+    const videoText = buildVideoPostText(video);
+    const videoAlt = buildVideoAltText(bunch, video);
+    const replyRef = {
+      root: { uri: primary.uri, cid: primary.cid },
+      parent: { uri: primary.uri, cid: primary.cid },
+    };
+    const reply = await postWithVideo(agent, videoText, video.buffer, videoAlt, replyRef);
+    console.log(`Timelapse reply: ${reply.url}`);
+  } catch (e) {
+    console.warn(`Timelapse reply failed: ${e.message}`);
+  }
+}
+
+runBin(main);

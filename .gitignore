@@ -1,0 +1,14 @@
+node_modules/
+.env
+cron/healthchecks.env
+assets/
+/data/
+/state/
+/tmp/
+*.log
+.DS_Store
+.claude/
+plan.md
+research.md
+bugs.md
+debugging/config.sh

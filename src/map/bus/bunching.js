@@ -1,0 +1,447 @@
+const sharp = require('sharp');
+const { encode } = require('../../shared/polyline');
+const { cumulativeDistances, haversineFt, bearing } = require('../../shared/geo');
+const { fitZoom, project } = require('../../shared/projection');
+const {
+  STYLE,
+  WIDTH,
+  HEIGHT,
+  ROUTE_HALO_COLOR,
+  ROUTE_HALO_STROKE,
+  ROUTE_CORE_COLOR,
+  ROUTE_CORE_STROKE,
+  TWEMOJI_HOUSE_INNER,
+  TWEMOJI_FLAG_INNER,
+  buildBusMarker,
+  buildTurnaroundMarker,
+  markerLabelChip,
+  buildCometTrail,
+  buildClipProgress,
+  buildReadoutPill,
+  buildGhostLegend,
+  buildTerminalMarker,
+  buildStopMarker,
+  buildStopDot,
+  buildDashedGapSvg,
+  buildDirectionArrow,
+  measureTextWidth,
+  xmlEscape,
+  requireMapboxToken,
+  fetchMapboxStatic,
+  separateMarkers,
+  perpendicularFromBearing,
+} = require('../common');
+const { isArticulated } = require('../../bus/fleet');
+
+const BUS_COLOR = 'ff2a6d'; // hot pink/red reads well on dark
+const CONTEXT_PAD_FT = 1500; // feet of route context on each side of the bunch
+const BUS_MARKER_RADIUS = 34;
+const TERMINAL_MARKER_RADIUS = BUS_MARKER_RADIUS;
+const STOP_MARKER_SIZE = 32;
+const STOP_DOT_RADIUS = 6;
+// Push stops sideways off the route so the route line stays unbroken and
+// the glyph isn't competing with the polyline for the same pixels. Offset
+// is in the right-of-travel direction (perpendicular to view bearing).
+const STOP_OFFSET_PX = 22;
+const STOP_DOT_OFFSET_PX = 14;
+
+/**
+ * Slice pattern points to a window around the bunched buses' geographic position.
+ *
+ * We walk the polyline in seq order building a cumulative haversine distance,
+ * then find the cumulative-distance positions nearest to each bus (matching by
+ * straight-line proximity) and slice with CONTEXT_PAD_FT buffer around that range.
+ *
+ * We can't trust point.pdist for this — the CTA API only populates pdist on stops,
+ * leaving waypoints at 0, which would make a naive pdist filter pull in every
+ * waypoint scattered across the whole route.
+ */
+function slicePatternAroundBunch(pattern, bunch) {
+  const cum = cumulativeDistances(pattern.points);
+
+  const vehiclePositions = bunch.vehicles.map((v) => {
+    let bestIdx = 0;
+    let bestDist = haversineFt(v, pattern.points[0]);
+    for (let i = 1; i < pattern.points.length; i++) {
+      const d = haversineFt(v, pattern.points[i]);
+      if (d < bestDist) {
+        bestDist = d;
+        bestIdx = i;
+      }
+    }
+    return cum[bestIdx];
+  });
+
+  const minCum = Math.min(...vehiclePositions) - CONTEXT_PAD_FT;
+  const maxCum = Math.max(...vehiclePositions) + CONTEXT_PAD_FT;
+  return pattern.points.filter((_, i) => cum[i] >= minCum && cum[i] <= maxCum);
+}
+
+/**
+ * Rebuild a bunching view's baked route so it runs solid only *outside* the
+ * [lo, hi] gap stretch (cumulative track distances along pattern.points), and
+ * hand the inner stretch to the frame renderer as `gapPath` to dash in the
+ * route color — matching the still gap maps. Mapbox static paths can't dash,
+ * and a solid line left baked under the gap would show between the dashes, so
+ * the route is split here before the base map is fetched. Used by the gap
+ * timelapse, whose bunching framing otherwise bakes the full solid route.
+ */
+function applyGapDashToView(view, pattern, lo, hi) {
+  const cum = cumulativeDistances(pattern.points);
+  const inner = pattern.points.filter((_, i) => cum[i] >= lo && cum[i] <= hi);
+  if (inner.length < 2) return view;
+  const before = pattern.points.filter((_, i) => cum[i] <= lo);
+  const after = pattern.points.filter((_, i) => cum[i] >= hi);
+  const solid = [];
+  for (const slice of [before, after]) {
+    if (slice.length < 2) continue;
+    const poly = encodeURIComponent(encode(slice.map((p) => [p.lat, p.lon])));
+    solid.push(
+      `path-${ROUTE_HALO_STROKE}+${ROUTE_HALO_COLOR}(${poly})`,
+      `path-${ROUTE_CORE_STROKE}+${ROUTE_CORE_COLOR}(${poly})`,
+    );
+  }
+  view.overlays = [...solid, ...view.overlays.filter((o) => !o.startsWith('path-'))];
+  view.gapPath = inner.map((p) => ({ lat: p.lat, lon: p.lon }));
+  return view;
+}
+
+/**
+ * Compute the static framing for a bunching render: bbox, center, zoom,
+ * polyline overlays, and the route-direction arrow. Accepts an optional
+ * `extraVehicles` list so video captures can pre-expand the bbox to cover
+ * all frames, keeping the viewport stable as buses move.
+ */
+function computeBunchingView(bunch, pattern, extraVehicles = []) {
+  const slice = slicePatternAroundBunch(pattern, bunch);
+  const polyline = encode(pattern.points.map((p) => [p.lat, p.lon]));
+  const encoded = encodeURIComponent(polyline);
+  const overlays = [
+    `path-${ROUTE_HALO_STROKE}+${ROUTE_HALO_COLOR}(${encoded})`,
+    `path-${ROUTE_CORE_STROKE}+${ROUTE_CORE_COLOR}(${encoded})`,
+  ];
+
+  const framingVehicles = [...bunch.vehicles, ...extraVehicles];
+  const allLats = [...slice.map((p) => p.lat), ...framingVehicles.map((v) => v.lat)];
+  const allLons = [...slice.map((p) => p.lon), ...framingVehicles.map((v) => v.lon)];
+  const bbox = {
+    minLat: Math.min(...allLats),
+    maxLat: Math.max(...allLats),
+    minLon: Math.min(...allLons),
+    maxLon: Math.max(...allLons),
+  };
+  const centerLat = (bbox.minLat + bbox.maxLat) / 2;
+  const centerLon = (bbox.minLon + bbox.maxLon) / 2;
+  const rawZoom = fitZoom(bbox, WIDTH, HEIGHT, 60);
+  const zoom = Math.max(10, Math.min(17, Math.floor(rawZoom)));
+
+  // Route-wide direction bearing from the slice endpoints (smoothed over ~3000
+  // ft). This avoids a short orthogonal waypoint jog dominating the arrow,
+  // which previously produced 90°-off arrows on straight streets. The slice
+  // is filtered from pattern.points preserving seq order, and CTA seq runs
+  // origin → destination along the service direction, so slice[0]→slice[end]
+  // already IS the service direction. Don't second-guess with leadBus.heading
+  // — a bus parked at a terminal often faces the opposite way, which would
+  // flip the arrow to point east on a westbound route.
+  const slicePoints = slice.map((p) => ({ lat: p.lat, lon: p.lon }));
+  const leadBus = bunch.vehicles.reduce((a, b) => (b.pdist > a.pdist ? b : a), bunch.vehicles[0]);
+  const bearingDeg =
+    slicePoints.length >= 2
+      ? bearing(slicePoints[0], slicePoints[slicePoints.length - 1])
+      : leadBus.heading;
+
+  // CTA orders pattern points by seq along the service direction, so the first
+  // point is the route's origin and the last is its destination. We mark the
+  // origin with a house and the destination with a checkered flag so viewers
+  // can see at a glance which way the buses are heading.
+  const originPoint = pattern.points[0];
+  const terminalPoint = pattern.points[pattern.points.length - 1];
+  const origin = originPoint ? { lat: originPoint.lat, lon: originPoint.lon } : null;
+  const terminal = terminalPoint ? { lat: terminalPoint.lat, lon: terminalPoint.lon } : null;
+
+  return { overlays, centerLat, centerLon, zoom, bearingDeg, bbox, origin, terminal };
+}
+
+async function fetchBunchingBaseMap(view) {
+  const token = requireMapboxToken();
+  const url = `https://api.mapbox.com/styles/v1/${STYLE}/static/${view.overlays.join(',')}/${view.centerLon.toFixed(5)},${view.centerLat.toFixed(5)},${view.zoom.toFixed(2)}/${WIDTH}x${HEIGHT}@2x?access_token=${token}`;
+  return fetchMapboxStatic(url, 20000);
+}
+
+// Composite bus markers, traffic-signal dots, stop glyphs, and the direction
+// arrow onto a pre-fetched base map. The base map, signals, stops, and arrow
+// are static across a video; only marker positions vary.
+async function renderBunchingFrame(view, baseMap, vehicles, signals = [], stops = [], opts = {}) {
+  const compactStops = opts.compactStops === true;
+  const compactSignals = opts.compactSignals === true;
+  // Signals render below buses — small traffic-light glyphs that read clearly
+  // without competing with the primary markers. Drawn inline (not via Unicode)
+  // so librsvg renders the same shape on every host. Housings rotate to sit
+  // perpendicular to the route: horizontal (E-W) streets get vertical signals,
+  // N-S streets get horizontal ones — matching how real lights face drivers.
+  // Full mode: dark housing rectangle with 3 lamp circles. Compact mode
+  // (used by video frames) drops the housing and renders just three small
+  // red/yellow/green dots in a line — same orientation logic so a row of
+  // dots still reads as "traffic light" without dominating the frame.
+  const SIGNAL_LONG = 36;
+  const SIGNAL_SHORT = 16;
+  const SIGNAL_DOT_R = compactSignals ? 5 : 4;
+  const signalElements = signals.map((s) => {
+    const { x, y } = project(
+      s.lat,
+      s.lon,
+      view.centerLat,
+      view.centerLon,
+      view.zoom,
+      WIDTH,
+      HEIGHT,
+    );
+    if (x < 0 || x > WIDTH || y < 0 || y > HEIGHT) return '';
+    const vertical = s.orientation === 'vertical';
+    const w = vertical ? SIGNAL_SHORT : SIGNAL_LONG;
+    const h = vertical ? SIGNAL_LONG : SIGNAL_SHORT;
+    const left = x - w / 2;
+    const top = y - h / 2;
+    const redOff = 7;
+    const yellowOff = 18;
+    const greenOff = 29;
+    const housing = compactSignals
+      ? ''
+      : `<rect x="${left}" y="${top}" width="${w}" height="${h}" rx="4" ry="4" fill="#1c1c1c" stroke="#fff" stroke-width="1.5"/>`;
+    return [
+      housing,
+      vertical
+        ? `<circle cx="${x}" cy="${top + redOff}" r="${SIGNAL_DOT_R}" fill="#e53935"/>`
+        : `<circle cx="${left + redOff}" cy="${y}" r="${SIGNAL_DOT_R}" fill="#e53935"/>`,
+      vertical
+        ? `<circle cx="${x}" cy="${top + yellowOff}" r="${SIGNAL_DOT_R}" fill="#fdd835"/>`
+        : `<circle cx="${left + yellowOff}" cy="${y}" r="${SIGNAL_DOT_R}" fill="#fdd835"/>`,
+      vertical
+        ? `<circle cx="${x}" cy="${top + greenOff}" r="${SIGNAL_DOT_R}" fill="#43a047"/>`
+        : `<circle cx="${left + greenOff}" cy="${y}" r="${SIGNAL_DOT_R}" fill="#43a047"/>`,
+    ].join('');
+  });
+  // Stop glyphs render below buses (and below terminals/arrow) so a bus
+  // sitting at a stop still reads on top. Each stop carries its own local
+  // bearing from getPatternStops, so curved sections push perpendicular
+  // to the local segment instead of skewing to one side. Every stop sits
+  // at the same fixed offset for a uniform parade-of-signs look — signals
+  // are NOT pushed around, so they may sit adjacent to the route line
+  // while the stop sits cleanly beside the same intersection. Stops that
+  // land within a marker-width of an already-placed stop are dropped, so
+  // paired near-side/far-side stops don't read as one blob.
+  // In compact mode (used by video frames where the full sign reads as
+  // visual noise on dense routes) stops render as small amber dots and sit
+  // closer to the route. Still images keep the full sign glyph.
+  const offsetPx = compactStops ? STOP_DOT_OFFSET_PX : STOP_OFFSET_PX;
+  const minSeparation = compactStops ? STOP_DOT_RADIUS * 2 + 4 : STOP_MARKER_SIZE + 6;
+  const placedStops = [];
+  const stopElements = [];
+  for (const s of stops) {
+    const perp = perpendicularFromBearing(s.bearing ?? view.bearingDeg);
+    const p = project(s.lat, s.lon, view.centerLat, view.centerLon, view.zoom, WIDTH, HEIGHT);
+    const x = p.x + perp.x * offsetPx;
+    const y = p.y + perp.y * offsetPx;
+    if (x < 0 || x > WIDTH || y < 0 || y > HEIGHT) continue;
+    const tooClose = placedStops.some((q) => Math.hypot(q.x - x, q.y - y) < minSeparation);
+    if (tooClose) continue;
+    placedStops.push({ x, y });
+    stopElements.push(
+      compactStops ? buildStopDot(x, y, STOP_DOT_RADIUS) : buildStopMarker(x, y, STOP_MARKER_SIZE),
+    );
+  }
+
+  // Nudge markers apart so a tight bunch (buses within a few feet on-street) still
+  // shows every vehicle instead of one disc covering the others. Push sideways
+  // (perpendicular to the route bearing) so buses on a straight road don't look
+  // further ahead/behind than they actually are.
+  const rawMarkerPixels = vehicles.map((v) =>
+    project(v.lat, v.lon, view.centerLat, view.centerLon, view.zoom, WIDTH, HEIGHT),
+  );
+  const markerPixels = separateMarkers(rawMarkerPixels, BUS_MARKER_RADIUS * 2 + 4, {
+    axis: perpendicularFromBearing(view.bearingDeg),
+  });
+  const labels = opts.labels || null;
+  // Comet trails (video only): a vehicle carries a `.trail` of recent lat/lons.
+  // Project each, then shift by the same nudge the disc got from separateMarkers
+  // so the streak stays attached to its (possibly nudged) marker head.
+  const buildTrail = (v, i) => {
+    if (!v.trail || v.trail.length < 2) return '';
+    const dx = markerPixels[i].x - rawMarkerPixels[i].x;
+    const dy = markerPixels[i].y - rawMarkerPixels[i].y;
+    const pts = v.trail.map((pt) => {
+      const p = project(pt.lat, pt.lon, view.centerLat, view.centerLon, view.zoom, WIDTH, HEIGHT);
+      return { x: p.x + dx, y: p.y + dy };
+    });
+    return buildCometTrail(pts);
+  };
+  const buildMarker = (v, i) => {
+    const { x, y } = markerPixels[i];
+    if (v?.turnaround === true) {
+      return buildTurnaroundMarker({
+        x,
+        y,
+        radius: BUS_MARKER_RADIUS,
+        color: BUS_COLOR,
+        opacity: v?.opacity ?? 1,
+      });
+    }
+    return buildBusMarker({
+      x,
+      y,
+      radius: BUS_MARKER_RADIUS,
+      color: BUS_COLOR,
+      articulated: isArticulated(v?.vid),
+      ghost: v?.ghost === true,
+      opacity: v?.opacity ?? 1,
+    });
+  };
+  // Paint each bus as a trail+disc unit, rear-to-front (lead bus, highest pdist,
+  // drawn last/on top). A front bus's trail runs back through the buses behind
+  // it; drawing front buses last keeps their trails from being buried under the
+  // rear discs — otherwise only the rearmost buses' trails are ever visible.
+  const vehicleLayer = vehicles
+    .map((v, i) => ({ pdist: parseFloat(v?.pdist) || Number.NEGATIVE_INFINITY, v, i }))
+    .sort((a, b) => a.pdist - b.pdist)
+    .map(({ v, i }) => buildTrail(v, i) + buildMarker(v, i));
+  // Identity chips in their own layer ABOVE every disc, so an overlapping bus
+  // can never bury another bus's number.
+  const chipLayer = labels
+    ? vehicles.map((v, i) =>
+        markerLabelChip(
+          markerPixels[i].x,
+          markerPixels[i].y,
+          BUS_MARKER_RADIUS,
+          labels.get(v?.vid) ?? null,
+        ),
+      )
+    : [];
+  const arrowElements = [buildDirectionArrow(WIDTH - 220, 180, view.bearingDeg)];
+  // Ghost legend: top-left corner, only when this clip contains tail-dropped
+  // vehicles. The arrow lives top-right; legend top-left so they don't fight.
+  const legendElements = opts.showGhostLegend ? [await buildGhostLegend(20, 20)] : [];
+
+  // Origin (house) and destination (flag) markers — render below buses (so a
+  // bus sitting at either still reads clearly) but above signals. Each is
+  // skipped if its point falls outside the viewport.
+  const terminalElements = [];
+  for (const [point, glyph] of [
+    [view.origin, TWEMOJI_HOUSE_INNER],
+    [view.terminal, TWEMOJI_FLAG_INNER],
+  ]) {
+    if (!point) continue;
+    const { x, y } = project(
+      point.lat,
+      point.lon,
+      view.centerLat,
+      view.centerLon,
+      view.zoom,
+      WIDTH,
+      HEIGHT,
+    );
+    if (x < 0 || x > WIDTH || y < 0 || y > HEIGHT) continue;
+    terminalElements.push(...buildTerminalMarker(x, y, TERMINAL_MARKER_RADIUS, glyph));
+  }
+
+  // Clip progress bar + elapsed clock (video frames pass opts.clock).
+  const progressElements = opts.clock
+    ? [buildClipProgress({ ...opts.clock, width: WIDTH, height: HEIGHT })]
+    : [];
+
+  // Wait-stop highlight (gap timelapse): amber target ring + amber name label
+  // marking where the next bus is headed. Amber ties it to the gap-strip color
+  // language and pops against the route + bus markers.
+  const highlightElements = [];
+  if (opts.highlightStop?.lat != null) {
+    const { x, y } = project(
+      opts.highlightStop.lat,
+      opts.highlightStop.lon,
+      view.centerLat,
+      view.centerLon,
+      view.zoom,
+      WIDTH,
+      HEIGHT,
+    );
+    if (x >= 0 && x <= WIDTH && y >= 0 && y <= HEIGHT) {
+      highlightElements.push(
+        `<circle cx="${x}" cy="${y}" r="22" fill="none" stroke="#ffb020" stroke-width="3" opacity="0.45"/>`,
+        `<circle cx="${x}" cy="${y}" r="14" fill="none" stroke="#ffb020" stroke-width="4"/>`,
+        `<circle cx="${x}" cy="${y}" r="4" fill="#ffb020"/>`,
+      );
+      const name = opts.highlightStop.name || '';
+      if (name) {
+        const fontSize = 18;
+        const labelH = 28;
+        const tw = await measureTextWidth(name, fontSize, { bold: true });
+        const boxW = tw + 16;
+        const perp = perpendicularFromBearing(view.bearingDeg);
+        // Push the label clear of a bus marker parked on the stop (the next bus
+        // ends the clip right on this stop), then flip to the other side if that
+        // candidate still overlaps a vehicle — so the label is never buried under
+        // a disc. Offset = marker radius + half the label + a small gap.
+        const off = BUS_MARKER_RADIUS + labelH / 2 + 10;
+        const overlapsVehicle = (cx, cy) =>
+          markerPixels.some(
+            (m) =>
+              Math.abs(m.x - cx) < BUS_MARKER_RADIUS + boxW / 2 &&
+              Math.abs(m.y - cy) < BUS_MARKER_RADIUS + labelH / 2,
+          );
+        let cx = x + perp.x * off;
+        let cy = y + perp.y * off;
+        if (overlapsVehicle(cx, cy)) {
+          cx = x - perp.x * off;
+          cy = y - perp.y * off;
+        }
+        const lx = Math.max(4, Math.min(WIDTH - boxW - 4, cx - boxW / 2));
+        const ly = Math.max(4, Math.min(HEIGHT - labelH - 4, cy - labelH / 2));
+        highlightElements.push(
+          `<rect x="${lx.toFixed(1)}" y="${ly.toFixed(1)}" width="${boxW.toFixed(1)}" height="${labelH}" fill="#ffb020" rx="3"/>`,
+          `<text x="${(lx + boxW / 2).toFixed(1)}" y="${(ly + fontSize + 5).toFixed(1)}" fill="#1c1c1c" text-anchor="middle" font-family="Inter, Helvetica, Arial, sans-serif" font-size="${fontSize}" font-weight="700">${xmlEscape(name)}</text>`,
+        );
+      }
+    }
+  }
+
+  // Live "next bus ~N min to X" HUD pill (gap timelapse), top-left.
+  let readoutElements = [];
+  if (opts.readout) {
+    const tw = await measureTextWidth(opts.readout, 26, { bold: true });
+    readoutElements = [buildReadoutPill(opts.readout, { textWidth: tw })];
+  }
+
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${WIDTH}" height="${HEIGHT}">${signalElements.join('\n')}${stopElements.join('\n')}${highlightElements.join('\n')}${terminalElements.join('\n')}${vehicleLayer.join('\n')}${chipLayer.join('\n')}${arrowElements.join('\n')}${legendElements.join('\n')}${readoutElements.join('\n')}${progressElements.join('\n')}</svg>`;
+  // Gap timelapses pass a `gapPath` to dash over the bare basemap in the route
+  // color (Mapbox static paths can't dash). Composite it as its own layer first
+  // so it sits under the bus markers and labels.
+  const layers = [];
+  if (view.gapPath?.length >= 2) {
+    const gapPixels = view.gapPath.map((p) =>
+      project(p.lat, p.lon, view.centerLat, view.centerLon, view.zoom, WIDTH, HEIGHT),
+    );
+    const gapEls = buildDashedGapSvg(gapPixels, ROUTE_CORE_COLOR, {
+      coreStroke: ROUTE_CORE_STROKE,
+    });
+    if (gapEls) {
+      const gapSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="${WIDTH}" height="${HEIGHT}">${gapEls}</svg>`;
+      layers.push({ input: Buffer.from(gapSvg), top: 0, left: 0 });
+    }
+  }
+  layers.push({ input: Buffer.from(svg), top: 0, left: 0 });
+  return sharp(baseMap).resize(WIDTH, HEIGHT).composite(layers).jpeg({ quality: 85 }).toBuffer();
+}
+
+async function renderBunchingMap(bunch, pattern, signals = [], stops = [], opts = {}) {
+  const view = computeBunchingView(bunch, pattern);
+  const baseMap = await fetchBunchingBaseMap(view);
+  return renderBunchingFrame(view, baseMap, bunch.vehicles, signals, stops, {
+    labels: opts.labels || null,
+  });
+}
+
+module.exports = {
+  renderBunchingMap,
+  computeBunchingView,
+  applyGapDashToView,
+  fetchBunchingBaseMap,
+  renderBunchingFrame,
+};

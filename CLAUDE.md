@@ -1,0 +1,1 @@
+Read this document: [AGENTS.md](./AGENTS.md).

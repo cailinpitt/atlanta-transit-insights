@@ -1,0 +1,1410 @@
+{
+  "BNSF": [
+    {
+      "id": "AURORA",
+      "name": "Aurora",
+      "lat": 41.7608333,
+      "lon": -88.3083333
+    },
+    {
+      "id": "ROUTE59",
+      "name": "Route 59",
+      "lat": 41.7777778,
+      "lon": -88.2086111
+    },
+    {
+      "id": "NAPERVILLE",
+      "name": "Naperville",
+      "lat": 41.7797222,
+      "lon": -88.1455556
+    },
+    {
+      "id": "LISLE",
+      "name": "Lisle",
+      "lat": 41.7977778,
+      "lon": -88.0719444
+    },
+    {
+      "id": "BELMONT",
+      "name": "Belmont",
+      "lat": 41.7952778,
+      "lon": -88.0380556
+    },
+    {
+      "id": "MAINST-DG",
+      "name": "Downers Grove",
+      "lat": 41.7952778,
+      "lon": -88.0097222
+    },
+    {
+      "id": "FAIRVIEWDG",
+      "name": "Fairview Ave.",
+      "lat": 41.7952778,
+      "lon": -87.9936111
+    },
+    {
+      "id": "WESTMONT",
+      "name": "Westmont",
+      "lat": 41.7955556,
+      "lon": -87.9763889
+    },
+    {
+      "id": "CLARNDNHIL",
+      "name": "Clarendon Hills",
+      "lat": 41.7969444,
+      "lon": -87.9536111
+    },
+    {
+      "id": "WHINSDALE",
+      "name": "West Hinsdale",
+      "lat": 41.7988889,
+      "lon": -87.9452778
+    },
+    {
+      "id": "HINSDALE",
+      "name": "Hinsdale",
+      "lat": 41.8027778,
+      "lon": -87.9283333
+    },
+    {
+      "id": "HIGHLANDS",
+      "name": "Highlands",
+      "lat": 41.805,
+      "lon": -87.9183333
+    },
+    {
+      "id": "WESTSPRING",
+      "name": "Western Springs",
+      "lat": 41.8088889,
+      "lon": -87.9011111
+    },
+    {
+      "id": "STONEAVE",
+      "name": "Stone Ave.",
+      "lat": 41.8141667,
+      "lon": -87.8783333
+    },
+    {
+      "id": "LAGRANGE",
+      "name": "LaGrange Road",
+      "lat": 41.8158333,
+      "lon": -87.8711111
+    },
+    {
+      "id": "CONGRESSPK",
+      "name": "Congress Park",
+      "lat": 41.8188889,
+      "lon": -87.8575
+    },
+    {
+      "id": "BROOKFIELD",
+      "name": "Brookfield",
+      "lat": 41.8219444,
+      "lon": -87.8430556
+    },
+    {
+      "id": "HOLLYWOOD",
+      "name": "Hollywood",
+      "lat": 41.8244444,
+      "lon": -87.8338889
+    },
+    {
+      "id": "RIVERSIDE",
+      "name": "Riverside",
+      "lat": 41.8272222,
+      "lon": -87.82
+    },
+    {
+      "id": "HARLEM",
+      "name": "Harlem Ave.",
+      "lat": 41.8313889,
+      "lon": -87.8019444
+    },
+    {
+      "id": "BERWYN",
+      "name": "Berwyn",
+      "lat": 41.8330556,
+      "lon": -87.7936111
+    },
+    {
+      "id": "LAVERGNE",
+      "name": "Lavergne",
+      "lat": 41.8355556,
+      "lon": -87.7833333
+    },
+    {
+      "id": "CICERO",
+      "name": "Cicero",
+      "lat": 41.8441667,
+      "lon": -87.7455556
+    },
+    {
+      "id": "BNWESTERN",
+      "name": "Western Avenue",
+      "lat": 41.8577778,
+      "lon": -87.6852778
+    },
+    {
+      "id": "HALSTED",
+      "name": "Halsted Street",
+      "lat": 41.8602778,
+      "lon": -87.6472222
+    },
+    {
+      "id": "CUS",
+      "name": "Chicago Union Station",
+      "lat": 41.8788889,
+      "lon": -87.6388889
+    }
+  ],
+  "HC": [
+    {
+      "id": "JOLIET",
+      "name": "Joliet",
+      "lat": 41.5244444,
+      "lon": -88.0797222
+    },
+    {
+      "id": "LOCKPORT",
+      "name": "Lockport",
+      "lat": 41.585,
+      "lon": -88.0602778
+    },
+    {
+      "id": "ROMEOVILLE",
+      "name": "Romeoville",
+      "lat": 41.6372222,
+      "lon": -88.0494444
+    },
+    {
+      "id": "LEMONT",
+      "name": "Lemont",
+      "lat": 41.6736111,
+      "lon": -88.0025
+    },
+    {
+      "id": "WILLOWSPRN",
+      "name": "Willow Springs",
+      "lat": 41.7333333,
+      "lon": -87.8783333
+    },
+    {
+      "id": "SUMMIT",
+      "name": "Summit",
+      "lat": 41.795,
+      "lon": -87.8097222
+    },
+    {
+      "id": "CUS",
+      "name": "Chicago Union Station",
+      "lat": 41.8788889,
+      "lon": -87.6388889
+    }
+  ],
+  "MD-N": [
+    {
+      "id": "FOXLAKE",
+      "name": "Fox Lake",
+      "lat": 42.3983333,
+      "lon": -88.1822222
+    },
+    {
+      "id": "INGLESIDE",
+      "name": "Ingleside",
+      "lat": 42.3838889,
+      "lon": -88.1536111
+    },
+    {
+      "id": "LONGLAKE",
+      "name": "Long Lake",
+      "lat": 42.3680556,
+      "lon": -88.1280556
+    },
+    {
+      "id": "ROUNDLAKE",
+      "name": "Round Lake",
+      "lat": 42.3544444,
+      "lon": -88.0941667
+    },
+    {
+      "id": "GRAYSLAKE",
+      "name": "Grayslake",
+      "lat": 42.3336111,
+      "lon": -88.0433333
+    },
+    {
+      "id": "PRAIRIEXNG",
+      "name": "Prairie Crossing",
+      "lat": 42.3208333,
+      "lon": -88.0152778
+    },
+    {
+      "id": "LIBERTYVIL",
+      "name": "Libertyville",
+      "lat": 42.2911111,
+      "lon": -87.9563889
+    },
+    {
+      "id": "LAKEFRST",
+      "name": "Lake Forest",
+      "lat": 42.2236111,
+      "lon": -87.8747222
+    },
+    {
+      "id": "DEERFIELD",
+      "name": "Deerfield",
+      "lat": 42.1680556,
+      "lon": -87.85
+    },
+    {
+      "id": "LAKECOOKRD",
+      "name": "Lake-Cook",
+      "lat": 42.1516667,
+      "lon": -87.8413889
+    },
+    {
+      "id": "NBROOK",
+      "name": "Northbrook",
+      "lat": 42.1269444,
+      "lon": -87.8277778
+    },
+    {
+      "id": "NGLENVIEW",
+      "name": "Glen/N. Glenview",
+      "lat": 42.0975,
+      "lon": -87.8158333
+    },
+    {
+      "id": "GLENVIEW",
+      "name": "Glenview",
+      "lat": 42.075,
+      "lon": -87.8055556
+    },
+    {
+      "id": "GOLF",
+      "name": "Golf",
+      "lat": 42.0583333,
+      "lon": -87.7969444
+    },
+    {
+      "id": "MORTONGRV",
+      "name": "Morton Grove",
+      "lat": 42.035,
+      "lon": -87.7852778
+    },
+    {
+      "id": "EDGEBROOK",
+      "name": "Edgebrook",
+      "lat": 41.9977778,
+      "lon": -87.7655556
+    },
+    {
+      "id": "FORESTGLEN",
+      "name": "Forest Glen",
+      "lat": 41.9780556,
+      "lon": -87.7555556
+    },
+    {
+      "id": "MAYFAIR",
+      "name": "Mayfair",
+      "lat": 41.9597222,
+      "lon": -87.7458333
+    },
+    {
+      "id": "GRAYLAND",
+      "name": "Grayland",
+      "lat": 41.9488889,
+      "lon": -87.7402778
+    },
+    {
+      "id": "HEALY",
+      "name": "Healy",
+      "lat": 41.9247222,
+      "lon": -87.7277778
+    },
+    {
+      "id": "WESTERNAVE",
+      "name": "Western Ave",
+      "lat": 41.8891667,
+      "lon": -87.6880556
+    },
+    {
+      "id": "CUS",
+      "name": "Chicago Union Station",
+      "lat": 41.8788889,
+      "lon": -87.6388889
+    }
+  ],
+  "MD-W": [
+    {
+      "id": "CUS",
+      "name": "Chicago Union Station",
+      "lat": 41.8788889,
+      "lon": -87.6388889
+    },
+    {
+      "id": "WESTERNAVE",
+      "name": "Western Ave",
+      "lat": 41.8891667,
+      "lon": -87.6880556
+    },
+    {
+      "id": "GRAND-CIC",
+      "name": "Grand/Cicero",
+      "lat": 41.9144444,
+      "lon": -87.7461111
+    },
+    {
+      "id": "HANSONPK",
+      "name": "Hanson Park",
+      "lat": 41.9166667,
+      "lon": -87.7669444
+    },
+    {
+      "id": "GALEWOOD",
+      "name": "Galewood",
+      "lat": 41.9163889,
+      "lon": -87.7858333
+    },
+    {
+      "id": "MARS",
+      "name": "Mars",
+      "lat": 41.9191667,
+      "lon": -87.7944444
+    },
+    {
+      "id": "MONTCLARE",
+      "name": "Mont Clare",
+      "lat": 41.9216667,
+      "lon": -87.8016667
+    },
+    {
+      "id": "ELMWOODPK",
+      "name": "Elmwood Park",
+      "lat": 41.9247222,
+      "lon": -87.8147222
+    },
+    {
+      "id": "RIVERGROVE",
+      "name": "River Grove",
+      "lat": 41.9311111,
+      "lon": -87.8361111
+    },
+    {
+      "id": "FRANKLIN",
+      "name": "Franklin Park",
+      "lat": 41.9366667,
+      "lon": -87.8663889
+    },
+    {
+      "id": "MANNHEIM",
+      "name": "Mannheim",
+      "lat": 41.9416667,
+      "lon": -87.8833333
+    },
+    {
+      "id": "BENSENVIL",
+      "name": "Bensenville",
+      "lat": 41.9569444,
+      "lon": -87.9419444
+    },
+    {
+      "id": "WOODDALE",
+      "name": "Wood Dale",
+      "lat": 41.9625,
+      "lon": -87.9752778
+    },
+    {
+      "id": "ITASCA",
+      "name": "Itasca",
+      "lat": 41.9713889,
+      "lon": -88.0141667
+    },
+    {
+      "id": "MEDINAH",
+      "name": "Medinah",
+      "lat": 41.9780556,
+      "lon": -88.0508333
+    },
+    {
+      "id": "ROSELLE",
+      "name": "Roselle",
+      "lat": 41.9813889,
+      "lon": -88.0672222
+    },
+    {
+      "id": "SCHAUM",
+      "name": "Schaumburg",
+      "lat": 41.9891667,
+      "lon": -88.1180556
+    },
+    {
+      "id": "HANOVERP",
+      "name": "Hanover Park",
+      "lat": 41.9880556,
+      "lon": -88.1491667
+    },
+    {
+      "id": "BARTLETT",
+      "name": "Bartlett",
+      "lat": 41.9922222,
+      "lon": -88.1838889
+    },
+    {
+      "id": "NATIONALS",
+      "name": "National St",
+      "lat": 42.0263889,
+      "lon": -88.2788889
+    },
+    {
+      "id": "ELGIN",
+      "name": "Elgin",
+      "lat": 42.0361111,
+      "lon": -88.2861111
+    },
+    {
+      "id": "BIGTIMBER",
+      "name": "Big Timber",
+      "lat": 42.0586111,
+      "lon": -88.3277778
+    }
+  ],
+  "ME": [
+    {
+      "id": "UNIVERSITY",
+      "name": "University Park",
+      "lat": 41.4594444,
+      "lon": -87.7233333
+    },
+    {
+      "id": "RICHTON",
+      "name": "Richton Park",
+      "lat": 41.4855556,
+      "lon": -87.7094444
+    },
+    {
+      "id": "MATTESON",
+      "name": "Matteson",
+      "lat": 41.4986111,
+      "lon": -87.7022222
+    },
+    {
+      "id": "211TH-UP",
+      "name": "211th St.",
+      "lat": 41.5061111,
+      "lon": -87.6983333
+    },
+    {
+      "id": "OLYMPIA",
+      "name": "Olympia Fields",
+      "lat": 41.5213889,
+      "lon": -87.69
+    },
+    {
+      "id": "FLOSSMOOR",
+      "name": "Flossmoor",
+      "lat": 41.5430556,
+      "lon": -87.6786111
+    },
+    {
+      "id": "HOMEWOOD",
+      "name": "Homewood",
+      "lat": 41.5622222,
+      "lon": -87.6686111
+    },
+    {
+      "id": "CALUMET",
+      "name": "Calumet",
+      "lat": 41.5736111,
+      "lon": -87.6625
+    },
+    {
+      "id": "HAZELCREST",
+      "name": "Hazel Crest",
+      "lat": 41.5808333,
+      "lon": -87.6586111
+    },
+    {
+      "id": "HARVEY",
+      "name": "Harvey",
+      "lat": 41.6083333,
+      "lon": -87.6438889
+    },
+    {
+      "id": "147TH-UP",
+      "name": "147th St.",
+      "lat": 41.6227778,
+      "lon": -87.6361111
+    },
+    {
+      "id": "IVANHOE",
+      "name": "Ivanhoe",
+      "lat": 41.6333333,
+      "lon": -87.6302778
+    },
+    {
+      "id": "RIVERDALE",
+      "name": "Riverdale",
+      "lat": 41.6466667,
+      "lon": -87.6233333
+    },
+    {
+      "id": "KENSINGTN",
+      "name": "Kensington",
+      "lat": 41.6858333,
+      "lon": -87.6122222
+    },
+    {
+      "id": "111TH-UP",
+      "name": "111th St. (Pullman)",
+      "lat": 41.6927778,
+      "lon": -87.6105556
+    },
+    {
+      "id": "107TH-UP",
+      "name": "107th St.",
+      "lat": 41.6997222,
+      "lon": -87.6088889
+    },
+    {
+      "id": "103RD-UP",
+      "name": "103rd St. (Rosemoor)",
+      "lat": 41.7069444,
+      "lon": -87.6072222
+    },
+    {
+      "id": "91ST-UP",
+      "name": "91st St.",
+      "lat": 41.7294444,
+      "lon": -87.6019444
+    },
+    {
+      "id": "87TH-UP",
+      "name": "87th St. (Woodruff)",
+      "lat": 41.7369444,
+      "lon": -87.6002778
+    },
+    {
+      "id": "83RD-UP",
+      "name": "83rd St. (Avalon Park)",
+      "lat": 41.7441667,
+      "lon": -87.5986111
+    },
+    {
+      "id": "79TH-UP",
+      "name": "79th St. (Chatham)",
+      "lat": 41.7508333,
+      "lon": -87.5972222
+    },
+    {
+      "id": "75TH-UP",
+      "name": "75th St. (Grand Crossing)",
+      "lat": 41.7588889,
+      "lon": -87.5952778
+    },
+    {
+      "id": "63RD-UP",
+      "name": "63rd St.",
+      "lat": 41.7802778,
+      "lon": -87.5905556
+    },
+    {
+      "id": "59TH-UP",
+      "name": "59th St. (U. of Chicago)",
+      "lat": 41.7880556,
+      "lon": -87.5886111
+    },
+    {
+      "id": "55-56-57TH",
+      "name": "55th - 56th - 57th St.",
+      "lat": 41.7933333,
+      "lon": -87.5875
+    },
+    {
+      "id": "51ST-53RD",
+      "name": "51st/53rd St. (Hyde Park)",
+      "lat": 41.8,
+      "lon": -87.5869444
+    },
+    {
+      "id": "47TH-UP",
+      "name": "47th St. (Kenwood)",
+      "lat": 41.8097222,
+      "lon": -87.5913889
+    },
+    {
+      "id": "27TH-UP",
+      "name": "27th St.",
+      "lat": 41.8441667,
+      "lon": -87.6133333
+    },
+    {
+      "id": "MCCORMICK",
+      "name": "McCormick Place",
+      "lat": 41.8513889,
+      "lon": -87.6163889
+    },
+    {
+      "id": "18TH-UP",
+      "name": "18th St.",
+      "lat": 41.8583333,
+      "lon": -87.6180556
+    },
+    {
+      "id": "MUSEUM",
+      "name": "Museum Campus/11th St.",
+      "lat": 41.8686111,
+      "lon": -87.6213889
+    },
+    {
+      "id": "VANBUREN",
+      "name": "Van Buren St.",
+      "lat": 41.8769444,
+      "lon": -87.6230556
+    },
+    {
+      "id": "MILLENNIUM",
+      "name": "Millennium Station",
+      "lat": 41.8841667,
+      "lon": -87.6230556
+    }
+  ],
+  "NCS": [
+    {
+      "id": "ANTIOCH",
+      "name": "Antioch",
+      "lat": 42.4811111,
+      "lon": -88.0925
+    },
+    {
+      "id": "LAKEVILLA",
+      "name": "Lake Villa",
+      "lat": 42.4175,
+      "lon": -88.0794444
+    },
+    {
+      "id": "ROUNDLKBCH",
+      "name": "Round Lake Beach",
+      "lat": 42.385,
+      "lon": -88.0655556
+    },
+    {
+      "id": "NCSGRAYSLK",
+      "name": "Washington St (Grayslake)",
+      "lat": 42.3591667,
+      "lon": -88.0505556
+    },
+    {
+      "id": "PRAIRCROSS",
+      "name": "Prairie Crossing.",
+      "lat": 42.3180556,
+      "lon": -88.0172222
+    },
+    {
+      "id": "MUNDELEIN",
+      "name": "Mundelein",
+      "lat": 42.2669444,
+      "lon": -87.9980556
+    },
+    {
+      "id": "VERNON",
+      "name": "Vernon Hills",
+      "lat": 42.2155556,
+      "lon": -87.9644444
+    },
+    {
+      "id": "PRAIRIEVW",
+      "name": "Prairie View",
+      "lat": 42.1980556,
+      "lon": -87.9558333
+    },
+    {
+      "id": "BUFFGROVE",
+      "name": "Buffalo Grove",
+      "lat": 42.1686111,
+      "lon": -87.9413889
+    },
+    {
+      "id": "WHEELING",
+      "name": "Wheeling",
+      "lat": 42.1363889,
+      "lon": -87.9272222
+    },
+    {
+      "id": "PROSPECTHG",
+      "name": "Prospect Hts",
+      "lat": 42.0922222,
+      "lon": -87.9080556
+    },
+    {
+      "id": "OHARE",
+      "name": "O'Hare Transfer",
+      "lat": 41.995,
+      "lon": -87.8805556
+    },
+    {
+      "id": "ROSEMONT",
+      "name": "Rosemont",
+      "lat": 41.9761111,
+      "lon": -87.8738889
+    },
+    {
+      "id": "SCHILLERPK",
+      "name": "Schiller Park",
+      "lat": 41.9627778,
+      "lon": -87.8705556
+    },
+    {
+      "id": "FRANKLINPK",
+      "name": "Franklin Pk",
+      "lat": 41.9377778,
+      "lon": -87.86
+    },
+    {
+      "id": "RIVERGROVE",
+      "name": "River Grove",
+      "lat": 41.9311111,
+      "lon": -87.8361111
+    },
+    {
+      "id": "WESTERNAVE",
+      "name": "Western Ave",
+      "lat": 41.8891667,
+      "lon": -87.6880556
+    },
+    {
+      "id": "CUS",
+      "name": "Chicago Union Station",
+      "lat": 41.8788889,
+      "lon": -87.6388889
+    }
+  ],
+  "RI": [
+    {
+      "id": "LSS",
+      "name": "LaSalle Street",
+      "lat": 41.8763889,
+      "lon": -87.6322222
+    },
+    {
+      "id": "35TH",
+      "name": "35th St. - Lou Jones",
+      "lat": 41.8313889,
+      "lon": -87.6291667
+    },
+    {
+      "id": "GRESHAM",
+      "name": "Gresham",
+      "lat": 41.7363889,
+      "lon": -87.6447222
+    },
+    {
+      "id": "BRAINERD",
+      "name": "Brainerd",
+      "lat": 41.7322222,
+      "lon": -87.6588889
+    },
+    {
+      "id": "91ST-BEV",
+      "name": "91st St. - Beverly Hills",
+      "lat": 41.7280556,
+      "lon": -87.6672222
+    },
+    {
+      "id": "95TH-BEV",
+      "name": "95th St. - Beverly Hills",
+      "lat": 41.7213889,
+      "lon": -87.6672222
+    },
+    {
+      "id": "99TH-BEV",
+      "name": "99th St. - Beverly Hills",
+      "lat": 41.7136111,
+      "lon": -87.6675
+    },
+    {
+      "id": "103RD-BEV",
+      "name": "103rd St. - Beverly Hills",
+      "lat": 41.7061111,
+      "lon": -87.6688889
+    },
+    {
+      "id": "107TH-BEV",
+      "name": "107th St. - Beverly Hills",
+      "lat": 41.6988889,
+      "lon": -87.67
+    },
+    {
+      "id": "111TH-BEV",
+      "name": "111th St. - Morgan Park",
+      "lat": 41.6927778,
+      "lon": -87.6705556
+    },
+    {
+      "id": "115TH-BEV",
+      "name": "115th St. - Morgan Park",
+      "lat": 41.685,
+      "lon": -87.6716667
+    },
+    {
+      "id": "119TH-BEV",
+      "name": "119th St.",
+      "lat": 41.6763889,
+      "lon": -87.6725
+    },
+    {
+      "id": "VERMONT",
+      "name": "Blue Island-Vermont",
+      "lat": 41.6547222,
+      "lon": -87.6777778
+    },
+    {
+      "id": "ROBBINS",
+      "name": "Robbins",
+      "lat": 41.6408333,
+      "lon": -87.6944444
+    },
+    {
+      "id": "MIDLOTHIAN",
+      "name": "Midlothian",
+      "lat": 41.6263889,
+      "lon": -87.7116667
+    },
+    {
+      "id": "OAKFOREST",
+      "name": "Oak Forest",
+      "lat": 41.6044444,
+      "lon": -87.7383333
+    },
+    {
+      "id": "TINLEYPARK",
+      "name": "Tinley Park",
+      "lat": 41.5758333,
+      "lon": -87.7827778
+    },
+    {
+      "id": "TINLEY80TH",
+      "name": "Tinley-80th",
+      "lat": 41.5644444,
+      "lon": -87.8094444
+    },
+    {
+      "id": "HICKORYCRK",
+      "name": "Hickory Creek",
+      "lat": 41.5486111,
+      "lon": -87.8455556
+    },
+    {
+      "id": "MOKENA",
+      "name": "Mokena",
+      "lat": 41.5308333,
+      "lon": -87.8866667
+    },
+    {
+      "id": "NEWLENOX",
+      "name": "New Lenox",
+      "lat": 41.5144444,
+      "lon": -87.9652778
+    },
+    {
+      "id": "JOLIET",
+      "name": "Joliet",
+      "lat": 41.5244444,
+      "lon": -88.0797222
+    }
+  ],
+  "SWS": [
+    {
+      "id": "MANHATTAN",
+      "name": "Manhattan",
+      "lat": 41.4183333,
+      "lon": -87.9891667
+    },
+    {
+      "id": "LARAWAY",
+      "name": "Laraway Road",
+      "lat": 41.4847222,
+      "lon": -87.9597222
+    },
+    {
+      "id": "179TH-SWS",
+      "name": "Orland Park 179th",
+      "lat": 41.5638889,
+      "lon": -87.9025
+    },
+    {
+      "id": "153RD-SWS",
+      "name": "Orland Park 153rd",
+      "lat": 41.6094444,
+      "lon": -87.8733333
+    },
+    {
+      "id": "143RD-SWS",
+      "name": "Orland Park 143rd",
+      "lat": 41.6305556,
+      "lon": -87.8591667
+    },
+    {
+      "id": "PALOSPARK",
+      "name": "Palos Park",
+      "lat": 41.6688889,
+      "lon": -87.8202778
+    },
+    {
+      "id": "PALOSHTS",
+      "name": "Palos Heights",
+      "lat": 41.6819444,
+      "lon": -87.8069444
+    },
+    {
+      "id": "WORTH",
+      "name": "Worth",
+      "lat": 41.6913889,
+      "lon": -87.7958333
+    },
+    {
+      "id": "CHICRIDGE",
+      "name": "Chicago Ridge",
+      "lat": 41.7033333,
+      "lon": -87.7802778
+    },
+    {
+      "id": "OAKLAWN",
+      "name": "Oak Lawn Patriot",
+      "lat": 41.7194444,
+      "lon": -87.7486111
+    },
+    {
+      "id": "ASHBURN",
+      "name": "Ashburn",
+      "lat": 41.7416667,
+      "lon": -87.7125
+    },
+    {
+      "id": "WRIGHTWOOD",
+      "name": "Wrightwood",
+      "lat": 41.7488889,
+      "lon": -87.7036111
+    },
+    {
+      "id": "CUS",
+      "name": "Chicago Union Station",
+      "lat": 41.8788889,
+      "lon": -87.6388889
+    }
+  ],
+  "UP-N": [
+    {
+      "id": "KENOSHA",
+      "name": "Kenosha",
+      "lat": 42.5858333,
+      "lon": -87.8258333
+    },
+    {
+      "id": "WINTHROP",
+      "name": "Winthrop Harbor",
+      "lat": 42.4827778,
+      "lon": -87.8161111
+    },
+    {
+      "id": "ZION",
+      "name": "Zion",
+      "lat": 42.4491667,
+      "lon": -87.8180556
+    },
+    {
+      "id": "WAUKEGAN",
+      "name": "Waukegan",
+      "lat": 42.3605556,
+      "lon": -87.8283333
+    },
+    {
+      "id": "NCHICAGO",
+      "name": "North Chicago",
+      "lat": 42.3286111,
+      "lon": -87.8369444
+    },
+    {
+      "id": "GRTLAKES",
+      "name": "Great Lakes",
+      "lat": 42.3069444,
+      "lon": -87.8463889
+    },
+    {
+      "id": "LAKEBLUFF",
+      "name": "Lake Bluff",
+      "lat": 42.2797222,
+      "lon": -87.8466667
+    },
+    {
+      "id": "LKFOREST",
+      "name": "Lake Forest.",
+      "lat": 42.2525,
+      "lon": -87.8397222
+    },
+    {
+      "id": "FTSHERIDAN",
+      "name": "Fort Sheridan",
+      "lat": 42.2175,
+      "lon": -87.8208333
+    },
+    {
+      "id": "HIGHWOOD",
+      "name": "Highwood",
+      "lat": 42.2033333,
+      "lon": -87.8105556
+    },
+    {
+      "id": "HIGHLANDPK",
+      "name": "Highland Park",
+      "lat": 42.1833333,
+      "lon": -87.7975
+    },
+    {
+      "id": "RAVINIA",
+      "name": "Ravinia",
+      "lat": 42.165,
+      "lon": -87.7827778
+    },
+    {
+      "id": "BRAESIDE",
+      "name": "Braeside",
+      "lat": 42.1527778,
+      "lon": -87.7725
+    },
+    {
+      "id": "GLENCOE",
+      "name": "Glencoe",
+      "lat": 42.1355556,
+      "lon": -87.7580556
+    },
+    {
+      "id": "HUBARDWOOD",
+      "name": "Hubbard Woods",
+      "lat": 42.1180556,
+      "lon": -87.7436111
+    },
+    {
+      "id": "WINNETKA",
+      "name": "Winnetka",
+      "lat": 42.1052778,
+      "lon": -87.7327778
+    },
+    {
+      "id": "INDIANHILL",
+      "name": "Indian Hill",
+      "lat": 42.0944444,
+      "lon": -87.7238889
+    },
+    {
+      "id": "KENILWORTH",
+      "name": "Kenilworth",
+      "lat": 42.0863889,
+      "lon": -87.7166667
+    },
+    {
+      "id": "WILMETTE",
+      "name": "Wilmette",
+      "lat": 42.0772222,
+      "lon": -87.7091667
+    },
+    {
+      "id": "CENTRALST",
+      "name": "Central St.",
+      "lat": 42.0641667,
+      "lon": -87.6980556
+    },
+    {
+      "id": "EVANSTON",
+      "name": "Evanston (Davis St.)",
+      "lat": 42.0480556,
+      "lon": -87.6847222
+    },
+    {
+      "id": "MAINST",
+      "name": "Main St.",
+      "lat": 42.0333333,
+      "lon": -87.68
+    },
+    {
+      "id": "ROGERPK",
+      "name": "Rogers Park",
+      "lat": 42.0094444,
+      "lon": -87.6755556
+    },
+    {
+      "id": "PETERSON",
+      "name": "Peterson/Ridge",
+      "lat": 41.9911111,
+      "lon": -87.675
+    },
+    {
+      "id": "RAVENSWOOD",
+      "name": "Ravenswood",
+      "lat": 41.9683333,
+      "lon": -87.6744444
+    },
+    {
+      "id": "CLYBOURN",
+      "name": "Clybourn",
+      "lat": 41.9169444,
+      "lon": -87.6680556
+    },
+    {
+      "id": "OTC",
+      "name": "Chicago OTC",
+      "lat": 41.8822222,
+      "lon": -87.6405556
+    }
+  ],
+  "UP-NW": [
+    {
+      "id": "OTC",
+      "name": "Chicago OTC",
+      "lat": 41.8822222,
+      "lon": -87.6405556
+    },
+    {
+      "id": "CLYBOURN",
+      "name": "Clybourn",
+      "lat": 41.9169444,
+      "lon": -87.6680556
+    },
+    {
+      "id": "IRVINGPK",
+      "name": "Irving Park",
+      "lat": 41.9525,
+      "lon": -87.7297222
+    },
+    {
+      "id": "JEFFERSONP",
+      "name": "Jefferson Park",
+      "lat": 41.9713889,
+      "lon": -87.7633333
+    },
+    {
+      "id": "GLADSTONEP",
+      "name": "Gladstone Park",
+      "lat": 41.9797222,
+      "lon": -87.7780556
+    },
+    {
+      "id": "NORWOODP",
+      "name": "Norwood Park",
+      "lat": 41.9916667,
+      "lon": -87.7988889
+    },
+    {
+      "id": "EDISONPK",
+      "name": "Edison Park",
+      "lat": 42.0022222,
+      "lon": -87.8175
+    },
+    {
+      "id": "PARKRIDGE",
+      "name": "Park Ridge",
+      "lat": 42.0102778,
+      "lon": -87.8316667
+    },
+    {
+      "id": "DEEROAD",
+      "name": "Dee Road",
+      "lat": 42.0241667,
+      "lon": -87.8561111
+    },
+    {
+      "id": "DESPLAINES",
+      "name": "Des Plaines",
+      "lat": 42.0408333,
+      "lon": -87.8866667
+    },
+    {
+      "id": "CUMBERLAND",
+      "name": "Cumberland",
+      "lat": 42.0525,
+      "lon": -87.9122222
+    },
+    {
+      "id": "MTPROSPECT",
+      "name": "Mt. Prospect",
+      "lat": 42.0630556,
+      "lon": -87.9361111
+    },
+    {
+      "id": "ARLINGTNHT",
+      "name": "Arlington Heights",
+      "lat": 42.0841667,
+      "lon": -87.9836111
+    },
+    {
+      "id": "ARLINGTNPK",
+      "name": "Arlington Park",
+      "lat": 42.0952778,
+      "lon": -88.0091667
+    },
+    {
+      "id": "PALATINE",
+      "name": "Palatine",
+      "lat": 42.1130556,
+      "lon": -88.0483333
+    },
+    {
+      "id": "BARRINGTON",
+      "name": "Barrington",
+      "lat": 42.1527778,
+      "lon": -88.1319444
+    },
+    {
+      "id": "FOXRG",
+      "name": "Fox River Grove",
+      "lat": 42.1977778,
+      "lon": -88.2194444
+    },
+    {
+      "id": "CARY",
+      "name": "Cary",
+      "lat": 42.2088889,
+      "lon": -88.2413889
+    },
+    {
+      "id": "PINGREE",
+      "name": "Pingree Road",
+      "lat": 42.2341667,
+      "lon": -88.2980556
+    },
+    {
+      "id": "CRYSTAL",
+      "name": "Crystal Lake",
+      "lat": 42.2441667,
+      "lon": -88.3172222
+    },
+    {
+      "id": "WOODSTOCK",
+      "name": "Woodstock",
+      "lat": 42.3169444,
+      "lon": -88.4475
+    },
+    {
+      "id": "HARVARD",
+      "name": "Harvard",
+      "lat": 42.4197222,
+      "lon": -88.6175
+    }
+  ],
+  "UP-W": [
+    {
+      "id": "ELBURN",
+      "name": "Elburn",
+      "lat": 41.8905556,
+      "lon": -88.4638889
+    },
+    {
+      "id": "LAFOX",
+      "name": "La Fox",
+      "lat": 41.8866667,
+      "lon": -88.4122222
+    },
+    {
+      "id": "GENEVA",
+      "name": "Geneva",
+      "lat": 41.8816667,
+      "lon": -88.31
+    },
+    {
+      "id": "WCHICAGO",
+      "name": "West Chicago",
+      "lat": 41.8811111,
+      "lon": -88.1988889
+    },
+    {
+      "id": "WINFIELD",
+      "name": "Winfield",
+      "lat": 41.87,
+      "lon": -88.1569444
+    },
+    {
+      "id": "WHEATON",
+      "name": "Wheaton",
+      "lat": 41.8644444,
+      "lon": -88.1119444
+    },
+    {
+      "id": "COLLEGEAVE",
+      "name": "College Ave",
+      "lat": 41.8683333,
+      "lon": -88.0902778
+    },
+    {
+      "id": "GLENELLYN",
+      "name": "Glen Ellyn",
+      "lat": 41.8766667,
+      "lon": -88.0647222
+    },
+    {
+      "id": "LOMBARD",
+      "name": "Lombard",
+      "lat": 41.8866667,
+      "lon": -88.0186111
+    },
+    {
+      "id": "VILLAPARK",
+      "name": "Villa Park",
+      "lat": 41.8963889,
+      "lon": -87.9775
+    },
+    {
+      "id": "ELMHURST",
+      "name": "Elmhurst",
+      "lat": 41.8997222,
+      "lon": -87.9408333
+    },
+    {
+      "id": "BERKELEY",
+      "name": "Berkeley",
+      "lat": 41.8961111,
+      "lon": -87.9152778
+    },
+    {
+      "id": "BELLWOOD",
+      "name": "Bellwood",
+      "lat": 41.8913889,
+      "lon": -87.8825
+    },
+    {
+      "id": "MELROSEPK",
+      "name": "Melrose Park",
+      "lat": 41.8902778,
+      "lon": -87.8555556
+    },
+    {
+      "id": "MAYWOOD",
+      "name": "Maywood",
+      "lat": 41.8883333,
+      "lon": -87.8386111
+    },
+    {
+      "id": "RIVRFOREST",
+      "name": "River Forest",
+      "lat": 41.8869444,
+      "lon": -87.825
+    },
+    {
+      "id": "OAKPARK",
+      "name": "Oak Park",
+      "lat": 41.8869444,
+      "lon": -87.8011111
+    },
+    {
+      "id": "KEDZIE",
+      "name": "Kedzie",
+      "lat": 41.8883333,
+      "lon": -87.7069444
+    },
+    {
+      "id": "OTC",
+      "name": "Chicago OTC",
+      "lat": 41.8822222,
+      "lon": -87.6405556
+    }
+  ]
+}

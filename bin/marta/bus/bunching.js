@@ -21,9 +21,20 @@ const storage = require('../../../src/marta/storage');
 const incidents = require('../../../src/marta/shared/incidents');
 const { isOnCooldown } = require('../../../src/marta/shared/state');
 const { commitAndPost } = require('../../../src/marta/shared/postDetection');
-const { loginBus, postWithImage, postText } = require('../../../src/marta/shared/bluesky');
+const {
+  loginBus,
+  postWithImage,
+  postWithVideo,
+  postText,
+} = require('../../../src/marta/shared/bluesky');
 const { renderBunchingMap } = require('../../../src/marta/map/busBunching');
-const { buildPostText, buildAltText } = require('../../../src/marta/bus/bunchingPost');
+const {
+  buildPostText,
+  buildAltText,
+  buildVideoPostText,
+  buildVideoAltText,
+} = require('../../../src/marta/bus/bunchingPost');
+const { VIDEO_WINDOW_MS, captureBusBunchingHistoryVideo } = require('../../../src/marta/bus/video');
 const { terminalZoneFt } = require('../../../src/shared/geo');
 const { setup, writeDryRunAsset, runBin } = require('../../../src/marta/shared/runBin');
 
@@ -215,7 +226,7 @@ async function main() {
     severityFt: bunch.spanFt,
     nearStop: nearStopName,
   };
-  await commitAndPost({
+  const posted = await commitAndPost({
     cooldownKeys: [`shape:${bunch.shapeId}`, `route:${bunch.route}`],
     forceClearCooldown: cooldownOverridden,
     recordSkip: () => incidents.recordBunching({ ...baseEvent, posted: false }),
@@ -238,6 +249,34 @@ async function main() {
     postWithImage,
     postText,
   });
+  if (posted?.primary?.uri) {
+    try {
+      const videoRows = storage.getRecentBusObservationsAll(Date.now() - VIDEO_WINDOW_MS);
+      const video = await captureBusBunchingHistoryVideo(bunch, shape, videoRows, {
+        gtfs,
+        shapes,
+        stops,
+      });
+      if (!video) {
+        console.log('Timelapse history produced <2 frames, skipping reply');
+        return;
+      }
+      const replyRef = {
+        root: { uri: posted.primary.uri, cid: posted.primary.cid },
+        parent: { uri: posted.primary.uri, cid: posted.primary.cid },
+      };
+      const reply = await postWithVideo(
+        posted.agent,
+        buildVideoPostText(video, bunch),
+        video.buffer,
+        buildVideoAltText(bunch, ctx),
+        replyRef,
+      );
+      console.log(`Timelapse reply: ${reply.url}`);
+    } catch (e) {
+      console.warn(`Timelapse reply failed: ${e.message}`);
+    }
+  }
 }
 
 // Cooldown/cap skips still record a posted=0 row so analytics + callouts see it.

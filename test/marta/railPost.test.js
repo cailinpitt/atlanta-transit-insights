@@ -15,6 +15,10 @@ const {
   buildGapAltText,
   buildBunchingPostText,
   buildBunchingAltText,
+  buildBunchingVideoPostText,
+  buildBunchingVideoAltText,
+  buildGapVideoPostText,
+  buildGapVideoAltText,
   buildSpeedmapPostText,
   buildSpeedmapAltText,
   formatGhostLine,
@@ -65,6 +69,21 @@ test('rail bunching post text and alt text include train count and labels', () =
   assert.match(text, /2 trains within 0\.28 mi/);
   assert.match(text, /#b \(1️⃣\), #a \(2️⃣\)/);
   assert.match(buildBunchingAltText(bunch), /2 trains bunched/);
+  assert.match(buildBunchingVideoPostText({ elapsedSec: 300 }, bunch), /5 min of recent movement/);
+  assert.match(buildBunchingVideoAltText(bunch), /Timelapse map of the BLUE Line/);
+});
+
+test('rail gap video reply text and alt text describe recent movement', () => {
+  const gap = {
+    line: 'RED',
+    direction: 'N',
+    gapFt: 40_000,
+    gapMin: 15.2,
+    expectedMin: 5,
+    ratio: 3.04,
+  };
+  assert.match(buildGapVideoPostText({ elapsedSec: 480 }, gap), /8 min of recent movement/);
+  assert.match(buildGapVideoAltText(gap), /Timelapse map of the RED Line nbound/);
 });
 
 test('rail speedmap post text and alt text describe line, direction, and bands', () => {

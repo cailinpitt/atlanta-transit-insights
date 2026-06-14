@@ -16,9 +16,20 @@ const storage = require('../../../src/marta/storage');
 const incidents = require('../../../src/marta/shared/incidents');
 const { isOnCooldown } = require('../../../src/marta/shared/state');
 const { commitAndPost } = require('../../../src/marta/shared/postDetection');
-const { loginBus, postWithImage, postText } = require('../../../src/marta/shared/bluesky');
+const {
+  loginBus,
+  postWithImage,
+  postWithVideo,
+  postText,
+} = require('../../../src/marta/shared/bluesky');
 const { renderGapMap } = require('../../../src/marta/map/busGap');
-const { buildPostText, buildAltText } = require('../../../src/marta/bus/gapPost');
+const {
+  buildPostText,
+  buildAltText,
+  buildVideoPostText,
+  buildVideoAltText,
+} = require('../../../src/marta/bus/gapPost');
+const { VIDEO_WINDOW_MS, captureBusGapHistoryVideo } = require('../../../src/marta/bus/video');
 const { setup, writeDryRunAsset, runBin } = require('../../../src/marta/shared/runBin');
 
 const GTFS_DIR = Path.join(__dirname, '..', '..', '..', 'data', 'marta', 'gtfs');
@@ -205,7 +216,7 @@ async function main() {
     ratio: gap.ratio,
     nearStop: nearStopName,
   };
-  await commitAndPost({
+  const posted = await commitAndPost({
     cooldownKeys: [`gap:${gap.shapeId}`, `gap:route:${gap.route}`],
     forceClearCooldown: cooldownOverridden,
     recordSkip: () => incidents.recordGap({ ...baseEvent, posted: false }),
@@ -233,6 +244,34 @@ async function main() {
     postWithImage,
     postText,
   });
+  if (posted?.primary?.uri) {
+    try {
+      const videoRows = storage.getRecentBusObservationsAll(Date.now() - VIDEO_WINDOW_MS);
+      const video = await captureBusGapHistoryVideo(gap, shape, videoRows, {
+        gtfs,
+        shapes,
+        stops,
+      });
+      if (!video) {
+        console.log('Gap timelapse history produced <2 frames, skipping reply');
+        return;
+      }
+      const replyRef = {
+        root: { uri: posted.primary.uri, cid: posted.primary.cid },
+        parent: { uri: posted.primary.uri, cid: posted.primary.cid },
+      };
+      const reply = await postWithVideo(
+        posted.agent,
+        buildVideoPostText(video, gap),
+        video.buffer,
+        buildVideoAltText(gap, ctx),
+        replyRef,
+      );
+      console.log(`Timelapse reply: ${reply.url}`);
+    } catch (e) {
+      console.warn(`Gap timelapse reply failed: ${e.message}`);
+    }
+  }
 }
 
 runBin(main);

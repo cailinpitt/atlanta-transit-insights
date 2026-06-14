@@ -103,6 +103,77 @@ async function postWithImage(agent, text, imageBuffer, altText, replyRef = null)
   return { url: postUrl(result), uri: result.uri, cid: result.cid };
 }
 
+const VIDEO_SERVICE = 'https://video.bsky.app';
+const MAX_POLL_ATTEMPTS = 150; // 5 min @ 2s intervals
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+async function postWithVideo(agent, text, videoBuffer, altText, replyRef = null) {
+  const { data: serviceAuth } = await agent.com.atproto.server.getServiceAuth({
+    aud: `did:web:${agent.dispatchUrl.host}`,
+    lxm: 'com.atproto.repo.uploadBlob',
+    exp: Math.floor(Date.now() / 1000) + 60 * 30,
+  });
+  const token = serviceAuth.token;
+
+  const uploadUrl = new URL(`${VIDEO_SERVICE}/xrpc/app.bsky.video.uploadVideo`);
+  uploadUrl.searchParams.append('did', agent.session.did);
+  uploadUrl.searchParams.append('name', 'marta-insights.mp4');
+
+  let uploadResponse;
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    uploadResponse = await fetch(uploadUrl.toString(), {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'video/mp4',
+        'Content-Length': videoBuffer.length.toString(),
+      },
+      body: videoBuffer,
+    });
+    if (uploadResponse.ok) break;
+    const errBody = await uploadResponse.json().catch(() => ({}));
+    if (attempt >= 3)
+      throw new Error(`Video upload failed after 3 attempts: ${JSON.stringify(errBody)}`);
+    await sleep(1000 * attempt);
+  }
+
+  const jobStatus = await uploadResponse.json();
+  let blob = jobStatus.blob;
+  const videoServiceAgent = new AtpAgent({ service: VIDEO_SERVICE });
+  let lastLogged = null;
+  let polls = 0;
+
+  while (!blob) {
+    if (++polls > MAX_POLL_ATTEMPTS) throw new Error('Video processing timed out');
+    await sleep(2000);
+    const { data: status } = await videoServiceAgent.app.bsky.video.getJobStatus({
+      jobId: jobStatus.jobId,
+    });
+    const state = status.jobStatus.state;
+    const progress = status.jobStatus.progress;
+    const label = progress ? `${state}: ${progress}%` : state;
+    if (label !== lastLogged) {
+      console.log(`video processing: ${label}`);
+      lastLogged = label;
+    }
+    if (status.jobStatus.blob) blob = status.jobStatus.blob;
+    else if (state === 'JOB_STATE_FAILED')
+      throw new Error(`Video processing failed: ${status.jobStatus.error || 'unknown'}`);
+  }
+
+  const result = await agent.post({
+    text,
+    ...(replyRef && { reply: replyRef }),
+    embed: {
+      $type: 'app.bsky.embed.video',
+      video: blob,
+      alt: altText,
+    },
+  });
+  return { url: postUrl(result), uri: result.uri, cid: result.cid };
+}
+
 async function postText(agent, text, replyRef = null) {
   const result = await agent.post({
     text,
@@ -117,5 +188,6 @@ module.exports = {
   loginTrain,
   loginAlerts,
   postWithImage,
+  postWithVideo,
   postText,
 };

@@ -54,4 +54,17 @@ function buildAltText(bunch, ctx) {
   return `Map of ${routeTitle}${nearPart} showing ${bunch.vehicles.length}${dirPart} buses within ${formatDistance(bunch.spanFt)} of each other.`;
 }
 
-module.exports = { buildPostText, buildAltText };
+function buildVideoPostText(video, bunch) {
+  const elapsed = video?.elapsedSec
+    ? `${Math.max(1, Math.round(video.elapsedSec / 60))} min`
+    : 'Several minutes';
+  return `${elapsed} of recent movement from this ${bunch.vehicles.length}-bus bunch.`;
+}
+
+function buildVideoAltText(bunch, ctx = {}) {
+  const { routeTitle, direction } = ctx;
+  const dirPart = direction ? ` ${String(direction).toLowerCase()}` : '';
+  return `Timelapse map of ${routeTitle || `Route ${bunch.route}`}${dirPart} showing recent movement of ${bunch.vehicles.length} bunched buses.`;
+}
+
+module.exports = { buildPostText, buildAltText, buildVideoPostText, buildVideoAltText };

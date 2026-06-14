@@ -64,7 +64,7 @@ function sliceShapeAroundBunch(shape, bunch) {
 
 // Static framing: bbox, center, zoom, route polyline overlay, direction arrow,
 // origin/terminal points.
-function computeBunchingView(bunch, shape) {
+function computeBunchingView(bunch, shape, extraPoints = []) {
   const slice = sliceShapeAroundBunch(shape, bunch);
   const routePoints = thinPolylinePoints(slice).map((p) => [p.lat, p.lon]);
   const encoded = encodeURIComponent(encode(routePoints));
@@ -73,8 +73,16 @@ function computeBunchingView(bunch, shape) {
     `path-${ROUTE_CORE_STROKE}+${ROUTE_CORE_COLOR}(${encoded})`,
   ];
 
-  const allLats = [...slice.map((p) => p.lat), ...bunch.vehicles.map((v) => v.lat)];
-  const allLons = [...slice.map((p) => p.lon), ...bunch.vehicles.map((v) => v.lon)];
+  const allLats = [
+    ...slice.map((p) => p.lat),
+    ...bunch.vehicles.map((v) => v.lat),
+    ...extraPoints.map((p) => p.lat),
+  ];
+  const allLons = [
+    ...slice.map((p) => p.lon),
+    ...bunch.vehicles.map((v) => v.lon),
+    ...extraPoints.map((p) => p.lon),
+  ];
   const bbox = {
     minLat: Math.min(...allLats),
     maxLat: Math.max(...allLats),

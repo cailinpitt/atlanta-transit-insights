@@ -42,6 +42,32 @@ function buildBunchingAltText(bunch) {
   return `Map of the ${lineTitle(bunch.line)}${suffix} showing ${bunch.trains.length} trains bunched within ${formatDistance(bunch.spanFt)}.`;
 }
 
+function buildBunchingVideoPostText(video, bunch) {
+  const elapsed = video?.elapsedSec
+    ? `${Math.max(1, Math.round(video.elapsedSec / 60))} min`
+    : 'Several minutes';
+  return `${elapsed} of recent movement from this ${bunch.trains.length}-train bunch.`;
+}
+
+function buildBunchingVideoAltText(bunch) {
+  const dir = directionLabel(bunch.direction).toLowerCase();
+  const suffix = dir ? ` ${dir}` : '';
+  return `Timelapse map of the ${lineTitle(bunch.line)}${suffix} showing recent movement of ${bunch.trains.length} bunched trains.`;
+}
+
+function buildGapVideoPostText(video, gap) {
+  const elapsed = video?.elapsedSec
+    ? `${Math.max(1, Math.round(video.elapsedSec / 60))} min`
+    : 'Several minutes';
+  return `${elapsed} of recent movement around this ~${formatMinutes(gap.gapMin)} rail gap.`;
+}
+
+function buildGapVideoAltText(gap) {
+  const dir = directionLabel(gap.direction).toLowerCase();
+  const suffix = dir ? ` ${dir}` : '';
+  return `Timelapse map of the ${lineTitle(gap.line)}${suffix} showing recent movement of the trains flanking a ${formatMinutes(gap.gapMin)} gap.`;
+}
+
 function buildSpeedmapPostText(line, direction, summary, startTime, endTime, callouts = []) {
   const avg = summary.avg == null ? 'unavailable' : `${summary.avg.toFixed(1)} mph`;
   const dir = directionLabel(direction);
@@ -84,6 +110,10 @@ module.exports = {
   buildGapAltText,
   buildBunchingPostText,
   buildBunchingAltText,
+  buildBunchingVideoPostText,
+  buildBunchingVideoAltText,
+  buildGapVideoPostText,
+  buildGapVideoAltText,
   buildSpeedmapPostText,
   buildSpeedmapAltText,
   formatGhostLine,

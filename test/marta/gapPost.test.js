@@ -10,7 +10,12 @@ process.env.MARTA_HISTORY_DB_PATH = TMP_DB;
 
 const storage = require('../../src/marta/storage');
 const incidents = require('../../src/marta/shared/incidents');
-const { buildPostText, buildAltText } = require('../../src/marta/bus/gapPost');
+const {
+  buildPostText,
+  buildAltText,
+  buildVideoPostText,
+  buildVideoAltText,
+} = require('../../src/marta/bus/gapPost');
 
 test.after(() => {
   storage.closeDb();
@@ -60,6 +65,12 @@ test('buildAltText describes the map', () => {
   const alt = buildAltText(gap, ctx);
   assert.match(alt, /Map of Route 20 \(Peachtree St\) doraville/);
   assert.match(alt, /20 min gap/);
+});
+
+test('video reply text and alt text describe recent bus gap movement', () => {
+  assert.match(buildVideoPostText({ elapsedSec: 360 }, gap), /6 min of recent movement/);
+  assert.match(buildVideoPostText({ elapsedSec: 360 }, gap), /20 min bus gap/);
+  assert.match(buildVideoAltText(gap, ctx), /Timelapse map of Route 20 \(Peachtree St\)/);
 });
 
 test('daily cap blocks a 4th equal-ratio gap but lets a worse one through', () => {

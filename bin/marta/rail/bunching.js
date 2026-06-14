@@ -12,7 +12,12 @@ const storage = require('../../../src/marta/storage');
 const incidents = require('../../../src/marta/shared/incidents');
 const { isOnCooldown } = require('../../../src/marta/shared/state');
 const { commitAndPost } = require('../../../src/marta/shared/postDetection');
-const { loginTrain, postWithImage, postText } = require('../../../src/marta/shared/bluesky');
+const {
+  loginTrain,
+  postWithImage,
+  postWithVideo,
+  postText,
+} = require('../../../src/marta/shared/bluesky');
 const { setup, writeDryRunAsset, runBin } = require('../../../src/marta/shared/runBin');
 const { renderRailBunchingMap } = require('../../../src/marta/map/railIncidents');
 const {
@@ -20,8 +25,14 @@ const {
   directionLabel,
   buildBunchingPostText,
   buildBunchingAltText,
+  buildBunchingVideoPostText,
+  buildBunchingVideoAltText,
 } = require('../../../src/marta/rail/post');
 const { keycapNumber } = require('../../../src/marta/shared/format');
+const {
+  VIDEO_WINDOW_MS,
+  captureRailBunchingHistoryVideo,
+} = require('../../../src/marta/rail/video');
 
 const GTFS_DIR = Path.join(__dirname, '..', '..', '..', 'data', 'marta', 'gtfs');
 const WINDOW_MS = 3 * 60 * 1000;
@@ -158,7 +169,7 @@ async function main() {
     severityFt: bunch.spanFt,
     nearStop: null,
   };
-  await commitAndPost({
+  const posted = await commitAndPost({
     cooldownKeys: [`rail:bunch:${bunch.line}`, `rail:bunch:${bunch.line}:${bunch.direction}`],
     forceClearCooldown: cooldownOverridden,
     recordSkip: () => incidents.recordBunching({ ...baseEvent, posted: false }),
@@ -181,6 +192,33 @@ async function main() {
     postWithImage,
     postText,
   });
+  if (posted?.primary?.uri) {
+    try {
+      const videoRows = storage.getRecentRailObservationsAll(Date.now() - VIDEO_WINDOW_MS);
+      const video = await captureRailBunchingHistoryVideo(bunch, line, videoRows, {
+        lineGeom,
+        labels: trainLabels(bunch),
+      });
+      if (!video) {
+        console.log('Rail timelapse history produced <2 frames, skipping reply');
+        return;
+      }
+      const replyRef = {
+        root: { uri: posted.primary.uri, cid: posted.primary.cid },
+        parent: { uri: posted.primary.uri, cid: posted.primary.cid },
+      };
+      const reply = await postWithVideo(
+        posted.agent,
+        buildBunchingVideoPostText(video, bunch),
+        video.buffer,
+        buildBunchingVideoAltText(bunch),
+        replyRef,
+      );
+      console.log(`Timelapse reply: ${reply.url}`);
+    } catch (e) {
+      console.warn(`Rail timelapse reply failed: ${e.message}`);
+    }
+  }
 }
 
 runBin(main);

@@ -16,7 +16,12 @@ const storage = require('../../../src/marta/storage');
 const incidents = require('../../../src/marta/shared/incidents');
 const { isOnCooldown } = require('../../../src/marta/shared/state');
 const { commitAndPost } = require('../../../src/marta/shared/postDetection');
-const { loginTrain, postWithImage, postText } = require('../../../src/marta/shared/bluesky');
+const {
+  loginTrain,
+  postWithImage,
+  postWithVideo,
+  postText,
+} = require('../../../src/marta/shared/bluesky');
 const { setup, writeDryRunAsset, runBin } = require('../../../src/marta/shared/runBin');
 const { renderRailGapMap } = require('../../../src/marta/map/railIncidents');
 const {
@@ -24,7 +29,10 @@ const {
   directionLabel,
   buildGapPostText,
   buildGapAltText,
+  buildGapVideoPostText,
+  buildGapVideoAltText,
 } = require('../../../src/marta/rail/post');
+const { VIDEO_WINDOW_MS, captureRailGapHistoryVideo } = require('../../../src/marta/rail/video');
 
 const GTFS_DIR = Path.join(__dirname, '..', '..', '..', 'data', 'marta', 'gtfs');
 const WINDOW_MS = 3 * 60 * 1000;
@@ -152,7 +160,7 @@ async function main() {
     ratio: gap.ratio,
     nearStop: null,
   };
-  await commitAndPost({
+  const posted = await commitAndPost({
     cooldownKeys: [`rail:gap:${gap.line}`, `rail:gap:${gap.line}:${gap.direction}`],
     forceClearCooldown: cooldownOverridden,
     recordSkip: () => incidents.recordGap({ ...baseEvent, posted: false }),
@@ -175,6 +183,30 @@ async function main() {
     postWithImage,
     postText,
   });
+  if (posted?.primary?.uri) {
+    try {
+      const videoRows = storage.getRecentRailObservationsAll(Date.now() - VIDEO_WINDOW_MS);
+      const video = await captureRailGapHistoryVideo(gap, line, videoRows, { lineGeom });
+      if (!video) {
+        console.log('Rail gap timelapse history produced <2 frames, skipping reply');
+        return;
+      }
+      const replyRef = {
+        root: { uri: posted.primary.uri, cid: posted.primary.cid },
+        parent: { uri: posted.primary.uri, cid: posted.primary.cid },
+      };
+      const reply = await postWithVideo(
+        posted.agent,
+        buildGapVideoPostText(video, gap),
+        video.buffer,
+        buildGapVideoAltText(gap),
+        replyRef,
+      );
+      console.log(`Timelapse reply: ${reply.url}`);
+    } catch (e) {
+      console.warn(`Rail gap timelapse reply failed: ${e.message}`);
+    }
+  }
 }
 
 runBin(main);

@@ -18,6 +18,7 @@ const {
   fetchMapboxStatic,
   separateMarkers,
   perpendicularFromBearing,
+  thinPolylinePoints,
 } = require('./common');
 
 const LINE_COLORS = {
@@ -46,7 +47,7 @@ function sliceLine(line, loFt, hiFt) {
 function viewFor(line, trains, { loFt = 0, hiFt = line.lengthFt } = {}) {
   const slice = sliceLine(line, loFt, hiFt);
   const color = lineColor(line.line);
-  const encoded = encodeURIComponent(encode(line.points.map((p) => [p.lat, p.lon])));
+  const encoded = encodeURIComponent(encode(thinPolylinePoints(slice).map((p) => [p.lat, p.lon])));
   const overlays = [
     `path-${ROUTE_HALO_STROKE}+${ROUTE_HALO_COLOR}(${encoded})`,
     `path-${ROUTE_CORE_STROKE}+${color}(${encoded})`,
@@ -134,4 +135,11 @@ async function renderRailBunchingMap(bunch, line, opts = {}) {
   return renderRailFrame(view, baseMap, bunch.trains, opts);
 }
 
-module.exports = { renderRailGapMap, renderRailBunchingMap, lineColor };
+module.exports = {
+  renderRailGapMap,
+  renderRailBunchingMap,
+  lineColor,
+  viewFor,
+  fetchBaseMap,
+  renderRailFrame,
+};

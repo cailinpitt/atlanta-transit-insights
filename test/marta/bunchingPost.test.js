@@ -12,7 +12,12 @@ process.env.MARTA_HISTORY_DB_PATH = TMP_DB;
 const storage = require('../../src/marta/storage');
 const incidents = require('../../src/marta/shared/incidents');
 const state = require('../../src/marta/shared/state');
-const { buildPostText, buildAltText } = require('../../src/marta/bus/bunchingPost');
+const {
+  buildPostText,
+  buildAltText,
+  buildVideoPostText,
+  buildVideoAltText,
+} = require('../../src/marta/bus/bunchingPost');
 
 test.after(() => {
   storage.closeDb();
@@ -67,6 +72,12 @@ test('buildAltText describes the map', () => {
   const alt = buildAltText(bunch, ctx);
   assert.match(alt, /Map of Route 20 \(Peachtree St\) near Peachtree St NE @ 10th St/);
   assert.match(alt, /3 doraville buses within 600 ft/);
+});
+
+test('video reply text and alt text describe recent bus bunch movement', () => {
+  assert.match(buildVideoPostText({ elapsedSec: 420 }, bunch), /7 min of recent movement/);
+  assert.match(buildVideoPostText({ elapsedSec: 420 }, bunch), /3-bus bunch/);
+  assert.match(buildVideoAltText(bunch, ctx), /Timelapse map of Route 20 \(Peachtree St\)/);
 });
 
 // --- incident lifecycle: cooldown / cap / callouts --------------------------

@@ -4,6 +4,7 @@ const assert = require('node:assert/strict');
 const { WIDTH, HEIGHT, STYLE } = require('../../src/marta/map/common');
 const { computeGapView } = require('../../src/marta/map/busGap');
 const { computeBunchingView } = require('../../src/marta/map/busBunching');
+const { viewFor } = require('../../src/marta/map/railIncidents');
 
 function denseShape(pointCount = 1600) {
   const points = [];
@@ -45,4 +46,33 @@ test('MARTA bus bunching map overlays are short enough for dense long routes', (
   };
 
   assert.ok(staticUrlLength(computeBunchingView(bunch, shape)) < 8000);
+});
+
+test('MARTA rail gap map overlays are short enough for dense long lines', () => {
+  const line = { line: 'BLUE', ...denseShape() };
+  const trains = [
+    { lat: line.points[80].lat, lon: line.points[80].lon, distFt: 5_000 },
+    { lat: line.points[1420].lat, lon: line.points[1420].lon, distFt: 84_000 },
+  ];
+  const view = viewFor(line, trains, {
+    loFt: Math.min(...trains.map((t) => t.distFt)) - 3500,
+    hiFt: Math.max(...trains.map((t) => t.distFt)) + 3500,
+  });
+
+  assert.ok(staticUrlLength(view) < 8000);
+});
+
+test('MARTA rail bunching map overlays are short enough for dense long lines', () => {
+  const line = { line: 'BLUE', ...denseShape() };
+  const trains = [
+    { lat: line.points[900].lat, lon: line.points[900].lon, distFt: 53_000 },
+    { lat: line.points[920].lat, lon: line.points[920].lon, distFt: 54_000 },
+    { lat: line.points[940].lat, lon: line.points[940].lon, distFt: 55_000 },
+  ];
+  const view = viewFor(line, trains, {
+    loFt: Math.min(...trains.map((t) => t.distFt)) - 3500,
+    hiFt: Math.max(...trains.map((t) => t.distFt)) + 3500,
+  });
+
+  assert.ok(staticUrlLength(view) < 8000);
 });

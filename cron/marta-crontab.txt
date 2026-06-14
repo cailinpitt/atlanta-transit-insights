@@ -1,0 +1,29 @@
+# ============================================================================
+# MARTA-INSIGHTS observe jobs (data capture).
+# ============================================================================
+#
+# These keep the history DB (state/marta.sqlite) fed so the detectors always
+# have a consistent stream to read, independent of when detection/posting runs.
+# This file is a SNIPPET — the bus/rail observers only. Detection + posting +
+# export jobs get added here as those land (Phase 7/9). The CTA install
+# procedure in cron/crontab.txt applies; substitute the repo path placeholder.
+#
+# Cadence rationale:
+#   bus  — every 5 min. One GTFS-rt fetch covers the whole system; gives ~12
+#          snapshots/hour, enough for ghost density + fresh gaps/bunching.
+#   rail — every minute, 2 ticks 30s apart (MARTA_OBSERVE_RAIL_TICKS=2). Rail
+#          speed is reconstructed from position deltas, so it needs closely
+#          spaced snapshots.
+#
+# Wrap each line with the healthcheck ping pattern (see cron/crontab.txt
+# cron-run.sh) once Healthchecks slugs exist:
+#   marta-observe-buses, marta-observe-rail
+#
+# Replace /path/to/atlanta-transit-insights with $(pwd) at install time.
+
+# MARTA-INSIGHTS-START
+R=/path/to/atlanta-transit-insights
+
+*/5 * * * * cd $R && /usr/bin/env node scripts/marta/observe-buses.js >> /tmp/marta-observe-buses.log 2>&1
+*   * * * * cd $R && /usr/bin/env node scripts/marta/observe-rail.js  >> /tmp/marta-observe-rail.log 2>&1
+# MARTA-INSIGHTS-END

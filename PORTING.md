@@ -206,12 +206,20 @@ CTA tree keeps working as a reference until each analog is proven. Done so far
   Simpler than CTA — trip_id gives direction directly, so no async pid→pattern
   resolution. `ghostsFromObservations` is the bridge. Posting layer not ported.
 
+- `scripts/marta/observe-buses.js` + `observe-rail.js` + `src/marta/observeUtil.js`
+  — the live capture loop (analog of CTA `scripts/observeBuses.js`/`observeTrains.js`).
+  Poll the feeds, record via the adapters' default record path, rolloff the 7-day
+  window. `runTicks` densifies within a cron firing (rail runs 2 ticks/30s for
+  position-delta speed). Verified end-to-end against live feeds. Cron snippet in
+  `cron/marta-crontab.txt`; npm `marta:observe-buses` / `marta:observe-rail`.
+
 **Bus detection (Phase 4) is feature-complete: speedmap, gaps, bunching, ghosts**,
-all on the shapes.js `pdist` analog + the schedule index. All four data sources
-are validated and the observation-storage substrate exists. Still CTA-only and
-pending: rail detectors (`src/train/*`, unblocked on Path A), alert pairing +
-incident/detection-state storage (Phase 6), the posting/render/video layer
-(`*Post.js`, `*Video.js`, `bluesky.js`, `bin/bus/*`), and exports.
+all on the shapes.js `pdist` analog + the schedule index, and the live observe
+loop now feeds `state/marta.sqlite`. All four data sources are validated. Still
+CTA-only and pending: rail detectors (`src/train/*`, unblocked on Path A), alert
+pairing + incident/detection-state storage (Phase 6), the posting/render/video
+layer (`*Post.js`, `*Video.js`, `bluesky.js`, `bin/bus/*`), exports, and the
+detection/posting cron entries (only the observe jobs exist so far).
 
 ## knip: the mechanical backstop
 

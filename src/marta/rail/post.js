@@ -1,5 +1,6 @@
 const { formatCallouts } = require('../shared/incidents');
-const { formatDistance, formatMinutes, keycapNumber } = require('../shared/format');
+const { describeGhost } = require('../../shared/ghostFormat');
+const { formatDistance, formatMinutes, formatTimeET, keycapNumber } = require('../shared/format');
 
 function lineTitle(line) {
   return `${line} Line`;
@@ -41,6 +42,41 @@ function buildBunchingAltText(bunch) {
   return `Map of the ${lineTitle(bunch.line)}${suffix} showing ${bunch.trains.length} trains bunched within ${formatDistance(bunch.spanFt)}.`;
 }
 
+function buildSpeedmapPostText(line, direction, summary, startTime, endTime, callouts = []) {
+  const avg = summary.avg == null ? 'unavailable' : `${summary.avg.toFixed(1)} mph`;
+  const dir = directionLabel(direction);
+  const window = `${formatTimeET(startTime)}-${formatTimeET(endTime)} ET`;
+  const head = `🚦 ${lineTitle(line)}${dir ? ` - ${dir}` : ''}\n${window} · average speed ${avg}`;
+  const tail = formatCallouts(callouts);
+  return (
+    (tail ? `${head}\n${tail}\n\n` : `${head}\n\n`) +
+    'Each colored segment of the line shows how fast trains were moving there:\n' +
+    '🟥 under 15 mph - stopped or crawling\n' +
+    '🟧 15-25 mph - slow\n' +
+    '🟨 25-35 mph - moderate\n' +
+    '🟪 35-45 mph - moving\n' +
+    '🟩 45+ mph - moving well'
+  );
+}
+
+function buildSpeedmapAltText(line, direction, summary) {
+  const avg = summary.avg == null ? 'unavailable' : `${summary.avg.toFixed(1)} mph`;
+  const dir = directionLabel(direction).toLowerCase();
+  const suffix = dir ? ` ${dir}` : '';
+  return `Speedmap of the ${lineTitle(line)}${suffix} over a one-hour window, with line segments colored by average train speed. Overall average: ${avg}. Red segments indicate trains under 15 mph, orange under 25, yellow under 35, purple under 45, green 45 and above.`;
+}
+
+function formatGhostLine(event) {
+  const observed = event.observedDisplay != null ? event.observedDisplay : event.observedActive;
+  const { expectedShown, missingShown, pct, headwayPhrase } = describeGhost({
+    expectedActive: event.expectedActive,
+    observed,
+    headway: event.headway,
+  });
+  const head = `🚇 ${lineTitle(event.route)} · ${missingShown} of ${expectedShown} missing (${pct}%)`;
+  return headwayPhrase ? `${head} · ${headwayPhrase}` : head;
+}
+
 module.exports = {
   lineTitle,
   directionLabel,
@@ -48,4 +84,7 @@ module.exports = {
   buildGapAltText,
   buildBunchingPostText,
   buildBunchingAltText,
+  buildSpeedmapPostText,
+  buildSpeedmapAltText,
+  formatGhostLine,
 };

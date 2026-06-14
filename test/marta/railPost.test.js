@@ -15,6 +15,9 @@ const {
   buildGapAltText,
   buildBunchingPostText,
   buildBunchingAltText,
+  buildSpeedmapPostText,
+  buildSpeedmapAltText,
+  formatGhostLine,
 } = require('../../src/marta/rail/post');
 
 test.after(() => {
@@ -64,6 +67,36 @@ test('rail bunching post text and alt text include train count and labels', () =
   assert.match(buildBunchingAltText(bunch), /2 trains bunched/);
 });
 
+test('rail speedmap post text and alt text describe line, direction, and bands', () => {
+  const summary = { avg: 28.25 };
+  const start = new Date('2026-06-14T14:00:00Z');
+  const end = new Date('2026-06-14T15:00:00Z');
+  const text = buildSpeedmapPostText('GOLD', 'S', summary, start, end, [
+    'slowest reported in 14 days',
+  ]);
+  assert.match(text, /^🚦 GOLD Line - Sbound/);
+  assert.match(text, /average speed 28\.3 mph/);
+  assert.match(text, /📊 slowest reported in 14 days/);
+  assert.match(text, /🟪 35-45 mph/);
+
+  const alt = buildSpeedmapAltText('GOLD', 'S', summary);
+  assert.match(alt, /Speedmap of the GOLD Line sbound/);
+  assert.match(alt, /Overall average: 28\.3 mph/);
+});
+
+test('formatGhostLine summarizes missing trains and effective headway', () => {
+  const line = formatGhostLine({
+    route: 'GREEN',
+    expectedActive: 8,
+    observedActive: 3,
+    missing: 5,
+    headway: 10,
+  });
+  assert.match(line, /GREEN Line/);
+  assert.match(line, /5 of 8 missing \(63%\)/);
+  assert.match(line, /every ~27 min instead of ~10/);
+});
+
 test('rail bunching cap/cooldown treats tighter same-count clusters as worse', () => {
   const route = 'RED';
   incidents.recordBunching(
@@ -94,7 +127,12 @@ test('rail bunching cap/cooldown treats tighter same-count clusters as worse', (
 });
 
 test('rail bins --check resolve imports', () => {
-  for (const rel of ['bin/marta/rail/gaps.js', 'bin/marta/rail/bunching.js']) {
+  for (const rel of [
+    'bin/marta/rail/gaps.js',
+    'bin/marta/rail/bunching.js',
+    'bin/marta/rail/ghosts.js',
+    'bin/marta/rail/speedmap.js',
+  ]) {
     const bin = Path.join(__dirname, '..', '..', rel);
     const res = spawnSync(process.execPath, [bin, '--check'], { encoding: 'utf8' });
     assert.equal(res.status, 0, `${rel}: ${res.stderr}`);

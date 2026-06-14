@@ -36,4 +36,7 @@
 # Rail gap and bunching detect→post (martainsights). Offset from bus jobs.
 6-59/5 * * * * cd __REPO__ && __NODE__ bin/marta/rail/gaps.js >> __REPO__/state/logs/rail-gaps.log 2>&1
 8-59/5 * * * * cd __REPO__ && __NODE__ bin/marta/rail/bunching.js >> __REPO__/state/logs/rail-bunching.log 2>&1
+# Rail ghost rollup and speedmap rotation (martainsights).
+10-59/15 * * * * cd __REPO__ && __NODE__ bin/marta/rail/ghosts.js >> __REPO__/state/logs/rail-ghosts.log 2>&1
+17 * * * * cd __REPO__ && __NODE__ bin/marta/rail/speedmap.js >> __REPO__/state/logs/rail-speedmap.log 2>&1
 # MARTA-INSIGHTS-END

@@ -123,6 +123,25 @@ is decided — the data model underneath them changes.
 
 ---
 
+## Port progress
+
+Live MARTA code is being staged under `src/marta/` and `scripts/marta/` so the
+CTA tree keeps working as a reference until each analog is proven. Done so far
+(plan Phase 2, bus half):
+
+- `src/marta/bus/api.js` — GTFS-rt VehiclePositions/TripUpdates decode+normalize.
+  **This is the analog of `src/metra/api.js`** (the protobuf reference). Once the
+  bus *detector* port consumes it, delete `src/metra/api.js` per the rule above.
+- `src/marta/gtfs.js` — static GTFS load + the realtime→static `trip_id` join and
+  route-number normalization. First slice of the larger `src/shared/gtfs.js` port.
+- `scripts/marta/{fetch-static-gtfs,capture-bus-vp,capture-bus-tu,build-bus-fixtures}.js`
+  — fixture tooling; raw captures land in gitignored `data/marta/`.
+- `test/marta/` + `test/marta/fixtures/` — decode + join validation against real
+  captured feeds. See `docs/MARTA_FEEDS.md` for the validated feed reality.
+
+Still CTA-only and pending: bus detectors (`src/bus/*`), rail (gated, Phase 5),
+official alerts (Phase 6), SQLite storage port (Phase 3), exports.
+
 ## knip: the mechanical backstop
 
 [`knip`](https://knip.dev) finds unused files and dependencies starting from the real

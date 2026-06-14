@@ -29,6 +29,10 @@ const OUT_GTFS = Path.join(OUT, 'gtfs');
 // How many TripUpdate entities to keep. Enough to exercise multi-route,
 // multi-stop decoding without committing the full ~800 KB feed.
 const TU_KEEP = 12;
+// How many VehiclePositions to keep. Capped because each kept vehicle pulls its
+// trip's full GTFS shape into shapes.txt (~600 pts each); keeping all 180 made a
+// ~3 MB fixture. ~16 still spans several routes and a mix of with/without speed.
+const VP_KEEP = 16;
 
 function csvStringify(rows) {
   if (rows.length === 0) return '';
@@ -42,17 +46,24 @@ function csvStringify(rows) {
   return `${lines.join('\n')}\n`;
 }
 
-function main() {
-  const vpBuf = Fs.readFileSync(Path.join(CAPTURES, 'bus-vehiclepositions-latest.pb'));
-  const tuBuf = Fs.readFileSync(Path.join(CAPTURES, 'bus-tripupdates-latest.pb'));
+function trimFeed(buf, keep) {
+  const obj = FeedMessage.toObject(decodeFeed(buf));
+  return Buffer.from(
+    FeedMessage.encode(
+      FeedMessage.fromObject({ header: obj.header, entity: obj.entity.slice(0, keep) }),
+    ).finish(),
+  );
+}
 
-  // Trim TripUpdates to the first TU_KEEP entities and re-encode.
-  const tuFeed = decodeFeed(tuBuf);
-  const trimmed = FeedMessage.fromObject({
-    header: FeedMessage.toObject(tuFeed).header,
-    entity: FeedMessage.toObject(tuFeed).entity.slice(0, TU_KEEP),
-  });
-  const trimmedBuf = Buffer.from(FeedMessage.encode(trimmed).finish());
+function main() {
+  const vpBuf = trimFeed(
+    Fs.readFileSync(Path.join(CAPTURES, 'bus-vehiclepositions-latest.pb')),
+    VP_KEEP,
+  );
+  const trimmedBuf = trimFeed(
+    Fs.readFileSync(Path.join(CAPTURES, 'bus-tripupdates-latest.pb')),
+    TU_KEEP,
+  );
 
   // Collect the keys the mini-GTFS must cover.
   const vehicles = (decodeFeed(vpBuf).entity || []).map(parseVehiclePosition).filter(Boolean);
@@ -67,6 +78,12 @@ function main() {
   const trips = parseCsv(Fs.readFileSync(Path.join(GTFS_DIR, 'trips.txt'), 'utf8'));
   const stops = parseCsv(Fs.readFileSync(Path.join(GTFS_DIR, 'stops.txt'), 'utf8'));
   const tripRows = trips.filter((t) => tripIds.has(t.trip_id));
+
+  // Subset shapes.txt to the shapes the fixture trips run (the pdist substrate).
+  const shapeIds = new Set(tripRows.map((t) => t.shape_id).filter(Boolean));
+  const shapeRows = parseCsv(Fs.readFileSync(Path.join(GTFS_DIR, 'shapes.txt'), 'utf8')).filter(
+    (s) => shapeIds.has(s.shape_id),
+  );
   // Pull in parent stations of any referenced platform so station/platform
   // relationships are exercisable from the fixture too.
   const stopIdsPlus = new Set(stopIds);
@@ -80,6 +97,7 @@ function main() {
   Fs.writeFileSync(Path.join(OUT, 'bus-tripupdates.pb'), trimmedBuf);
   Fs.writeFileSync(Path.join(OUT_GTFS, 'trips.txt'), csvStringify(tripRows));
   Fs.writeFileSync(Path.join(OUT_GTFS, 'stops.txt'), csvStringify(stopRows));
+  Fs.writeFileSync(Path.join(OUT_GTFS, 'shapes.txt'), csvStringify(shapeRows));
   for (const f of ['routes.txt', 'calendar.txt', 'calendar_dates.txt']) {
     Fs.copyFileSync(Path.join(GTFS_DIR, f), Path.join(OUT_GTFS, f));
   }

@@ -166,10 +166,23 @@ CTA tree keeps working as a reference until each analog is proven. Done so far
 - `test/marta/storage.test.js` — round-trips fixtures through the adapters into
   storage and back, plus rolloff.
 
-All four data sources are validated (static GTFS, bus GTFS-rt, rail REST,
-official alerts) and the observation-storage substrate exists. Still CTA-only and
-pending: bus detectors (`src/bus/*`), rail detectors (`src/train/*`, unblocked on
-Path A), alert pairing + incident/detection-state storage (Phase 6), exports.
+- `src/marta/bus/shapes.js` — the **`pdist` analog**: loads GTFS `shapes.txt`
+  (cumulative feet from `shape_dist_traveled`) and projects a vehicle's lat/lon
+  onto its trip's shape → distance-along-shape. The mapping the detectors run on
+  is `CTA pid ↔ MARTA shape_id`, `CTA pdist ↔ projected distFt`. This is the core
+  rework that replaces CTA Bus Tracker's direct `pid`/`pdist`.
+- `src/marta/bus/speedmap.js` — first bus detector ported (Phase 4). Uses MARTA's
+  reported `speed` (m/s, ~57% of vehicles) placed on the route via shapes.js, so
+  a speedmap works from a single snapshot (CTA had to derive speed from pdist
+  deltas). Binning/summary/colour logic carried over from `src/bus/speedmap.js`.
+  Pure core (samples → bins → summary); the live collection loop + posting/render
+  layer are not ported yet.
+
+All four data sources are validated and the observation-storage substrate exists;
+the bus speedmap is the first detector. Still CTA-only and pending: remaining bus
+detectors (gaps/bunches/ghosts in `src/bus/*` — gaps/ghosts need a MARTA scheduled
+-headway index), rail detectors (`src/train/*`, unblocked on Path A), alert
+pairing + incident/detection-state storage (Phase 6), posting/render, exports.
 
 ## knip: the mechanical backstop
 

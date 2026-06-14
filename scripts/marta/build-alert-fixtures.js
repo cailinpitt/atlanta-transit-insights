@@ -51,7 +51,7 @@ function buildSynthetic() {
         id: 'marta-synthetic-bus-1',
         alert: {
           activePeriod: [{ start: now }],
-          informedEntity: [{ routeId: '20', stopId: '500350' }],
+          informedEntity: [{ routeId: '20', routeType: 3, stopId: '500350' }],
           cause: Cause.CONSTRUCTION,
           effect: Effect.DETOUR,
           headerText: en('Route 20: Detour on Peachtree St'),

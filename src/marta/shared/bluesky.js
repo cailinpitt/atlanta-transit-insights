@@ -4,9 +4,11 @@
 // link facet (image posts carry no links — facet support returns with the
 // alerts poster), plus the video upload path (video is deferred).
 //
-// Accounts: the user points the BUS and TRAIN handles at the same
-// `martainsights` account and ALERTS at `martaalertinsights`. Keeping three
-// identifiers mirrors the CTA reference and keeps bus/rail code parallel.
+// Accounts (decided 2026-06-14): THREE distinct Bluesky accounts — BUS (bus
+// insights), TRAIN (rail insights), and ALERTS (official alerts + bot-detected
+// issues) — each with its own identifier/app-password pair. This keeps bus and
+// rail insight code parallel and matches the CTA reference's three-account
+// split.
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
@@ -182,12 +184,68 @@ async function postText(agent, text, replyRef = null) {
   return { url: postUrl(result), uri: result.uri, cid: result.cid };
 }
 
+// Fetch a post's record (its cid + value) from an at:// URI. Null if the URI is
+// malformed or the record is gone (deleted/expired). Ported from cta-insights.
+async function getPostRecord(agent, uri) {
+  const m = /^at:\/\/([^/]+)\/([^/]+)\/(.+)$/.exec(uri);
+  if (!m) return null;
+  const [, repo, collection, rkey] = m;
+  try {
+    const { data } = await agent.com.atproto.repo.getRecord({ repo, collection, rkey });
+    return { uri, cid: data.cid, value: data.value };
+  } catch (_) {
+    return null;
+  }
+}
+
+// Build a {root, parent} reply ref for threading a reply onto an EXISTING post
+// (from a prior cron run) — unlike the same-run self-threading the insight bins
+// do with a just-posted {uri, cid}. Inherits the thread root from the parent's
+// own reply.root so every reply lands in one thread, and walks the thread to the
+// newest leaf so sequential replies chain rather than fan out. Null if the
+// parent post can't be fetched. Ported from cta-insights resolveReplyRef.
+async function resolveReplyRef(agent, parentUri) {
+  const record = await getPostRecord(agent, parentUri);
+  if (!record) return null;
+  const root = record.value?.reply?.root || { uri: record.uri, cid: record.cid };
+  let parent = { uri: record.uri, cid: record.cid };
+  if (typeof agent.getPostThread === 'function') {
+    try {
+      const resp = await agent.getPostThread({ uri: parentUri, depth: 100 });
+      const top = resp?.data?.thread;
+      if (top?.post) {
+        let bestLeaf = top.post;
+        let bestTs = Date.parse(top.post.indexedAt || '') || 0;
+        const visit = (node) => {
+          if (!node?.post) return;
+          const replies = node.replies || [];
+          if (replies.length === 0) {
+            const t = Date.parse(node.post.indexedAt || '') || 0;
+            if (t >= bestTs) {
+              bestTs = t;
+              bestLeaf = node.post;
+            }
+            return;
+          }
+          for (const r of replies) visit(r);
+        };
+        visit(top);
+        parent = { uri: bestLeaf.uri, cid: bestLeaf.cid };
+      }
+    } catch (_e) {
+      // Fall through to the original-post parent — better to land as a sibling
+      // than to fail the resolution post entirely.
+    }
+  }
+  return { root, parent };
+}
+
 module.exports = {
-  login,
   loginBus,
   loginTrain,
   loginAlerts,
   postWithImage,
   postWithVideo,
   postText,
+  resolveReplyRef,
 };

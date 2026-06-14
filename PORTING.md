@@ -150,6 +150,17 @@ CTA tree keeps working as a reference until each analog is proven. Done so far
   DELETE; the MARTA replacement is this GTFS-rt parser (mirrors Metra's). Live
   feed was empty at discovery, so the fixture is synthetic + a real empty capture
   until a genuine alert is caught.
+- `src/marta/alert/significance.js` — significance gate + mode classification +
+  post text (Phase 6). **Analog of `src/metra/metraAlerts.js`** (also a native
+  GTFS-rt feed). Keyword admit/veto with a strong-effect admit; tags each alert
+  `bus|rail|streetcar|general`.
+- `src/marta/alert/store.js` — official-alert lifecycle storage (`alert_posts` +
+  `alert_versions`) on the shared MARTA DB. **Analog of the `alert_posts`/
+  `alert_versions` subset of CTA `src/shared/history.js`**, trimmed of the
+  Metra single-train cancellation/delay machinery; adds a `mode` column.
+- `bin/marta/alerts.js` — republish bin (posts to `martaalertinsights`).
+  **Analog of `bin/metra/alerts.js`**, streamlined: text-only posts + text-only
+  resolution replies (archive-page link cards wait for Phase 8). io-injected.
 - `scripts/marta/{capture-alerts,build-alert-fixtures}.js` — alert fixture tooling.
 - `test/marta/` + `test/marta/fixtures/` — decode + join validation against real
   captured feeds (bus + rail + alerts). See `docs/MARTA_FEEDS.md` for the
@@ -286,9 +297,12 @@ all on the shapes.js `pdist` analog + the schedule index, and the live observe
 loop now feeds `state/marta.sqlite`. **Rail detection (Phase 5) is feature-complete**
 under `src/marta/rail/`. Bus posting parity is complete for speedmaps, gaps,
 bunching, and ghosts. Rail posting has started with gaps and bunching.
-Still CTA-only and pending: official-alert version/state + pairing/export
-(Phase 6), rail ghost/speedmap posting, exports, and bus/rail video/update/close
-lifecycle refinements.
+**Official-alert ingestion + republish (Phase 6) is built**: significance gate,
+`alert_posts`/`alert_versions` lifecycle store, and the `bin/marta/alerts.js`
+republish bin (post → refresh → feed-drop resolution). Still pending: pairing
+official alerts with bot detections into `alerts.json` (Phase 6 export), the
+website fork + data origin (Phase 8/9 — also what unblocks resolution-reply link
+cards), and bus/rail video/update/close lifecycle refinements.
 
 ## knip: the mechanical backstop
 

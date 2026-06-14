@@ -188,11 +188,17 @@ CTA tree keeps working as a reference until each analog is proven. Done so far
   Output `data/marta/schedule-index.json` (gitignored, built by cron). This
   unblocks gaps + ghosts.
 
+- `src/marta/bus/gaps.js` — bus gap detection ported. `detectBusGaps` is the CTA
+  algorithm (generic over `{shapeId, distFt}`); `gapsFromObservations` wires it to
+  MARTA sources — projects positions onto shapes, reads expected headway from the
+  schedule index (with route-direction fallback). Reuses CTA thresholds +
+  `shared/geo.terminalZoneFt`. Pure core; posting layer not ported.
+
 All four data sources are validated; the observation-storage substrate, the bus
-speedmap, and the scheduled-headway index exist. Still CTA-only and pending: bus
-gaps/bunches/ghosts (now unblocked — `src/bus/{gaps,bunching,ghosts}.js`), rail
-detectors (`src/train/*`, unblocked on Path A), alert pairing + incident/
-detection-state storage (Phase 6), posting/render layer, exports.
+speedmap, the scheduled-headway index, and bus gaps exist. Still CTA-only and
+pending: bus bunches/ghosts (`src/bus/{bunching,ghosts}.js`), rail detectors
+(`src/train/*`, unblocked on Path A), alert pairing + incident/detection-state
+storage (Phase 6), posting/render layer, exports.
 
 ## knip: the mechanical backstop
 

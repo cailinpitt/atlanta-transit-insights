@@ -200,11 +200,18 @@ CTA tree keeps working as a reference until each analog is proven. Done so far
   projects positions and detects; `findParkedBusVids`/`assignBusNumbers` carried
   over. Posting layer not ported.
 
-All four data sources are validated; the observation-storage substrate, the bus
-speedmap, the scheduled-headway index, bus gaps, and bus bunching exist. Still
-CTA-only and pending: bus ghosts (`src/bus/ghosts.js` — uses the index's
-activeByHour), rail detectors (`src/train/*`, unblocked on Path A), alert pairing
-+ incident/detection-state storage (Phase 6), posting/render layer, exports.
+- `src/marta/bus/ghosts.js` — bus ghost detection ported. Compares observed
+  distinct vehicles/snapshot (grouped by canonical `direction_id`) against the
+  schedule index's `activeByHour`; CTA threshold/ramp/tail gates carried over.
+  Simpler than CTA — trip_id gives direction directly, so no async pid→pattern
+  resolution. `ghostsFromObservations` is the bridge. Posting layer not ported.
+
+**Bus detection (Phase 4) is feature-complete: speedmap, gaps, bunching, ghosts**,
+all on the shapes.js `pdist` analog + the schedule index. All four data sources
+are validated and the observation-storage substrate exists. Still CTA-only and
+pending: rail detectors (`src/train/*`, unblocked on Path A), alert pairing +
+incident/detection-state storage (Phase 6), the posting/render/video layer
+(`*Post.js`, `*Video.js`, `bluesky.js`, `bin/bus/*`), and exports.
 
 ## knip: the mechanical backstop
 

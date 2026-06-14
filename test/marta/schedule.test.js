@@ -4,6 +4,7 @@ const {
   parseGtfsTime,
   median,
   hourOfSec,
+  tripActiveAt,
   headwayFromDepartures,
   dayTypeForCalendarRow,
   dayTypeFor,
@@ -40,6 +41,17 @@ test('headwayFromDepartures = median consecutive gap in minutes', () => {
   assert.equal(headwayFromDepartures([0, 600, 1800]), 15);
   assert.equal(headwayFromDepartures([1200]), null, 'one trip has no headway');
   assert.equal(headwayFromDepartures([]), null);
+});
+
+test('tripActiveAt snapshots simultaneous service, including owl trips', () => {
+  const h = (n) => n * 3600;
+  // Trip 10:00–10:35: active at the 10:30 snapshot, not at 9:30 or 11:30.
+  assert.equal(tripActiveAt(h(10), h(10) + 2100, h(10) + 1800), true);
+  assert.equal(tripActiveAt(h(10), h(10) + 2100, h(9) + 1800), false);
+  assert.equal(tripActiveAt(h(10), h(10) + 2100, h(11) + 1800), false);
+  // Owl trip encoded 25:10–25:45 (1:10–1:45 AM) is active at the 1:30 snapshot.
+  assert.equal(tripActiveAt(h(25) + 600, h(25) + 2700, h(1) + 1800), true);
+  assert.equal(tripActiveAt(null, h(10), h(1)), false);
 });
 
 test('dayTypeForCalendarRow classifies the MARTA service rows', () => {

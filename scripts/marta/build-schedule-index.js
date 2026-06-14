@@ -14,6 +14,7 @@ const { loadGtfs } = require('../../src/marta/gtfs');
 const {
   parseGtfsTime,
   hourOfSec,
+  tripActiveAt,
   headwayFromDepartures,
   median,
   dayTypeForCalendarRow,
@@ -157,8 +158,13 @@ async function main() {
       push(shapeDur, `${meta.shapeId}|${sKey}`, (fl.lastArr - fl.firstDep) / 60);
     }
     if (fl.lastArr != null) {
-      for (let h = hourOfSec(fl.firstDep); h <= Math.floor(fl.lastArr / 3600); h++) {
-        const k = `${meta.route}|${meta.direction}|${meta.dayType}|${h % 24}`;
+      // active-by-hour = trips in progress at :30 past each hour — a SNAPSHOT of
+      // simultaneous service (the right unit to compare against observed
+      // vehicles-per-snapshot in ghost detection; counting every trip that
+      // merely touches an hour overcounts ~2x and false-fires).
+      for (let h = 0; h < 24; h++) {
+        if (!tripActiveAt(fl.firstDep, fl.lastArr, h * 3600 + 1800)) continue;
+        const k = `${meta.route}|${meta.direction}|${meta.dayType}|${h}`;
         routeActive.set(k, (routeActive.get(k) || 0) + 1);
       }
     }

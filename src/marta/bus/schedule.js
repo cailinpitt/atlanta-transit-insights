@@ -55,6 +55,19 @@ function headwayFromDepartures(depSecs) {
   return median(gaps);
 }
 
+// Is a trip (firstDep..lastArr, seconds since service-midnight) in progress at
+// `instSec`? The basis for the index's active-by-hour SNAPSHOT count (trips
+// running simultaneously at :30 past the hour), which is the right unit to
+// compare against observed vehicles-per-snapshot in ghost detection. The +86400
+// arm catches owl trips encoded as 24:xx/25:xx that run past service midnight.
+function tripActiveAt(firstDep, lastArr, instSec) {
+  if (firstDep == null || lastArr == null) return false;
+  return (
+    (firstDep <= instSec && instSec <= lastArr) ||
+    (firstDep <= instSec + 86400 && instSec + 86400 <= lastArr)
+  );
+}
+
 const WEEKDAYS = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday'];
 
 // Map a calendar.txt row to a coarse day-type bucket, or null for the
@@ -181,6 +194,7 @@ module.exports = {
   parseGtfsTime,
   median,
   hourOfSec,
+  tripActiveAt,
   headwayFromDepartures,
   dayTypeForCalendarRow,
   dayTypeFor,

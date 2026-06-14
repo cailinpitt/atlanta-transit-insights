@@ -24,6 +24,7 @@
     "marta:observe-buses": "node scripts/marta/observe-buses.js",
     "marta:observe-bus-tripupdates": "node scripts/marta/observe-bus-tripupdates.js",
     "marta:observe-rail": "node scripts/marta/observe-rail.js",
+    "marta:status": "node scripts/marta/observe-status.js",
     "fetch-metra-gtfs": "node scripts/fetch-metra-gtfs.js",
     "observe-metra": "node scripts/observeMetra.js",
     "capture-metra-cancellation": "node scripts/capture-metra-cancellation.js",

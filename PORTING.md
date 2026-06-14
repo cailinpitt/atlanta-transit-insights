@@ -178,11 +178,21 @@ CTA tree keeps working as a reference until each analog is proven. Done so far
   Pure core (samples → bins → summary); the live collection loop + posting/render
   layer are not ported yet.
 
-All four data sources are validated and the observation-storage substrate exists;
-the bus speedmap is the first detector. Still CTA-only and pending: remaining bus
-detectors (gaps/bunches/ghosts in `src/bus/*` — gaps/ghosts need a MARTA scheduled
--headway index), rail detectors (`src/train/*`, unblocked on Path A), alert
-pairing + incident/detection-state storage (Phase 6), posting/render, exports.
+- `src/marta/bus/schedule.js` + `scripts/marta/build-schedule-index.js` — the
+  **scheduled-headway index**, analog of CTA's `data/gtfs/index.json` (built by
+  `scripts/fetch-gtfs.js`). Streams `stop_times.txt`, computes median scheduled
+  headway / trip duration per shape and active-trip count per route+direction,
+  keyed by (shape|route, dayType, hour). Headways are measured PER SHAPE (a
+  direction's shapes mashed together give bogus ~0-min gaps when a through trip
+  and a branch leave together); the route rollup is the median of shape headways.
+  Output `data/marta/schedule-index.json` (gitignored, built by cron). This
+  unblocks gaps + ghosts.
+
+All four data sources are validated; the observation-storage substrate, the bus
+speedmap, and the scheduled-headway index exist. Still CTA-only and pending: bus
+gaps/bunches/ghosts (now unblocked — `src/bus/{gaps,bunching,ghosts}.js`), rail
+detectors (`src/train/*`, unblocked on Path A), alert pairing + incident/
+detection-state storage (Phase 6), posting/render layer, exports.
 
 ## knip: the mechanical backstop
 

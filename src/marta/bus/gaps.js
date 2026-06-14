@@ -9,6 +9,7 @@
 const { terminalZoneFt } = require('../../shared/geo');
 const { projectObservation } = require('./shapes');
 const { loadScheduleIndex, headwayForShape, headwayForRoute } = require('./schedule');
+const { stopsNearShape } = require('./stops');
 
 const STALE_MS = 3 * 60 * 1000;
 // ~10 mph effective once stops/signals are factored in. Only used as a ratio
@@ -134,6 +135,7 @@ function gapsFromObservations(observations, { gtfs, shapes, index, now = Date.no
       return rd ? headwayForRoute(idx, rd.route, rd.direction, nowDate) : null;
     },
     lengthFor: (shapeId) => shapes.get(shapeId)?.lengthFt || 0,
+    stopsFor: (shapeId) => stopsNearShape(gtfs, shapes.get(shapeId), 0, Infinity),
   });
 }
 

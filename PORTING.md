@@ -42,7 +42,7 @@ CTA Train Tracker adapter does not transfer directly.
 | Module(s) | Status | Notes |
 |---|---|---|
 | `history.js`, `observations.js` | PORT | Keep SQLite model; extend observation schema for rail arrival snapshots. Preserve `alerts.json` schema v2 contract. |
-| `state.js`, `bluesky.js`, `post.js`, `postDetection.js`, `retry.js`, `runBin.js`, `format.js`, `geo.js`, `polyline.js`, `projection.js`, `stats.js`, `gtfs.js` | KEEP | Generic; rebrand only. |
+| `state.js`, `bluesky.js`, `post.js`, `postDetection.js`, `retry.js`, `runBin.js`, `format.js`, `geo.js`, `polyline.js`, `projection.js`, `stats.js`, `gtfs.js` | KEEP | Generic; rebrand only. MARTA-specific equivalents now exist for the first posting slice under `src/marta/shared/{bluesky,format,incidents,postDetection,runBin,state}.js`; keep CTA shared files only while CTA entrypoints remain as references. |
 | `recap.js`, `recapPost.js`, `videoTracks.js`, `eventLink.js`, `eventTracks.js`, `disruption.js`, `directionLabel.js`, `ghostFormat.js`, `ghostsLog.js`, `observationDescribe.js`, `relatedQuotes.js`, `alertPost.js`, `cleanup.js`, `webPushTrigger.js` | KEEP/PORT | Rebrand; `observationDescribe.js` has a `TRAIN_LINES` table to replace. |
 | `ctaAlerts.js` | DELETE | CTA Train/Bus Tracker alerts API + Chicago parsing. Replaced by the MARTA official-alert adapter (Phase 6). |
 | `trainSegment.js` | PORT | CTA rail segment helper → MARTA rail (rail-path dependent). |
@@ -58,7 +58,7 @@ detector that reasons over `pdist`/`pid` needs a shape-progress adaptation.
 | `api.js` | PORT | CTA Bus Tracker → MARTA GTFS-rt VehiclePositions/TripUpdates. Use `metra/api.js` as the protobuf-decode reference. |
 | `bunching.js`, `gaps.js`, `ghosts.js`, `pulse.js`, `thinGaps.js`, `speedmap.js`, `motion.js`, `heldClusters.js` | PORT | Detector logic reusable; rework `pid`/`pdist` → shape progress. |
 | `patterns.js`, `routes.js`, `stops.js` | PORT | CTA pattern model → MARTA GTFS trips/shapes/stops. |
-| `bunchingPost.js`, `gapPost.js`, `bunchingVideo.js`, `gapVideo.js`, `bluesky.js` | PORT | Posting/rendering; rebrand. |
+| `bunchingPost.js`, `gapPost.js`, `bunchingVideo.js`, `gapVideo.js`, `bluesky.js` | PORT | Bus bunching and gap posting are ported under `src/marta/bus/{bunchingPost,gapPost}.js`, `src/marta/map/{busBunching,busGap}.js`, and `bin/marta/bus/{bunching,gaps}.js`. Remaining bus speedmap/ghost posting and video/update/close flows still need ports. |
 | `trafficSignals.js` | DELETE | Chicago OpenStreetMap traffic-signal annotation for timelapse. Re-add for Atlanta only if wanted. |
 | `fleet.js` | DELETE | CTA bus fleet/vehicle metadata. |
 
@@ -99,7 +99,7 @@ is decided — the data model underneath them changes.
 
 | Entry | Status | Notes |
 |---|---|---|
-| `bus/*.js` | PORT | Bus detectors/posting. |
+| `bus/*.js` | PORT | Bus detector cores are ported under `src/marta/bus/`. Posting entrypoints landed for `bin/marta/bus/bunching.js` and `bin/marta/bus/gaps.js` (detect→render→post, dry-run/check support, cooldown/cap/callouts). Remaining MARTA bus speedmap/ghost posting bins still need ports. |
 | `train/*.js` | PORT (rail gate) | Hold until rail path decided. |
 | `metra/*.js` | DELETE | After `src/metra` reference value is spent. |
 | `export-web.js`, `export-daily.js`, `export-csv.js`, `export-event-tracks.js` | PORT | Keep schema v2 + server-side pairing; strip Metra, add MARTA agency/mode. |
@@ -233,13 +233,41 @@ CTA tree keeps working as a reference until each analog is proven. Done so far
   These use **line-level** schedule aggregates (`schedule.headwayForLine` /
   `activeForLine`) to sidestep the feed's N/S/E/W ↔ GTFS direction_id mismatch.
 
+### Posting / incident lifecycle (Phase 7) — started
+
+- `bin/marta/bus/bunching.js` — first MARTA detect→render→post entrypoint. It
+  reads the latest observed bus snapshot from `state/marta.sqlite` (no extra
+  feed fetch), filters parked/terminal/cooldown/capped candidates, renders a map,
+  and posts through the MARTA insights Bluesky account. Supports `--dry-run` and
+  `--check`.
+- `bin/marta/bus/gaps.js` — second MARTA detect→render→post entrypoint. It
+  reads the latest observed bus snapshot, detects oversized route gaps from the
+  schedule index, filters cooldown/cap candidates, renders a gap map, and posts
+  through the same MARTA insights account. Supports `--dry-run` and `--check`.
+- `src/marta/bus/bunchingPost.js` — post text + alt text for bus bunching.
+- `src/marta/bus/gapPost.js` — post text + alt text for bus gaps.
+- `src/marta/bus/stops.js` — stop lookup helpers used by bus bunching maps/posts.
+- `src/marta/map/{common,busBunching,busGap}.js` — Sharp-backed static map
+  renderers for bus bunching and bus gap images.
+- `src/marta/shared/{bluesky,format,incidents,postDetection,runBin,state}.js` —
+  first MARTA shared posting/runtime layer: Bluesky login/post helpers,
+  cooldown/state storage, bunching + gap event history, cap/callout/record logic,
+  meta-signal recording, and bin setup/check/dry-run utilities.
+- `cron/marta-crontab.txt` — now schedules bus bunching and bus gaps every 5
+  minutes, offset from each other and the observe jobs. Posting volume is bounded
+  by per-shape + per-route cooldowns and a 3/route/day cap, with escalation
+  overrides for worse events.
+- `test/marta/{bunchingPost,gapPost}.test.js` — post text, alt text,
+  cooldown/cap/callout, and import-smoke coverage for the new bins.
+
 **Bus detection (Phase 4) is feature-complete: speedmap, gaps, bunching, ghosts**,
 all on the shapes.js `pdist` analog + the schedule index, and the live observe
-loop now feeds `state/marta.sqlite`. All four data sources are validated. Still
-CTA-only and pending: rail detectors (`src/train/*`, unblocked on Path A), alert
-pairing + incident/detection-state storage (Phase 6), the posting/render/video
-layer (`*Post.js`, `*Video.js`, `bluesky.js`, `bin/bus/*`), exports, and the
-detection/posting cron entries (only the observe jobs exist so far).
+loop now feeds `state/marta.sqlite`. **Rail detection (Phase 5) is feature-complete**
+under `src/marta/rail/`. The first two posting slices are live for bus bunching
+and bus gaps.
+Still CTA-only and pending: official-alert version/state + pairing/export
+(Phase 6), bus speedmap/ghost posting, all rail posting/render/video/update
+flows, exports, and the non-bunching detection/posting cron entries.
 
 ## knip: the mechanical backstop
 

@@ -42,6 +42,23 @@ function getDb() {
       CREATE INDEX IF NOT EXISTS idx_bunching_kind_route_ts
         ON bunching_events(kind, route, ts);
 
+      CREATE TABLE IF NOT EXISTS gap_events (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        ts INTEGER NOT NULL,
+        kind TEXT NOT NULL,
+        route TEXT NOT NULL,
+        direction TEXT,
+        gap_ft INTEGER NOT NULL,
+        gap_min REAL NOT NULL,
+        expected_min REAL NOT NULL,
+        ratio REAL NOT NULL,
+        near_stop TEXT,
+        posted INTEGER NOT NULL DEFAULT 0,
+        post_uri TEXT
+      );
+      CREATE INDEX IF NOT EXISTS idx_gap_kind_route_ts
+        ON gap_events(kind, route, ts);
+
       CREATE TABLE IF NOT EXISTS cooldowns (
         key TEXT PRIMARY KEY,
         ts INTEGER NOT NULL,
@@ -166,6 +183,86 @@ function formatCallouts(callouts) {
   return `📊 ${callouts.join(' · ')}`;
 }
 
+function recordGap(
+  { kind, route, direction, gapFt, gapMin, expectedMin, ratio, nearStop, posted, postUri },
+  now = Date.now(),
+) {
+  getDb()
+    .prepare(`
+      INSERT INTO gap_events
+        (ts, kind, route, direction, gap_ft, gap_min, expected_min, ratio, near_stop, posted, post_uri)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `)
+    .run(
+      now,
+      kind,
+      route,
+      direction || null,
+      Math.round(gapFt),
+      gapMin,
+      expectedMin,
+      ratio,
+      nearStop || null,
+      posted ? 1 : 0,
+      postUri || null,
+    );
+}
+
+function gapCallouts({ kind, route, routeLabel, ratio }, now = Date.now()) {
+  const out = [];
+  const startOfDay = startOfDayET(now);
+  const todayCount = getDb()
+    .prepare(`
+      SELECT COUNT(*) AS c FROM gap_events
+      WHERE kind = ? AND route = ? AND posted = 1 AND ts >= ?
+    `)
+    .get(kind, route, startOfDay).c;
+  const nth = todayCount + 1;
+  if (nth >= 2) {
+    const label = routeLabel ? `${routeLabel} gap` : 'gap';
+    out.push(`${ordinal(nth)} ${label} reported today`);
+  }
+
+  const windowDays = 30;
+  const windowStart = now - windowDays * DAY_MS;
+  const row = getDb()
+    .prepare(`
+      SELECT MAX(ratio) AS maxRatio, COUNT(*) AS c
+      FROM gap_events
+      WHERE kind = ? AND route = ? AND posted = 1 AND ts >= ? AND ts < ?
+    `)
+    .get(kind, route, windowStart, startOfDay);
+  if (row.c >= 3 && ratio > row.maxRatio) {
+    out.push(`worst reported on this route in ${windowDays} days`);
+  }
+  return out;
+}
+
+function gapCapAllows({ kind, route, candidate, cap }, now = Date.now()) {
+  const events = getDb()
+    .prepare(`
+      SELECT ratio FROM gap_events
+      WHERE kind = ? AND route = ? AND posted = 1 AND ts >= ?
+    `)
+    .all(kind, route, startOfDayET(now));
+  if (events.length < cap) return true;
+  return events.every((ev) => candidate.ratio > ev.ratio);
+}
+
+function gapCooldownAllows(
+  { kind, route, candidate, withinMs = 60 * 60 * 1000 },
+  now = Date.now(),
+) {
+  const events = getDb()
+    .prepare(`
+      SELECT ratio FROM gap_events
+      WHERE kind = ? AND route = ? AND posted = 1 AND ts >= ?
+    `)
+    .all(kind, route, now - withinMs);
+  if (events.length === 0) return true;
+  return events.every((ev) => candidate.ratio >= ev.ratio * 1.25);
+}
+
 // Highest vehicle_count ever posted for `kind` (across all routes). Powers the
 // 🥇 medal in the post text. Callers compare BEFORE recording, so the candidate
 // isn't yet in the result.
@@ -257,6 +354,10 @@ module.exports = {
   recordBunching,
   bunchingCallouts,
   formatCallouts,
+  recordGap,
+  gapCallouts,
+  gapCapAllows,
+  gapCooldownAllows,
   previousMaxBunchingVehicleCount,
   bunchingCapAllows,
   bunchingCooldownAllows,

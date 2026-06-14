@@ -303,6 +303,17 @@ function getRecentRailObservations(line, sinceTs) {
     .all(String(line), sinceTs);
 }
 
+function getRecentRailObservationsAll(sinceTs) {
+  return getDb()
+    .prepare(`
+      SELECT ts, train_id AS trainId, line, direction, destination, lat, lon, delay_sec AS delaySec, event_ts AS eventTs
+      FROM rail_observations
+      WHERE ts >= ? AND lat IS NOT NULL AND lon IS NOT NULL
+      ORDER BY ts
+    `)
+    .all(sinceTs);
+}
+
 function getRailArrivals(line, sinceTs, { realtimeOnly = false } = {}) {
   return getDb()
     .prepare(`
@@ -360,6 +371,7 @@ module.exports = {
   getRecentBusObservations,
   getRecentBusObservationsAll,
   getRecentRailObservations,
+  getRecentRailObservationsAll,
   getRailArrivals,
   getSnapshotTimestamps,
   rolloffOldObservations,

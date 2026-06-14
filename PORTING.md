@@ -250,31 +250,45 @@ CTA tree keeps working as a reference until each analog is proven. Done so far
 - `bin/marta/bus/speedmap.js` — route-rotating speedmap entrypoint. It uses the
   last hour of stored reported bus speeds, skips sparse coverage, renders a
   colored route speedmap, records speedmap history, and posts an image.
+- `bin/marta/rail/gaps.js` — rail gap detect→render→post entrypoint. It reads
+  the latest rail observations from `state/marta.sqlite`, detects line/direction
+  gaps from true train positions and line-level scheduled headways, filters
+  cooldown/cap candidates, renders a rail line map, and posts through the rail
+  insights account.
+- `bin/marta/rail/bunching.js` — rail bunching detect→render→post entrypoint.
+  It clusters latest trains by line/direction, applies rail-specific severity
+  semantics (tighter span is worse when train count ties), renders a line map,
+  and posts through the rail insights account.
 - `src/marta/bus/bunchingPost.js` — post text + alt text for bus bunching.
 - `src/marta/bus/gapPost.js` — post text + alt text for bus gaps.
 - `src/marta/bus/{ghostPost,speedmapPost}.js` — post text helpers for ghost
   rollups and speedmaps.
+- `src/marta/rail/post.js` — post text + alt text helpers for rail gaps and
+  rail bunching.
 - `src/marta/bus/stops.js` — stop lookup helpers used by bus bunching maps/posts.
 - `src/marta/map/{common,busBunching,busGap,busSpeedmap}.js` — Sharp-backed
   static map renderers for bus bunching, bus gap, and speedmap images.
+- `src/marta/map/railIncidents.js` — Sharp-backed rail incident map renderer for
+  rail gaps and bunching.
 - `src/marta/shared/{bluesky,format,incidents,postDetection,runBin,state}.js` —
   first MARTA shared posting/runtime layer: Bluesky login/post helpers,
   cooldown/state storage, bunching + gap + ghost + speedmap event history,
   cap/callout/record logic, meta-signal recording, and bin setup/check/dry-run
   utilities.
-- `cron/marta-crontab.txt` — now schedules all bus post jobs: bunching and gaps
-  every 5 minutes, ghost rollups every 15 minutes, and hourly speedmaps.
-- `test/marta/{bunchingPost,gapPost,busFinalPost}.test.js` — post text, alt
-  text, cooldown/cap/callout/history, and import-smoke coverage for the bus bins.
+- `cron/marta-crontab.txt` — now schedules all bus post jobs plus rail gap and
+  rail bunching jobs.
+- `test/marta/{bunchingPost,gapPost,busFinalPost,railPost}.test.js` — post text,
+  alt text, cooldown/cap/callout/history, and import-smoke coverage for the
+  posting bins.
 
 **Bus detection (Phase 4) is feature-complete: speedmap, gaps, bunching, ghosts**,
 all on the shapes.js `pdist` analog + the schedule index, and the live observe
 loop now feeds `state/marta.sqlite`. **Rail detection (Phase 5) is feature-complete**
 under `src/marta/rail/`. Bus posting parity is complete for speedmaps, gaps,
-bunching, and ghosts.
+bunching, and ghosts. Rail posting has started with gaps and bunching.
 Still CTA-only and pending: official-alert version/state + pairing/export
-(Phase 6), all rail posting/render/video/update flows, exports, and bus
-video/update/close lifecycle refinements.
+(Phase 6), rail ghost/speedmap posting, exports, and bus/rail video/update/close
+lifecycle refinements.
 
 ## knip: the mechanical backstop
 

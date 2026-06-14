@@ -189,18 +189,35 @@ function bunchingCallouts({ kind, route, routeLabel, vehicleCount, severityFt },
   // 3-prior-event minimum keeps cold-start runs from emitting "worst in 0 days."
   const windowDays = 30;
   const windowStart = now - windowDays * DAY_MS;
-  const row = getDb()
-    .prepare(`
-      SELECT MAX(vehicle_count) AS maxVc, MAX(severity_ft) AS maxSpan, COUNT(*) AS c
-      FROM bunching_events
-      WHERE kind = ? AND route = ? AND posted = 1 AND ts >= ? AND ts < ?
-    `)
-    .get(kind, route, windowStart, startOfDay);
-  if (row.c >= 3) {
-    const beatsCount = vehicleCount > row.maxVc;
-    const tiesCountBeatsSpan = vehicleCount === row.maxVc && severityFt > row.maxSpan;
-    if (beatsCount || tiesCountBeatsSpan) {
-      out.push(`worst reported on this route in ${windowDays} days`);
+  if (kind === 'rail') {
+    const row = getDb()
+      .prepare(`
+        SELECT MAX(vehicle_count) AS maxVc, MIN(severity_ft) AS minSpan, COUNT(*) AS c
+        FROM bunching_events
+        WHERE kind = ? AND route = ? AND posted = 1 AND ts >= ? AND ts < ?
+      `)
+      .get(kind, route, windowStart, startOfDay);
+    if (row.c >= 3) {
+      const beatsCount = vehicleCount > row.maxVc;
+      const tiesCountBeatsSpan = vehicleCount === row.maxVc && severityFt < row.minSpan;
+      if (beatsCount || tiesCountBeatsSpan) {
+        out.push(`tightest reported on this line in ${windowDays} days`);
+      }
+    }
+  } else {
+    const row = getDb()
+      .prepare(`
+        SELECT MAX(vehicle_count) AS maxVc, MAX(severity_ft) AS maxSpan, COUNT(*) AS c
+        FROM bunching_events
+        WHERE kind = ? AND route = ? AND posted = 1 AND ts >= ? AND ts < ?
+      `)
+      .get(kind, route, windowStart, startOfDay);
+    if (row.c >= 3) {
+      const beatsCount = vehicleCount > row.maxVc;
+      const tiesCountBeatsSpan = vehicleCount === row.maxVc && severityFt > row.maxSpan;
+      if (beatsCount || tiesCountBeatsSpan) {
+        out.push(`worst reported on this route in ${windowDays} days`);
+      }
     }
   }
   return out;
@@ -419,7 +436,10 @@ function bunchingCapAllows({ kind, route, candidate, cap }, now = Date.now()) {
   if (events.length < cap) return true;
   return events.every((ev) => {
     if (candidate.vehicleCount > ev.vc) return true;
-    if (candidate.vehicleCount === ev.vc && candidate.severityFt > ev.sev) return true;
+    if (candidate.vehicleCount === ev.vc) {
+      if (kind === 'rail') return candidate.severityFt < ev.sev;
+      return candidate.severityFt > ev.sev;
+    }
     return false;
   });
 }
@@ -441,7 +461,10 @@ function bunchingCooldownAllows(
   if (events.length === 0) return true;
   return events.every((ev) => {
     if (candidate.vehicleCount > ev.vc) return true;
-    if (candidate.vehicleCount === ev.vc && candidate.severityFt > ev.sev) return true;
+    if (candidate.vehicleCount === ev.vc) {
+      if (kind === 'rail') return candidate.severityFt < ev.sev;
+      return candidate.severityFt > ev.sev;
+    }
     return false;
   });
 }

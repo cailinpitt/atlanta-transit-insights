@@ -218,6 +218,21 @@ CTA tree keeps working as a reference until each analog is proven. Done so far
   `cron/marta-crontab.txt`, installed safely (marker-merge, never clobbers other
   jobs) via `scripts/marta/install-crontab.sh`. npm: `marta:observe-*`.
 
+### Rail detection (Phase 5) — feature-complete, Path A
+
+- `src/marta/rail/lines.js` — rail `pdist` analog: one representative geometry per
+  line (longest GTFS shape; both directions share track), `projectTrain` reuses
+  `bus/shapes.projectToShape`. Validated live: median ~17 ft offset.
+- `src/marta/rail/trains.js` — `latestTrainPositions` (freshest fix per train,
+  projected), the gaps/bunching substrate.
+- `src/marta/rail/speedmap.js` — **speed reconstructed from position deltas**
+  (rail has no reported speed), grouped by line+direction, 5-bucket train bands.
+  Validated on real server data (RED/S ~35 mph, BLUE/W ~27 mph).
+- `src/marta/rail/{gaps,bunching,ghosts}.js` — spacing-vs-headway, spatial
+  clustering, and observed-vs-scheduled head-count (ghosts reuses the bus engine).
+  These use **line-level** schedule aggregates (`schedule.headwayForLine` /
+  `activeForLine`) to sidestep the feed's N/S/E/W ↔ GTFS direction_id mismatch.
+
 **Bus detection (Phase 4) is feature-complete: speedmap, gaps, bunching, ghosts**,
 all on the shapes.js `pdist` analog + the schedule index, and the live observe
 loop now feeds `state/marta.sqlite`. All four data sources are validated. Still

@@ -151,6 +151,31 @@ function activeTripsForRoute(index, route, direction, now = new Date()) {
   return hourlyLookup(index?.routes?.[route]?.[String(direction)]?.activeByHour, now);
 }
 
+// Line-level aggregates across both directions — used by rail, where the feed's
+// N/S/E/W direction doesn't line up with GTFS direction_id, but headways are ~
+// symmetric. headway = median across the directions; active = sum across them.
+function headwayForLine(index, route, now = new Date()) {
+  const dirs = index?.routes?.[route];
+  if (!dirs) return null;
+  const vals = [];
+  for (const d of Object.values(dirs)) {
+    const v = hourlyLookup(d.headways, now);
+    if (v != null) vals.push(v);
+  }
+  return vals.length ? median(vals) : null;
+}
+
+function activeForLine(index, route, now = new Date()) {
+  const dirs = index?.routes?.[route];
+  if (!dirs) return null;
+  let sum = null;
+  for (const d of Object.values(dirs)) {
+    const v = hourlyLookup(d.activeByHour, now);
+    if (v != null) sum = (sum || 0) + v;
+  }
+  return sum;
+}
+
 module.exports = {
   // pure helpers
   parseGtfsTime,
@@ -167,5 +192,7 @@ module.exports = {
   headwayForRoute,
   tripMinutesForShape,
   activeTripsForRoute,
+  headwayForLine,
+  activeForLine,
   INDEX_PATH,
 };

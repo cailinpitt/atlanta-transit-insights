@@ -5,8 +5,9 @@
 # Install with:   scripts/marta/install-crontab.sh
 # (safe marker-merge — replaces only this block, never your other cron jobs.)
 #
-# Only data-capture + schedule-refresh run here so far; detection/posting/export
-# jobs get added as they land. __REPO__ and __NODE__ are filled in at install.
+# Data-capture, schedule-refresh, and the first detect→post job (bus bunching)
+# run here; remaining detector/posting/export jobs get added as they land.
+# __REPO__ and __NODE__ are filled in at install.
 # Logs go to __REPO__/state/logs/ (gitignored).
 
 # MARTA-INSIGHTS-START
@@ -20,4 +21,8 @@
 */5 * * * * cd __REPO__ && __NODE__ scripts/marta/observe-bus-tripupdates.js >> __REPO__/state/logs/observe-bus-tripupdates.log 2>&1
 # Refresh static GTFS + rebuild the schedule index nightly at 03:30.
 30 3 * * * cd __REPO__ && __NODE__ scripts/marta/fetch-static-gtfs.js && __NODE__ scripts/marta/build-schedule-index.js >> __REPO__/state/logs/gtfs-refresh.log 2>&1
+# Bus bunching detect→post (martainsights). Every 5 min, offset off the observe
+# minutes; reads the latest snapshot the observe loop recorded (no extra fetch).
+# Posting volume is bounded by per-shape+route 1h cooldowns and a 3/route/day cap.
+2-59/5 * * * * cd __REPO__ && __NODE__ bin/marta/bus/bunching.js >> __REPO__/state/logs/bus-bunching.log 2>&1
 # MARTA-INSIGHTS-END

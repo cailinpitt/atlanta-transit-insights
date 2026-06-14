@@ -277,6 +277,21 @@ function getRecentBusObservations(route, sinceTs) {
     .all(String(route), sinceTs);
 }
 
+// All routes, newest-window-first by ts. Feeds the detect→post bins, which
+// reduce to the latest fix per vehicle for detection and keep the full window
+// for parked-bus detection — no extra feed fetch (the observe loop keeps this
+// fresh within 30s).
+function getRecentBusObservationsAll(sinceTs) {
+  return getDb()
+    .prepare(`
+      SELECT ts, route, trip_id AS tripId, vehicle_id AS vehicleId, label, lat, lon, bearing, speed, vehicle_ts AS vehicleTs
+      FROM bus_observations
+      WHERE ts >= ?
+      ORDER BY ts
+    `)
+    .all(sinceTs);
+}
+
 function getRecentRailObservations(line, sinceTs) {
   return getDb()
     .prepare(`
@@ -343,6 +358,7 @@ module.exports = {
   recordRailArrivals,
   recordRailSnapshot,
   getRecentBusObservations,
+  getRecentBusObservationsAll,
   getRecentRailObservations,
   getRailArrivals,
   getSnapshotTimestamps,

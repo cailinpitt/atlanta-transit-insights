@@ -83,9 +83,46 @@ scheduled stop times.
   `arrival.time − arrival.scheduledTime` (positive = late), exposed as
   `scheduleDeviationSec`.
 
+## Rail realtime — `developerservices.itsmarta.com:18096/…/traindata`
+
+Needs `MARTA_TRAIN_KEY` (`apiKey` query param). Returns a flat JSON array, one
+row per **(train → upcoming station)** arrival prediction. Adapter:
+`src/marta/rail/api.js`. Capture: `scripts/marta/capture-rail.js`.
+
+**Feasibility gate result: PATH A — confirmed with TRUE positions.** The plan
+feared station-arrival predictions with no identity or position. Reality is much
+stronger. Two row kinds, split by `IS_REALTIME`:
+
+| | `IS_REALTIME="true"` (tracked) | `IS_REALTIME="false"` (scheduled) |
+|---|---|---|
+| `TRAIN_ID` | real, e.g. `"402"` | **empty** |
+| `LATITUDE`/`LONGITUDE` | **real train position** | **absent** |
+| `DELAY` | signed `T<sec>S` (`T-21S`=21s early, `T0S`=on time) | absent |
+| meaning | a train being tracked live | a future scheduled arrival |
+
+Observed midday: ~330 tracked rows / ~340 scheduled rows, ~43 distinct trains.
+
+What makes Path A work (verified against two snapshots 150s apart):
+
+- **Identity is stable.** 41/43 `TRAIN_ID`s persisted across the gap; the 2 that
+  dropped reached a terminal, 2 new ones were dispatched.
+- **Positions are real and move.** All rows for one train share one lat/lon (it's
+  the *train's* position, not the station's). Between snapshots, 31 trains moved
+  0.4–1.8 mi (≈ plausible inter-station speeds) — so **speed is computable from
+  position deltas**, enabling true rail speedmaps, not just headway maps.
+- **Identity key is `(LINE, DIRECTION, TRAIN_ID)`** — `TRAIN_ID` alone (e.g.
+  `401`/`402`) is reused across lines and directions.
+
+Directions: `N`/`S` (Red, Gold), `E`/`W` (Blue, Green). `EVENT_TIME` is each
+train's last-update wall clock in **America/New_York** (parsed via a DST-correct
+offset inversion, no tz library). `WAITING_SECONDS` is the authoritative
+seconds-to-arrival; `NEXT_ARR` is a redundant local clock string.
+
+Implication: rail can target near-full CTA parity — true speedmaps, gaps,
+bunches, and ghosts (scheduled rows with no materializing train) — rather than
+the plan's honest-fallback "delay/headway map."
+
 ## Not yet validated
 
-- **Rail REST** (`developerservices.itsmarta.com:18096/…`) — needs
-  `MARTA_TRAIN_KEY`; the rail feasibility gate (plan Phase 5).
 - **Official alerts** — no documented stable API; source-adapter spike pending
   (plan Phase 6).

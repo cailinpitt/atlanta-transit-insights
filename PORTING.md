@@ -136,11 +136,21 @@ CTA tree keeps working as a reference until each analog is proven. Done so far
   route-number normalization. First slice of the larger `src/shared/gtfs.js` port.
 - `scripts/marta/{fetch-static-gtfs,capture-bus-vp,capture-bus-tu,build-bus-fixtures}.js`
   — fixture tooling; raw captures land in gitignored `data/marta/`.
+- `src/marta/rail/api.js` — rail `traindata` REST decode+normalize. **Rail
+  feasibility gate (Phase 5) is resolved: PATH A with true positions** — stable
+  `TRAIN_ID` + real lat/lon that move snapshot-to-snapshot. Rail can target
+  near-full CTA parity, not the fallback headway map. This means the CTA Train
+  Tracker reference (`src/train/api.js`, Train Tracker `ttpositions`) is the
+  wrong data model — the MARTA rail adapter is REST station-arrival + position,
+  so port the train *detectors* against `src/marta/rail/api.js`'s shape.
+- `scripts/marta/{capture-rail,build-rail-fixtures}.js` — rail fixture tooling.
 - `test/marta/` + `test/marta/fixtures/` — decode + join validation against real
-  captured feeds. See `docs/MARTA_FEEDS.md` for the validated feed reality.
+  captured feeds (bus + rail). See `docs/MARTA_FEEDS.md` for the validated feed
+  reality and the Path A evidence.
 
-Still CTA-only and pending: bus detectors (`src/bus/*`), rail (gated, Phase 5),
-official alerts (Phase 6), SQLite storage port (Phase 3), exports.
+Still CTA-only and pending: bus detectors (`src/bus/*`), rail detectors
+(`src/train/*`, now unblocked on Path A), official alerts (Phase 6), SQLite
+storage port (Phase 3), exports.
 
 ## knip: the mechanical backstop
 

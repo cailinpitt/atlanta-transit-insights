@@ -206,12 +206,17 @@ CTA tree keeps working as a reference until each analog is proven. Done so far
   Simpler than CTA — trip_id gives direction directly, so no async pid→pattern
   resolution. `ghostsFromObservations` is the bridge. Posting layer not ported.
 
-- `scripts/marta/observe-buses.js` + `observe-rail.js` + `src/marta/observeUtil.js`
+- `scripts/marta/observe-{buses,rail,bus-tripupdates}.js` + `src/marta/observeUtil.js`
   — the live capture loop (analog of CTA `scripts/observeBuses.js`/`observeTrains.js`).
   Poll the feeds, record via the adapters' default record path, rolloff the 7-day
-  window. `runTicks` densifies within a cron firing (rail runs 2 ticks/30s for
-  position-delta speed). Verified end-to-end against live feeds. Cron snippet in
-  `cron/marta-crontab.txt`; npm `marta:observe-buses` / `marta:observe-rail`.
+  window. `runTicks` densifies within a cron firing. **Bus positions and
+  TripUpdates are split into separate jobs on purpose:** positions are ~160
+  rows/fetch and feed every detector, so they run at 30s density (2 ticks/min);
+  TripUpdates are ~14k rows/fetch (one row per trip×upcoming-stop) and no detector
+  reads them yet, so they run every 5 min. Rail runs 2 ticks/30s for
+  position-delta speed. Verified end-to-end against live feeds. Cron block:
+  `cron/marta-crontab.txt`, installed safely (marker-merge, never clobbers other
+  jobs) via `scripts/marta/install-crontab.sh`. npm: `marta:observe-*`.
 
 **Bus detection (Phase 4) is feature-complete: speedmap, gaps, bunching, ghosts**,
 all on the shapes.js `pdist` analog + the schedule index, and the live observe

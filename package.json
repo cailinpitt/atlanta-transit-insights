@@ -22,6 +22,7 @@
     "marta:fetch-gtfs": "node scripts/marta/fetch-static-gtfs.js",
     "marta:build-schedule-index": "node scripts/marta/build-schedule-index.js",
     "marta:observe-buses": "node scripts/marta/observe-buses.js",
+    "marta:observe-bus-tripupdates": "node scripts/marta/observe-bus-tripupdates.js",
     "marta:observe-rail": "node scripts/marta/observe-rail.js",
     "fetch-metra-gtfs": "node scripts/fetch-metra-gtfs.js",
     "observe-metra": "node scripts/observeMetra.js",

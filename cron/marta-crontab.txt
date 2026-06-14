@@ -1,29 +1,23 @@
 # ============================================================================
-# MARTA-INSIGHTS observe jobs (data capture).
+# MARTA-INSIGHTS cron block — the jobs that work TODAY.
 # ============================================================================
 #
-# These keep the history DB (state/marta.sqlite) fed so the detectors always
-# have a consistent stream to read, independent of when detection/posting runs.
-# This file is a SNIPPET — the bus/rail observers only. Detection + posting +
-# export jobs get added here as those land (Phase 7/9). The CTA install
-# procedure in cron/crontab.txt applies; substitute the repo path placeholder.
+# Install with:   scripts/marta/install-crontab.sh
+# (safe marker-merge — replaces only this block, never your other cron jobs.)
 #
-# Cadence rationale:
-#   bus  — every 5 min. One GTFS-rt fetch covers the whole system; gives ~12
-#          snapshots/hour, enough for ghost density + fresh gaps/bunching.
-#   rail — every minute, 2 ticks 30s apart (MARTA_OBSERVE_RAIL_TICKS=2). Rail
-#          speed is reconstructed from position deltas, so it needs closely
-#          spaced snapshots.
-#
-# Wrap each line with the healthcheck ping pattern (see cron/crontab.txt
-# cron-run.sh) once Healthchecks slugs exist:
-#   marta-observe-buses, marta-observe-rail
-#
-# Replace /path/to/atlanta-transit-insights with $(pwd) at install time.
+# Only data-capture + schedule-refresh run here so far; detection/posting/export
+# jobs get added as they land. __REPO__ and __NODE__ are filled in at install.
+# Logs go to __REPO__/state/logs/ (gitignored).
 
 # MARTA-INSIGHTS-START
-R=/path/to/atlanta-transit-insights
-
-*/5 * * * * cd $R && /usr/bin/env node scripts/marta/observe-buses.js >> /tmp/marta-observe-buses.log 2>&1
-*   * * * * cd $R && /usr/bin/env node scripts/marta/observe-rail.js  >> /tmp/marta-observe-rail.log 2>&1
+# Bus positions: every minute, 2 ticks 30s apart → 30s density (feeds every bus
+# detector). Cheap (~160 rows/fetch).
+* * * * * cd __REPO__ && __NODE__ scripts/marta/observe-buses.js >> __REPO__/state/logs/observe-buses.log 2>&1
+# Rail (trains + arrivals): every minute, 2 ticks 30s apart for position-delta speed.
+* * * * * cd __REPO__ && __NODE__ scripts/marta/observe-rail.js >> __REPO__/state/logs/observe-rail.log 2>&1
+# Bus TripUpdates: every 5 min — ~14k rows/fetch and unused by detectors yet, so
+# kept off the 30s path (adherence/prediction substrate for later).
+*/5 * * * * cd __REPO__ && __NODE__ scripts/marta/observe-bus-tripupdates.js >> __REPO__/state/logs/observe-bus-tripupdates.log 2>&1
+# Refresh static GTFS + rebuild the schedule index nightly at 03:30.
+30 3 * * * cd __REPO__ && __NODE__ scripts/marta/fetch-static-gtfs.js && __NODE__ scripts/marta/build-schedule-index.js >> __REPO__/state/logs/gtfs-refresh.log 2>&1
 # MARTA-INSIGHTS-END

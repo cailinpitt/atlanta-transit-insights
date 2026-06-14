@@ -39,4 +39,8 @@
 # Rail ghost rollup and speedmap rotation (martainsights).
 10-59/15 * * * * cd __REPO__ && __NODE__ bin/marta/rail/ghosts.js >> __REPO__/state/logs/rail-ghosts.log 2>&1
 17 * * * * cd __REPO__ && __NODE__ bin/marta/rail/speedmap.js >> __REPO__/state/logs/rail-speedmap.log 2>&1
+# Rail system timelapse (martatraininsights). Every 3 hours; reads the last 15 min
+# of stored rail observations (no extra fetch) and posts a smooth, interpolated
+# system-wide clip of every train in service.
+25 */3 * * * cd __REPO__ && __NODE__ bin/marta/rail/timelapse.js >> __REPO__/state/logs/rail-timelapse.log 2>&1
 # MARTA-INSIGHTS-END

@@ -1,4 +1,4 @@
-const { projectObservation } = require('./shapes');
+const { projectObservation, pointAlongShape } = require('./shapes');
 const { assignBusNumbers } = require('./bunching');
 const {
   computeBunchingView,
@@ -7,6 +7,7 @@ const {
 } = require('../map/busBunching');
 const { computeGapView, fetchGapBaseMap, renderGapFrame } = require('../map/busGap');
 const { encodeFrames } = require('../shared/video');
+const { buildSmoothFrames, snapshotsByTimestamp } = require('../shared/smoothFrames');
 
 const VIDEO_WINDOW_MS = 10 * 60 * 1000;
 
@@ -32,15 +33,6 @@ function enrichRows(rows, { gtfs, shapes, shapeId, vehicleIds }) {
   return out.sort((a, b) => a.ts - b.ts);
 }
 
-function framesByTimestamp(rows) {
-  const byTs = new Map();
-  for (const row of rows) {
-    if (!byTs.has(row.ts)) byTs.set(row.ts, []);
-    byTs.get(row.ts).push(row);
-  }
-  return [...byTs.entries()].sort((a, b) => a[0] - b[0]);
-}
-
 async function captureBusBunchingHistoryVideo(bunch, shape, rows, opts = {}) {
   const ids = bunch.vehicles.map((v) => v.vehicleId);
   const enriched = enrichRows(rows, {
@@ -49,22 +41,27 @@ async function captureBusBunchingHistoryVideo(bunch, shape, rows, opts = {}) {
     shapeId: bunch.shapeId,
     vehicleIds: ids,
   });
-  const frames = framesByTimestamp(enriched).filter(([, vehicles]) => vehicles.length > 0);
-  if (frames.length < 2) return null;
+  const snapshots = snapshotsByTimestamp(enriched).filter((s) => s.vehicles.length > 0);
+  if (snapshots.length < 2) return null;
 
   const extra = enriched.map((v) => ({ lat: v.lat, lon: v.lon }));
   const view = computeBunchingView(bunch, shape, extra);
   const baseMap = await fetchBunchingBaseMap(view);
   const labels = assignBusNumbers(bunch.vehicles);
+  const frames = buildSmoothFrames(snapshots, {
+    idOf: (v) => v.vehicleId,
+    trackOf: (v) => v.distFt,
+    pointAlong: (track) => pointAlongShape(shape, track),
+  });
   const images = [];
-  for (const [, vehicles] of frames) {
+  for (const vehicles of frames) {
     images.push(await renderBunchingFrame(view, baseMap, vehicles, opts.stops || [], { labels }));
   }
   const buffer = await encodeFrames(images, { prefix: 'marta-bus-bunching' });
   if (!buffer) return null;
   return {
     buffer,
-    elapsedSec: Math.round((frames.at(-1)[0] - frames[0][0]) / 1000),
+    elapsedSec: Math.round((snapshots.at(-1).ts - snapshots[0].ts) / 1000),
     frameCount: frames.length,
   };
 }
@@ -79,14 +76,19 @@ async function captureBusGapHistoryVideo(gap, shape, rows, opts = {}) {
     shapeId: gap.shapeId,
     vehicleIds: [leadingId, trailingId],
   });
-  const frames = framesByTimestamp(enriched).filter(([, vehicles]) => vehicles.length > 0);
-  if (frames.length < 2) return null;
+  const snapshots = snapshotsByTimestamp(enriched).filter((s) => s.vehicles.length > 0);
+  if (snapshots.length < 2) return null;
 
   const extra = enriched.map((v) => ({ lat: v.lat, lon: v.lon }));
   const view = computeGapView(gap, shape, extra);
   const baseMap = await fetchGapBaseMap(view);
+  const frames = buildSmoothFrames(snapshots, {
+    idOf: (v) => v.vehicleId,
+    trackOf: (v) => v.distFt,
+    pointAlong: (track) => pointAlongShape(shape, track),
+  });
   const images = [];
-  for (const [, vehicles] of frames) {
+  for (const vehicles of frames) {
     const byId = new Map(vehicles.map((v) => [String(v.vehicleId), v]));
     images.push(
       await renderGapFrame(
@@ -105,7 +107,7 @@ async function captureBusGapHistoryVideo(gap, shape, rows, opts = {}) {
   if (!buffer) return null;
   return {
     buffer,
-    elapsedSec: Math.round((frames.at(-1)[0] - frames[0][0]) / 1000),
+    elapsedSec: Math.round((snapshots.at(-1).ts - snapshots[0].ts) / 1000),
     frameCount: frames.length,
   };
 }

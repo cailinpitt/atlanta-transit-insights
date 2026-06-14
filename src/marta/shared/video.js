@@ -8,7 +8,7 @@ const execFileP = promisify(execFile);
 
 async function encodeFrames(
   frames,
-  { prefix = 'marta-video', framerate = 6, holdSeconds = 1 } = {},
+  { prefix = 'marta-video', framerate = 16, holdSeconds = 1 } = {},
 ) {
   if (!frames || frames.length < 2) return null;
   const tmpDir = await Fs.mkdtemp(Path.join(Os.tmpdir(), `${prefix}-`));

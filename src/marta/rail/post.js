@@ -111,6 +111,33 @@ function buildSpeedmapAltText(line, direction, summary, terminus = null) {
   return `Speedmap of the ${lineTitle(line)}${suffix} over a one-hour window, with line segments colored by average train speed. Overall average: ${avg}. Red segments indicate trains under 15 mph, orange under 25, yellow under 35, purple under 45, green 45 and above.`;
 }
 
+// Display order + names for the system-wide breakdown.
+const ALL_LINES = ['RED', 'GOLD', 'BLUE', 'GREEN'];
+const LINE_NAMES = { RED: 'Red', GOLD: 'Gold', BLUE: 'Blue', GREEN: 'Green' };
+
+function countByLine(trains) {
+  const byLine = new Map();
+  for (const t of trains) byLine.set(t.line, (byLine.get(t.line) || 0) + 1);
+  return byLine;
+}
+
+function buildTimelapsePostText(meta) {
+  const trains = meta.allTrains || meta.finalTrains || [];
+  const windowMin = Math.max(1, Math.round(meta.elapsedSec / 60));
+  const byLine = countByLine(trains);
+  const parts = ALL_LINES.map((l) => `${LINE_NAMES[l]} ${byLine.get(l) || 0}`);
+  const window = `${formatTimeET(new Date(meta.startTs))}-${formatTimeET(new Date(meta.endTs))} ET`;
+  return `🚆 MARTA Rail · ${windowMin}-min timelapse\n${window} · ${trains.length} trains\n\n${parts.join(' · ')}`;
+}
+
+function buildTimelapseAltText(meta) {
+  const trains = meta.allTrains || meta.finalTrains || [];
+  const windowMin = Math.max(1, Math.round(meta.elapsedSec / 60));
+  const byLine = countByLine(trains);
+  const summary = ALL_LINES.map((l) => `${byLine.get(l) || 0} ${LINE_NAMES[l]}`).join(', ');
+  return `${windowMin}-minute timelapse of MARTA rail movement across metro Atlanta, colored by line. ${trains.length} trains appeared during the window: ${summary}.`;
+}
+
 function formatGhostLine(event) {
   const observed = event.observedDisplay != null ? event.observedDisplay : event.observedActive;
   const { expectedShown, missingShown, pct, headwayPhrase } = describeGhost({
@@ -135,5 +162,7 @@ module.exports = {
   buildGapVideoAltText,
   buildSpeedmapPostText,
   buildSpeedmapAltText,
+  buildTimelapsePostText,
+  buildTimelapseAltText,
   formatGhostLine,
 };

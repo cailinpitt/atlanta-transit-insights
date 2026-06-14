@@ -1,6 +1,8 @@
 const { projectTrain } = require('./lines');
+const { pointAlongShape } = require('../bus/shapes');
 const { viewFor, gapViewFor, fetchBaseMap, renderRailFrame } = require('../map/railIncidents');
 const { encodeFrames } = require('../shared/video');
+const { buildSmoothFrames, snapshotsByTimestamp } = require('../shared/smoothFrames');
 
 const VIDEO_WINDOW_MS = 10 * 60 * 1000;
 
@@ -18,15 +20,6 @@ function enrichRows(rows, { lineGeom, line, direction, trainIds }) {
   return out.sort((a, b) => a.ts - b.ts);
 }
 
-function framesByTimestamp(rows) {
-  const byTs = new Map();
-  for (const row of rows) {
-    if (!byTs.has(row.ts)) byTs.set(row.ts, []);
-    byTs.get(row.ts).push(row);
-  }
-  return [...byTs.entries()].sort((a, b) => a[0] - b[0]);
-}
-
 async function captureRailBunchingHistoryVideo(bunch, line, rows, opts = {}) {
   const ids = bunch.trains.map((t) => t.trainId);
   const enriched = enrichRows(rows, {
@@ -35,22 +28,28 @@ async function captureRailBunchingHistoryVideo(bunch, line, rows, opts = {}) {
     direction: bunch.direction,
     trainIds: ids,
   });
-  const frames = framesByTimestamp(enriched).filter(([, trains]) => trains.length > 0);
-  if (frames.length < 2) return null;
+  const snapshots = snapshotsByTimestamp(enriched).filter((s) => s.vehicles.length > 0);
+  if (snapshots.length < 2) return null;
 
   const lo = Math.min(...enriched.map((t) => t.distFt)) - 3500;
   const hi = Math.max(...enriched.map((t) => t.distFt)) + 3500;
   const view = viewFor(line, enriched, { loFt: lo, hiFt: hi });
   const baseMap = await fetchBaseMap(view);
+
+  const frames = buildSmoothFrames(snapshots, {
+    idOf: (t) => t.trainId,
+    trackOf: (t) => t.distFt,
+    pointAlong: (track) => pointAlongShape(line, track),
+  });
   const images = [];
-  for (const [, trains] of frames) {
+  for (const trains of frames) {
     images.push(await renderRailFrame(view, baseMap, trains, { labels: opts.labels }));
   }
   const buffer = await encodeFrames(images, { prefix: 'marta-rail-bunching' });
   if (!buffer) return null;
   return {
     buffer,
-    elapsedSec: Math.round((frames.at(-1)[0] - frames[0][0]) / 1000),
+    elapsedSec: Math.round((snapshots.at(-1).ts - snapshots[0].ts) / 1000),
     frameCount: frames.length,
   };
 }
@@ -65,15 +64,21 @@ async function captureRailGapHistoryVideo(gap, line, rows, opts = {}) {
     direction: gap.direction,
     trainIds: [leadingId, trailingId],
   });
-  const frames = framesByTimestamp(enriched).filter(([, trains]) => trains.length > 0);
-  if (frames.length < 2) return null;
+  const snapshots = snapshotsByTimestamp(enriched).filter((s) => s.vehicles.length > 0);
+  if (snapshots.length < 2) return null;
 
   // Dash the gap stretch (same framing as the still) so the timelapse reads as a
   // hole in service the flanking trains are moving around. Base map fetched once.
   const view = gapViewFor(line, gap);
   const baseMap = await fetchBaseMap(view);
+
+  const frames = buildSmoothFrames(snapshots, {
+    idOf: (t) => t.trainId,
+    trackOf: (t) => t.distFt,
+    pointAlong: (track) => pointAlongShape(line, track),
+  });
   const images = [];
-  for (const [, trains] of frames) {
+  for (const trains of frames) {
     const byId = new Map(trains.map((t) => [String(t.trainId), t]));
     images.push(
       await renderRailFrame(view, baseMap, [
@@ -86,7 +91,7 @@ async function captureRailGapHistoryVideo(gap, line, rows, opts = {}) {
   if (!buffer) return null;
   return {
     buffer,
-    elapsedSec: Math.round((frames.at(-1)[0] - frames[0][0]) / 1000),
+    elapsedSec: Math.round((snapshots.at(-1).ts - snapshots[0].ts) / 1000),
     frameCount: frames.length,
   };
 }

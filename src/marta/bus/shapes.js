@@ -84,6 +84,31 @@ function projectToShape(shape, lat, lon) {
   return best;
 }
 
+// Inverse of projectToShape: map an along-shape distance (feet) back to a
+// { lat, lon } on the polyline. Used by the video interpolator to glide a
+// vehicle along the route between observed positions instead of cutting the
+// corner with a straight lat/lon lerp. Clamps at both ends. Works for any
+// { points: [{lat,lon,distFt}], lengthFt } record — bus shapes and rail lines.
+function pointAlongShape(shape, distFt) {
+  const pts = shape?.points;
+  if (!pts || pts.length === 0) return null;
+  if (pts.length === 1 || distFt <= pts[0].distFt) return { lat: pts[0].lat, lon: pts[0].lon };
+  const last = pts[pts.length - 1];
+  if (distFt >= last.distFt) return { lat: last.lat, lon: last.lon };
+  let lo = 0;
+  let hi = pts.length - 1;
+  while (hi - lo > 1) {
+    const mid = (lo + hi) >> 1;
+    if (pts[mid].distFt <= distFt) lo = mid;
+    else hi = mid;
+  }
+  const a = pts[lo];
+  const b = pts[hi];
+  const span = b.distFt - a.distFt;
+  const f = span > 0 ? (distFt - a.distFt) / span : 0;
+  return { lat: a.lat + (b.lat - a.lat) * f, lon: a.lon + (b.lon - a.lon) * f };
+}
+
 // Resolve the GTFS shape a trip runs, via trips.txt. Returns the shape record or
 // null (trip missing, or its shape absent from shapes.txt).
 function shapeForTrip(gtfs, shapes, tripId) {
@@ -109,6 +134,7 @@ function projectObservation(obs, { gtfs, shapes, maxOffrouteFt = MAX_OFFROUTE_FT
 module.exports = {
   loadShapes,
   projectToShape,
+  pointAlongShape,
   shapeForTrip,
   projectObservation,
   MAX_OFFROUTE_FT,

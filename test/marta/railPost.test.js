@@ -163,6 +163,7 @@ test('rail bins --check resolve imports', () => {
     'bin/marta/rail/bunching.js',
     'bin/marta/rail/ghosts.js',
     'bin/marta/rail/speedmap.js',
+    'bin/marta/rail/timelapse.js',
   ]) {
     const bin = Path.join(__dirname, '..', '..', rel);
     const res = spawnSync(process.execPath, [bin, '--check'], { encoding: 'utf8' });

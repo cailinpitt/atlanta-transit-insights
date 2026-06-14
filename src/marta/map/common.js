@@ -219,6 +219,17 @@ function perpendicularFromBearing(bearingDeg) {
   return { x: Math.cos(rad), y: Math.sin(rad) };
 }
 
+function thinPolylinePoints(points, maxPoints = 120) {
+  if (!Array.isArray(points) || points.length <= maxPoints) return points || [];
+  if (maxPoints < 2) return points.slice(0, 1);
+  const out = [];
+  const last = points.length - 1;
+  for (let i = 0; i < maxPoints; i++) {
+    out.push(points[Math.round((i * last) / (maxPoints - 1))]);
+  }
+  return out;
+}
+
 // Compute a title pill width and font size that fits within `maxPillWidth`,
 // shrinking the font when the rendered text would overflow.
 async function fitTitlePill(text, baseFontSize, maxPillWidth, { padding = 48 } = {}) {
@@ -345,6 +356,7 @@ module.exports = {
   fetchMapboxStatic,
   separateMarkers,
   perpendicularFromBearing,
+  thinPolylinePoints,
   measureTextWidth,
   fitTitlePill,
   bboxOf,

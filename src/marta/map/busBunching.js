@@ -28,6 +28,7 @@ const {
   fetchMapboxStatic,
   separateMarkers,
   perpendicularFromBearing,
+  thinPolylinePoints,
 } = require('./common');
 
 const BUS_COLOR = 'ff2a6d'; // hot pink/red reads well on dark
@@ -65,7 +66,8 @@ function sliceShapeAroundBunch(shape, bunch) {
 // origin/terminal points.
 function computeBunchingView(bunch, shape) {
   const slice = sliceShapeAroundBunch(shape, bunch);
-  const encoded = encodeURIComponent(encode(shape.points.map((p) => [p.lat, p.lon])));
+  const routePoints = thinPolylinePoints(slice).map((p) => [p.lat, p.lon]);
+  const encoded = encodeURIComponent(encode(routePoints));
   const overlays = [
     `path-${ROUTE_HALO_STROKE}+${ROUTE_HALO_COLOR}(${encoded})`,
     `path-${ROUTE_CORE_STROKE}+${ROUTE_CORE_COLOR}(${encoded})`,

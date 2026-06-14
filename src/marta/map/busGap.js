@@ -23,6 +23,7 @@ const {
   fetchMapboxStatic,
   separateMarkers,
   perpendicularFromBearing,
+  thinPolylinePoints,
 } = require('./common');
 
 const LAST_SEEN_COLOR = '8884ff';
@@ -53,7 +54,8 @@ function sliceShapeAroundGap(shape, gap) {
 
 function computeGapView(gap, shape, stops = []) {
   const slice = sliceShapeAroundGap(shape, gap);
-  const encoded = encodeURIComponent(encode(shape.points.map((p) => [p.lat, p.lon])));
+  const routePoints = thinPolylinePoints(slice).map((p) => [p.lat, p.lon]);
+  const encoded = encodeURIComponent(encode(routePoints));
   const overlays = [
     `path-${ROUTE_HALO_STROKE}+${ROUTE_HALO_COLOR}(${encoded})`,
     `path-${ROUTE_CORE_STROKE}+${ROUTE_CORE_COLOR}(${encoded})`,

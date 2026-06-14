@@ -122,7 +122,27 @@ Implication: rail can target near-full CTA parity — true speedmaps, gaps,
 bunches, and ghosts (scheduled rows with no materializing train) — rather than
 the plan's honest-fallback "delay/headway map."
 
+## Official alerts — `gtfs-rt.itsmarta.com/…/alert/alerts.pb`
+
+**No scraper needed.** Despite the plan's worry about "no documented stable
+official-alert API," MARTA publishes alerts as a standard **GTFS-rt v2.0
+ServiceAlerts** protobuf at the same host as the bus feeds, public and
+unauthenticated. Adapter: `src/marta/alert/api.js`; capture:
+`scripts/marta/capture-alerts.js`.
+
+- `FULL_DATASET` each poll → an alert vanishing from the feed = cleared.
+- Each entity: stable `id`, `cause`, `effect`, `informedEntity[]`
+  (route/stop/trip/agency), header/description/url `TranslatedString`s,
+  `activePeriod[]`. Parsed by `parseAlert` (mirrors the Metra alert parser).
+- The feed was **empty at first discovery** (no active alerts), so:
+  - `test/marta/fixtures/service-alerts-empty.pb` is a real empty capture.
+  - `test/marta/fixtures/service-alerts-synthetic.pb` is **synthetic** (we encode
+    it) to exercise the parser — replace with a trimmed real capture once one is
+    caught.
+  - **Open question:** whether `informedEntity.routeId` is the public route
+    number (like the bus realtime feed) or the internal GTFS `route_id`, and the
+    form of rail line ids. Resolve when a real alert is captured.
+
 ## Not yet validated
 
-- **Official alerts** — no documented stable API; source-adapter spike pending
-  (plan Phase 6).
+- `informedEntity.routeId` form in official alerts (needs a live alert).

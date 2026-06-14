@@ -144,13 +144,21 @@ CTA tree keeps working as a reference until each analog is proven. Done so far
   wrong data model — the MARTA rail adapter is REST station-arrival + position,
   so port the train *detectors* against `src/marta/rail/api.js`'s shape.
 - `scripts/marta/{capture-rail,build-rail-fixtures}.js` — rail fixture tooling.
+- `src/marta/alert/api.js` — official alerts. **Discovery: MARTA alerts are
+  GTFS-rt ServiceAlerts** (`…/alert/alerts.pb`), not a scraper — so `ctaAlerts.js`
+  (the XML CTA Tracker alerts adapter) has **no analog to port**, it's a straight
+  DELETE; the MARTA replacement is this GTFS-rt parser (mirrors Metra's). Live
+  feed was empty at discovery, so the fixture is synthetic + a real empty capture
+  until a genuine alert is caught.
+- `scripts/marta/{capture-alerts,build-alert-fixtures}.js` — alert fixture tooling.
 - `test/marta/` + `test/marta/fixtures/` — decode + join validation against real
-  captured feeds (bus + rail). See `docs/MARTA_FEEDS.md` for the validated feed
-  reality and the Path A evidence.
+  captured feeds (bus + rail + alerts). See `docs/MARTA_FEEDS.md` for the
+  validated feed reality and the Path A evidence.
 
-Still CTA-only and pending: bus detectors (`src/bus/*`), rail detectors
-(`src/train/*`, now unblocked on Path A), official alerts (Phase 6), SQLite
-storage port (Phase 3), exports.
+All four data sources are now validated (static GTFS, bus GTFS-rt, rail REST,
+official alerts). Still CTA-only and pending: bus detectors (`src/bus/*`), rail
+detectors (`src/train/*`, unblocked on Path A), alert pairing/lifecycle
+(Phase 6), SQLite storage port (Phase 3), exports.
 
 ## knip: the mechanical backstop
 

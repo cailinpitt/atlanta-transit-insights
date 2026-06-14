@@ -15,6 +15,8 @@ const ROUTE_HALO_COLOR = '000';
 const ROUTE_HALO_STROKE = 14;
 const ROUTE_CORE_COLOR = '00d8ff';
 const ROUTE_CORE_STROKE = 8;
+const SPEEDMAP_SEGMENT_STROKE = 8;
+const SPEEDMAP_HALO_STROKE = 12;
 
 // SVG path so cross-host rendering is identical (librsvg font fallback differs
 // between macOS Helvetica and Ubuntu DejaVu, which warped the Unicode arrow).
@@ -282,6 +284,40 @@ function paddedBbox(bbox, fracMargin, minSpanDeg) {
   };
 }
 
+function sliceIntoSegments(points, cumDist, numBins) {
+  const total = cumDist[cumDist.length - 1];
+  const segLen = total / numBins;
+
+  function pointAt(targetDist) {
+    if (targetDist <= cumDist[0]) return points[0];
+    if (targetDist >= cumDist[cumDist.length - 1]) return points[points.length - 1];
+    let lo = 0;
+    let hi = cumDist.length - 1;
+    while (hi - lo > 1) {
+      const mid = (lo + hi) >> 1;
+      if (cumDist[mid] <= targetDist) lo = mid;
+      else hi = mid;
+    }
+    const span = cumDist[hi] - cumDist[lo];
+    const t = span === 0 ? 0 : (targetDist - cumDist[lo]) / span;
+    const a = points[lo];
+    const b = points[hi];
+    return { lat: a.lat + t * (b.lat - a.lat), lon: a.lon + t * (b.lon - a.lon) };
+  }
+
+  const slices = Array.from({ length: numBins }, () => []);
+  for (let i = 0; i < numBins; i++) {
+    const startDist = i * segLen;
+    const endDist = i === numBins - 1 ? total : (i + 1) * segLen;
+    slices[i].push(pointAt(startDist));
+    for (let j = 0; j < points.length; j++) {
+      if (cumDist[j] > startDist && cumDist[j] < endDist) slices[i].push(points[j]);
+    }
+    slices[i].push(pointAt(endDist));
+  }
+  return slices;
+}
+
 module.exports = {
   STYLE,
   WIDTH,
@@ -290,6 +326,8 @@ module.exports = {
   ROUTE_HALO_STROKE,
   ROUTE_CORE_COLOR,
   ROUTE_CORE_STROKE,
+  SPEEDMAP_SEGMENT_STROKE,
+  SPEEDMAP_HALO_STROKE,
   ARROW_PATH_D,
   buildDirectionArrow,
   TWEMOJI_BUS_INNER,
@@ -311,4 +349,5 @@ module.exports = {
   fitTitlePill,
   bboxOf,
   paddedBbox,
+  sliceIntoSegments,
 };

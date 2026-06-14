@@ -59,6 +59,40 @@ function getDb() {
       CREATE INDEX IF NOT EXISTS idx_gap_kind_route_ts
         ON gap_events(kind, route, ts);
 
+      CREATE TABLE IF NOT EXISTS ghost_events (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        ts INTEGER NOT NULL,
+        kind TEXT NOT NULL,
+        route TEXT NOT NULL,
+        direction TEXT,
+        observed REAL,
+        expected REAL,
+        missing REAL,
+        post_uri TEXT
+      );
+      CREATE INDEX IF NOT EXISTS idx_ghost_events_kind_route_ts
+        ON ghost_events(kind, route, ts);
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_ghost_events_route_post_uri
+        ON ghost_events(route, post_uri);
+
+      CREATE TABLE IF NOT EXISTS speedmap_runs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        ts INTEGER NOT NULL,
+        kind TEXT NOT NULL,
+        route TEXT NOT NULL,
+        direction TEXT,
+        avg_mph REAL,
+        pct_red REAL NOT NULL DEFAULT 0,
+        pct_orange REAL NOT NULL DEFAULT 0,
+        pct_yellow REAL NOT NULL DEFAULT 0,
+        pct_green REAL NOT NULL DEFAULT 0,
+        bin_speeds_json TEXT,
+        posted INTEGER NOT NULL DEFAULT 0,
+        post_uri TEXT
+      );
+      CREATE INDEX IF NOT EXISTS idx_speedmap_kind_route_ts
+        ON speedmap_runs(kind, route, ts);
+
       CREATE TABLE IF NOT EXISTS cooldowns (
         key TEXT PRIMARY KEY,
         ts INTEGER NOT NULL,
@@ -263,6 +297,103 @@ function gapCooldownAllows(
   return events.every((ev) => candidate.ratio >= ev.ratio * 1.25);
 }
 
+function recordGhostEvent({ kind, route, direction, observed, expected, missing, postUri, ts }) {
+  getDb()
+    .prepare(`
+      INSERT OR IGNORE INTO ghost_events
+        (ts, kind, route, direction, observed, expected, missing, post_uri)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `)
+    .run(
+      ts || Date.now(),
+      kind,
+      String(route),
+      direction || null,
+      observed ?? null,
+      expected ?? null,
+      missing ?? null,
+      postUri,
+    );
+}
+
+function recordSpeedmap(
+  {
+    kind,
+    route,
+    direction,
+    avgMph,
+    pctRed,
+    pctOrange,
+    pctYellow,
+    pctGreen,
+    binSpeeds,
+    posted,
+    postUri,
+  },
+  now = Date.now(),
+) {
+  getDb()
+    .prepare(`
+      INSERT INTO speedmap_runs
+        (ts, kind, route, direction, avg_mph, pct_red, pct_orange, pct_yellow, pct_green, bin_speeds_json, posted, post_uri)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `)
+    .run(
+      now,
+      kind,
+      String(route),
+      direction || null,
+      avgMph == null ? null : avgMph,
+      pctRed || 0,
+      pctOrange || 0,
+      pctYellow || 0,
+      pctGreen || 0,
+      JSON.stringify(binSpeeds || []),
+      posted ? 1 : 0,
+      postUri || null,
+    );
+}
+
+function speedmapCallouts({ kind, route, avgMph }, now = Date.now()) {
+  if (avgMph == null) return [];
+  const out = [];
+  const windowDays = 14;
+  const row = getDb()
+    .prepare(`
+      SELECT MIN(avg_mph) AS minAvg, MAX(avg_mph) AS maxAvg, COUNT(*) AS c
+      FROM speedmap_runs
+      WHERE kind = ? AND route = ? AND posted = 1 AND avg_mph IS NOT NULL AND ts >= ?
+    `)
+    .get(kind, String(route), now - windowDays * DAY_MS);
+  if (row.c < 3) return out;
+  if (avgMph < row.minAvg) out.push(`slowest reported in ${windowDays} days`);
+  else if (avgMph > row.maxAvg) out.push(`fastest reported in ${windowDays} days`);
+  return out;
+}
+
+function leastRecentlyPostedSpeedmapRoute(kind, candidates) {
+  if (!candidates || candidates.length === 0) return null;
+  const rows = getDb()
+    .prepare(`
+      SELECT route, MAX(ts) AS lastTs
+      FROM speedmap_runs
+      WHERE kind = ? AND posted = 1
+      GROUP BY route
+    `)
+    .all(kind);
+  const lastTsByRoute = new Map(rows.map((r) => [String(r.route), r.lastTs]));
+  let best = null;
+  let bestTs = Infinity;
+  for (const route of candidates.map(String)) {
+    const ts = lastTsByRoute.has(route) ? lastTsByRoute.get(route) : -Infinity;
+    if (ts < bestTs) {
+      bestTs = ts;
+      best = route;
+    }
+  }
+  return best;
+}
+
 // Highest vehicle_count ever posted for `kind` (across all routes). Powers the
 // 🥇 medal in the post text. Callers compare BEFORE recording, so the candidate
 // isn't yet in the result.
@@ -358,6 +489,10 @@ module.exports = {
   gapCallouts,
   gapCapAllows,
   gapCooldownAllows,
+  recordGhostEvent,
+  recordSpeedmap,
+  speedmapCallouts,
+  leastRecentlyPostedSpeedmapRoute,
   previousMaxBunchingVehicleCount,
   bunchingCapAllows,
   bunchingCooldownAllows,

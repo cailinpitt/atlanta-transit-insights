@@ -39,6 +39,7 @@
     "marta:rail-ghosts:dry": "node bin/marta/rail/ghosts.js --dry-run",
     "marta:rail-speedmap": "node bin/marta/rail/speedmap.js",
     "marta:rail-speedmap:dry": "node bin/marta/rail/speedmap.js --dry-run",
+    "marta:export-web": "node bin/marta/export-web.js",
     "fetch-metra-gtfs": "node scripts/fetch-metra-gtfs.js",
     "observe-metra": "node scripts/observeMetra.js",
     "capture-metra-cancellation": "node scripts/capture-metra-cancellation.js",

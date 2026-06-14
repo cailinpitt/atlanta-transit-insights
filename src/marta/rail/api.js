@@ -158,7 +158,9 @@ function parseTrainData(rows, polledAt = Date.now()) {
   };
 }
 
-async function fetchTrainData() {
+// Record to the MARTA history DB by default; { record: false } for diagnostic
+// fetches. storage is required lazily so the pure-parser path stays DB-free.
+async function fetchTrainData({ record = true } = {}) {
   if (!process.env.MARTA_TRAIN_KEY) throw new Error('MARTA_TRAIN_KEY is not set');
   const polledAt = Date.now();
   const { data } = await withRetry(
@@ -169,7 +171,9 @@ async function fetchTrainData() {
       }),
     { label: 'MARTA rail traindata' },
   );
-  return parseTrainData(data, polledAt);
+  const parsed = parseTrainData(data, polledAt);
+  if (record) require('../storage').recordRailSnapshot(parsed, polledAt);
+  return parsed;
 }
 
 module.exports = {

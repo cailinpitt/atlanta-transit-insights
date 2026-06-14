@@ -155,10 +155,21 @@ CTA tree keeps working as a reference until each analog is proven. Done so far
   captured feeds (bus + rail + alerts). See `docs/MARTA_FEEDS.md` for the
   validated feed reality and the Path A evidence.
 
-All four data sources are now validated (static GTFS, bus GTFS-rt, rail REST,
-official alerts). Still CTA-only and pending: bus detectors (`src/bus/*`), rail
-detectors (`src/train/*`, unblocked on Path A), alert pairing/lifecycle
-(Phase 6), SQLite storage port (Phase 3), exports.
+- `src/marta/storage.js` — SQLite observation history (Phase 3): `bus_observations`,
+  `bus_trip_updates`, `rail_observations`, `rail_arrivals`. **Analog of the CTA
+  `src/shared/observations.js` + the `observations`/`metra_trip_updates` tables in
+  `src/shared/history.js`** — MARTA bus is GTFS-rt (trip_id + speed, no pdist/pid)
+  and rail carries positions AND station predictions, so the CTA `observations`
+  schema doesn't fit; this is a fresh MARTA-shaped DB. The bus/rail fetchers now
+  record into it by default (`{record:false}` to opt out). Once detectors read
+  from it, the CTA `observations.js` + its tables become DELETE candidates.
+- `test/marta/storage.test.js` — round-trips fixtures through the adapters into
+  storage and back, plus rolloff.
+
+All four data sources are validated (static GTFS, bus GTFS-rt, rail REST,
+official alerts) and the observation-storage substrate exists. Still CTA-only and
+pending: bus detectors (`src/bus/*`), rail detectors (`src/train/*`, unblocked on
+Path A), alert pairing + incident/detection-state storage (Phase 6), exports.
 
 ## knip: the mechanical backstop
 

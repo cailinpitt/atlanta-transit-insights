@@ -143,20 +143,21 @@ async function fetchBuffer(url, label) {
   return Buffer.from(data);
 }
 
-async function getVehiclePositions() {
+// Record to the MARTA history DB by default; pass { record: false } for
+// diagnostic fetches that shouldn't write. storage is required lazily so the
+// pure-parser path (tests, capture scripts) never opens a DB.
+async function getVehiclePositions({ record = true } = {}) {
   const feed = decodeFeed(await fetchBuffer(VEHICLE_POSITIONS_URL, 'MARTA bus VehiclePositions'));
-  return {
-    feedTimestamp: longToNum(feed.header?.timestamp),
-    vehicles: (feed.entity || []).map(parseVehiclePosition).filter(Boolean),
-  };
+  const vehicles = (feed.entity || []).map(parseVehiclePosition).filter(Boolean);
+  if (record) require('../storage').recordBusObservations(vehicles);
+  return { feedTimestamp: longToNum(feed.header?.timestamp), vehicles };
 }
 
-async function getTripUpdates() {
+async function getTripUpdates({ record = true } = {}) {
   const feed = decodeFeed(await fetchBuffer(TRIP_UPDATES_URL, 'MARTA bus TripUpdates'));
-  return {
-    feedTimestamp: longToNum(feed.header?.timestamp),
-    tripUpdates: (feed.entity || []).map(parseTripUpdate).filter(Boolean),
-  };
+  const tripUpdates = (feed.entity || []).map(parseTripUpdate).filter(Boolean);
+  if (record) require('../storage').recordBusTripUpdates(tripUpdates);
+  return { feedTimestamp: longToNum(feed.header?.timestamp), tripUpdates };
 }
 
 module.exports = {

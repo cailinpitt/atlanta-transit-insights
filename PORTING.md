@@ -194,11 +194,17 @@ CTA tree keeps working as a reference until each analog is proven. Done so far
   schedule index (with route-direction fallback). Reuses CTA thresholds +
   `shared/geo.terminalZoneFt`. Pure core; posting layer not ported.
 
+- `src/marta/bus/bunching.js` — bus bunching detection ported. Purely spatial
+  (no schedule index): clusters buses within 800 ft of along-shape distance, with
+  the geo-consistency + terminal guards from CTA. `bunchesFromObservations`
+  projects positions and detects; `findParkedBusVids`/`assignBusNumbers` carried
+  over. Posting layer not ported.
+
 All four data sources are validated; the observation-storage substrate, the bus
-speedmap, the scheduled-headway index, and bus gaps exist. Still CTA-only and
-pending: bus bunches/ghosts (`src/bus/{bunching,ghosts}.js`), rail detectors
-(`src/train/*`, unblocked on Path A), alert pairing + incident/detection-state
-storage (Phase 6), posting/render layer, exports.
+speedmap, the scheduled-headway index, bus gaps, and bus bunching exist. Still
+CTA-only and pending: bus ghosts (`src/bus/ghosts.js` — uses the index's
+activeByHour), rail detectors (`src/train/*`, unblocked on Path A), alert pairing
++ incident/detection-state storage (Phase 6), posting/render layer, exports.
 
 ## knip: the mechanical backstop
 

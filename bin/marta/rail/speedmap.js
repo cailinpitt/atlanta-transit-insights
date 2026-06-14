@@ -7,6 +7,7 @@ const argv = require('minimist')(process.argv.slice(2));
 const { loadGtfs } = require('../../../src/marta/gtfs');
 const { loadShapes } = require('../../../src/marta/bus/shapes');
 const { buildLineGeometry } = require('../../../src/marta/rail/lines');
+const { buildLineTermini, terminusFor } = require('../../../src/marta/rail/termini');
 const { buildLineSpeedmaps } = require('../../../src/marta/rail/speedmap');
 const storage = require('../../../src/marta/storage');
 const incidents = require('../../../src/marta/shared/incidents');
@@ -33,6 +34,7 @@ async function main() {
   const gtfs = loadGtfs(GTFS_DIR);
   const shapes = loadShapes(GTFS_DIR);
   const lineGeom = buildLineGeometry(gtfs, shapes);
+  const termini = buildLineTermini(gtfs);
   const endTime = new Date();
   const startTime = new Date(endTime.getTime() - WINDOW_MS);
   const rows = storage.getRecentRailObservationsAll(startTime.getTime());
@@ -92,6 +94,7 @@ async function main() {
     avgMph: map.summary.avg,
   });
   const image = await renderRailSpeedmap(geom, map.bins);
+  const terminus = terminusFor(termini, map.line, map.direction);
   const text = buildSpeedmapPostText(
     map.line,
     map.direction,
@@ -99,8 +102,9 @@ async function main() {
     startTime,
     endTime,
     callouts,
+    terminus,
   );
-  const alt = buildSpeedmapAltText(map.line, map.direction, map.summary);
+  const alt = buildSpeedmapAltText(map.line, map.direction, map.summary, terminus);
 
   if (argv['dry-run']) {
     const out = writeDryRunAsset(

@@ -7,6 +7,7 @@ const argv = require('minimist')(process.argv.slice(2));
 const { loadGtfs } = require('../../../src/marta/gtfs');
 const { loadShapes } = require('../../../src/marta/bus/shapes');
 const { buildLineGeometry } = require('../../../src/marta/rail/lines');
+const { buildLineTermini, terminusFor } = require('../../../src/marta/rail/termini');
 const { railBunchesFromObservations } = require('../../../src/marta/rail/bunching');
 const storage = require('../../../src/marta/storage');
 const incidents = require('../../../src/marta/shared/incidents');
@@ -28,7 +29,6 @@ const {
   buildBunchingVideoPostText,
   buildBunchingVideoAltText,
 } = require('../../../src/marta/rail/post');
-const { keycapNumber } = require('../../../src/marta/shared/format');
 const {
   VIDEO_WINDOW_MS,
   captureRailBunchingHistoryVideo,
@@ -38,12 +38,15 @@ const GTFS_DIR = Path.join(__dirname, '..', '..', '..', 'data', 'marta', 'gtfs')
 const WINDOW_MS = 3 * 60 * 1000;
 const RAIL_BUNCHING_DAILY_CAP = 3;
 
+// Map-chip labels: plain numerals (1 = lead train, furthest along the line).
+// librsvg has no color-emoji font, so keycap glyphs (1️⃣) render as empty tofu
+// on the map; the post text still uses keycaps. Matches the bus map labeling.
 function trainLabels(bunch) {
   const labels = new Map();
   [...bunch.trains]
     .sort((a, b) => b.distFt - a.distFt)
     .forEach((t, i) => {
-      labels.set(t.trainId, keycapNumber(i + 1));
+      labels.set(t.trainId, String(i + 1));
     });
   return labels;
 }
@@ -74,6 +77,7 @@ async function main() {
   const gtfs = loadGtfs(GTFS_DIR);
   const shapes = loadShapes(GTFS_DIR);
   const lineGeom = buildLineGeometry(gtfs, shapes);
+  const termini = buildLineTermini(gtfs);
   const now = Date.now();
   const rows = storage.getRecentRailObservationsAll(now - WINDOW_MS);
   if (rows.length === 0) {
@@ -132,6 +136,7 @@ async function main() {
     return;
   }
 
+  bunch.terminus = terminusFor(termini, bunch.line, bunch.direction);
   const line = lineGeom.get(bunch.line);
   const callouts = incidents.bunchingCallouts({
     kind: 'rail',
@@ -144,7 +149,7 @@ async function main() {
   try {
     image = await renderRailBunchingMap(bunch, line, {
       labels: trainLabels(bunch),
-      title: `${lineTitle(bunch.line)}${bunch.direction ? ` - ${directionLabel(bunch.direction)}` : ''}`,
+      title: `${lineTitle(bunch.line)}${bunch.direction ? ` - ${directionLabel(bunch.direction, bunch.terminus)}` : ''}`,
     });
   } catch (e) {
     console.warn(`Map render failed (${e.message}); will post text-only`);

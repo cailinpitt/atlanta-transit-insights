@@ -2,7 +2,7 @@
 // Same clustering shape as bus bunching, but over train positions grouped by
 // (line, direction) and with a rail-scale threshold (trains are far longer than
 // bus headways, so "bunched" means within ~half a mile, not ~2 blocks).
-const { haversineFt } = require('../../shared/geo');
+const { haversineFt, terminalZoneFt } = require('../../shared/geo');
 const { latestTrainPositions } = require('./trains');
 
 const RAIL_BUNCH_THRESHOLD_FT = 2640; // ~0.5 mi
@@ -23,6 +23,12 @@ function detectRailBunching(trains, { thresholdFt = RAIL_BUNCH_THRESHOLD_FT } = 
   for (const [key, group] of byKey) {
     if (group.length < 2) continue;
     const [line, direction] = key.split('/');
+    // Both ends of a rail line are turnback terminals where trains naturally
+    // queue (one arriving, one waiting to depart) — that's not a real bunch.
+    // Suppress any cluster that sits entirely within a terminal zone at either
+    // end of the line, mirroring the gap detector's terminal exclusion.
+    const lengthFt = group[0]?.lengthFt || 0;
+    const zoneFt = lengthFt ? terminalZoneFt(lengthFt) : 0;
     const sorted = [...group].sort((a, b) => a.distFt - b.distFt);
 
     let i = 0;
@@ -38,6 +44,14 @@ function detectRailBunching(trains, { thresholdFt = RAIL_BUNCH_THRESHOLD_FT } = 
         j++;
       }
       const cluster = sorted.slice(i, j + 1);
+      // Whole cluster inside the start- or end-terminal zone → layover queue.
+      if (
+        zoneFt &&
+        (cluster[cluster.length - 1].distFt < zoneFt || cluster[0].distFt > lengthFt - zoneFt)
+      ) {
+        i = j + 1;
+        continue;
+      }
       const distSpan = cluster[cluster.length - 1].distFt - cluster[0].distFt;
       let geoSpan = 0;
       for (let a = 0; a < cluster.length; a++) {

@@ -7,6 +7,7 @@ const argv = require('minimist')(process.argv.slice(2));
 const { loadGtfs } = require('../../../src/marta/gtfs');
 const { loadShapes } = require('../../../src/marta/bus/shapes');
 const { buildLineGeometry } = require('../../../src/marta/rail/lines');
+const { buildLineTermini, terminusFor } = require('../../../src/marta/rail/termini');
 const {
   railGapsFromObservations,
   RATIO_THRESHOLD,
@@ -66,6 +67,7 @@ async function main() {
   const gtfs = loadGtfs(GTFS_DIR);
   const shapes = loadShapes(GTFS_DIR);
   const lineGeom = buildLineGeometry(gtfs, shapes);
+  const termini = buildLineTermini(gtfs);
   const now = Date.now();
   const rows = storage.getRecentRailObservationsAll(now - WINDOW_MS);
   if (rows.length === 0) {
@@ -123,6 +125,7 @@ async function main() {
   }
   if (gap.gapMin < ABSOLUTE_MIN_MIN || gap.ratio < RATIO_THRESHOLD) return;
 
+  gap.terminus = terminusFor(termini, gap.line, gap.direction);
   const line = lineGeom.get(gap.line);
   const callouts = incidents.gapCallouts({
     kind: 'rail',
@@ -133,7 +136,7 @@ async function main() {
   let image;
   try {
     image = await renderRailGapMap(gap, line, {
-      title: `${lineTitle(gap.line)}${gap.direction ? ` - ${directionLabel(gap.direction)}` : ''}`,
+      title: `${lineTitle(gap.line)}${gap.direction ? ` - ${directionLabel(gap.direction, gap.terminus)}` : ''}`,
     });
   } catch (e) {
     console.warn(`Map render failed (${e.message}); will post text-only`);

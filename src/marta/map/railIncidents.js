@@ -9,8 +9,9 @@ const {
   ROUTE_HALO_COLOR,
   ROUTE_HALO_STROKE,
   ROUTE_CORE_STROKE,
+  buildTrainMarker,
+  buildDashedGapSvg,
   buildDirectionArrow,
-  buildNumberBadge,
   markerLabelChip,
   fitTitlePill,
   xmlEscape,
@@ -61,9 +62,59 @@ function viewFor(line, trains, { loFt = 0, hiFt = line.lengthFt } = {}) {
   };
   const centerLat = (bbox.minLat + bbox.maxLat) / 2;
   const centerLon = (bbox.minLon + bbox.maxLon) / 2;
-  const zoom = Math.max(10, Math.min(17, Math.floor(fitZoom(bbox, WIDTH, HEIGHT, 90))));
+  // Fractional zoom — Mapbox Static accepts it and project() honors it. Flooring
+  // here threw away up to a full zoom level (a 2x scale loss), which on a near-
+  // straight rail line shrank the route to a small band in the middle of the frame.
+  const zoom = Math.max(10, Math.min(17, fitZoom(bbox, WIDTH, HEIGHT, 90)));
   const bearingDeg = slice.length >= 2 ? bearing(slice[0], slice[slice.length - 1]) : 0;
   return { overlays, centerLat, centerLon, zoom, bearingDeg, color };
+}
+
+// Gap framing: like viewFor but the route is drawn solid only OUTSIDE the gap,
+// and the gap stretch (between the two flanking trains) is handed back as
+// `gapPath` so renderRailFrame can dash it in the line color over bare basemap.
+// This makes a gap read as a break in service, not just two markers on a line.
+function gapViewFor(line, gap, { contextFt = GAP_CONTEXT_FT } = {}) {
+  const color = lineColor(line.line);
+  const cum = cumulativeDistances(line.points);
+  const distAt = (p, i) => p.distFt ?? cum[i];
+  const lo = Math.min(gap.trailing.distFt, gap.leading.distFt);
+  const hi = Math.max(gap.trailing.distFt, gap.leading.distFt);
+
+  const before = line.points.filter((p, i) => distAt(p, i) <= lo);
+  const after = line.points.filter((p, i) => distAt(p, i) >= hi);
+  const inner = line.points.filter((p, i) => distAt(p, i) > lo && distAt(p, i) < hi);
+  const framing = line.points.filter(
+    (p, i) => distAt(p, i) >= lo - contextFt && distAt(p, i) <= hi + contextFt,
+  );
+
+  const overlays = [];
+  for (const slice of [before, after]) {
+    if (slice.length < 2) continue;
+    const encoded = encodeURIComponent(
+      encode(thinPolylinePoints(slice).map((p) => [p.lat, p.lon])),
+    );
+    overlays.push(
+      `path-${ROUTE_HALO_STROKE}+${ROUTE_HALO_COLOR}(${encoded})`,
+      `path-${ROUTE_CORE_STROKE}+${color}(${encoded})`,
+    );
+  }
+
+  const trains = [gap.trailing, gap.leading];
+  const framePts = framing.length >= 2 ? framing : line.points;
+  const pts = [...framePts, ...trains];
+  const bbox = {
+    minLat: Math.min(...pts.map((p) => p.lat)),
+    maxLat: Math.max(...pts.map((p) => p.lat)),
+    minLon: Math.min(...pts.map((p) => p.lon)),
+    maxLon: Math.max(...pts.map((p) => p.lon)),
+  };
+  const centerLat = (bbox.minLat + bbox.maxLat) / 2;
+  const centerLon = (bbox.minLon + bbox.maxLon) / 2;
+  const zoom = Math.max(10, Math.min(17, fitZoom(bbox, WIDTH, HEIGHT, 90)));
+  const bearingDeg = framePts.length >= 2 ? bearing(framePts[0], framePts[framePts.length - 1]) : 0;
+  const gapPath = inner.map((p) => ({ lat: p.lat, lon: p.lon }));
+  return { overlays, centerLat, centerLon, zoom, bearingDeg, color, gapPath };
 }
 
 async function fetchBaseMap(view) {
@@ -79,22 +130,30 @@ async function renderRailFrame(view, baseMap, trains, opts = {}) {
   const placed = separateMarkers(raw, TRAIN_RADIUS * 2 + 4, {
     axis: perpendicularFromBearing(view.bearingDeg),
   });
-  const trainLayer = trains.map((_, i) =>
-    [
-      `<circle cx="${placed[i].x}" cy="${placed[i].y}" r="${TRAIN_RADIUS}" fill="#${view.color}"/>`,
-      `<circle cx="${placed[i].x}" cy="${placed[i].y}" r="${TRAIN_RADIUS}" fill="none" stroke="#fff" stroke-width="4"/>`,
-    ].join(''),
-  );
-  const chipLayer = trains.map((t, i) =>
-    opts.labels
-      ? markerLabelChip(placed[i].x, placed[i].y, TRAIN_RADIUS, opts.labels.get(t.trainId))
-      : buildNumberBadge(
-          placed[i].x + TRAIN_RADIUS * 0.66,
-          placed[i].y - TRAIN_RADIUS * 0.66,
-          TRAIN_RADIUS * 0.5,
-          t.role || '',
-        ),
-  );
+  // Colored disc + train glyph + white ring, matching the bus markers. Paint
+  // rear-to-front (lead train, highest distFt, drawn last/on top).
+  const trainLayer = trains
+    .map((t, i) => ({ d: Number(t?.distFt) || Number.NEGATIVE_INFINITY, i }))
+    .sort((a, b) => a.d - b.d)
+    .map(({ i }) =>
+      buildTrainMarker({ x: placed[i].x, y: placed[i].y, radius: TRAIN_RADIUS, color: view.color }),
+    );
+  // Identity chips in a layer above every disc. Label comes from opts.labels
+  // (bunching: position number) or the train's role (gap: N/L); markerLabelChip
+  // returns '' for a missing label, so no empty badge is ever drawn.
+  const chipLayer = trains.map((t, i) => {
+    const label = opts.labels ? opts.labels.get(t.trainId) : (t.role ?? null);
+    return markerLabelChip(placed[i].x, placed[i].y, TRAIN_RADIUS, label ?? null);
+  });
+
+  // Dashed gap stretch (line color) under the markers, when the view defines one.
+  let gapDash = '';
+  if (view.gapPath && view.gapPath.length >= 2) {
+    const gapPixels = view.gapPath.map((p) =>
+      project(p.lat, p.lon, view.centerLat, view.centerLon, view.zoom, WIDTH, HEIGHT),
+    );
+    gapDash = buildDashedGapSvg(gapPixels, view.color, { coreStroke: ROUTE_CORE_STROKE });
+  }
 
   const titleElements = [];
   if (opts.title) {
@@ -106,7 +165,7 @@ async function renderRailFrame(view, baseMap, trains, opts = {}) {
     );
   }
 
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${WIDTH}" height="${HEIGHT}">${trainLayer.join('\n')}${chipLayer.join('\n')}${buildDirectionArrow(WIDTH - 220, 180, view.bearingDeg)}${titleElements.join('\n')}</svg>`;
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${WIDTH}" height="${HEIGHT}">${gapDash}${trainLayer.join('\n')}${chipLayer.join('\n')}${buildDirectionArrow(WIDTH - 220, 180, view.bearingDeg)}${titleElements.join('\n')}</svg>`;
   return sharp(baseMap)
     .resize(WIDTH, HEIGHT)
     .composite([{ input: Buffer.from(svg), top: 0, left: 0 }])
@@ -119,10 +178,7 @@ async function renderRailGapMap(gap, line, opts = {}) {
     { ...gap.trailing, role: 'N' },
     { ...gap.leading, role: 'L' },
   ];
-  const view = viewFor(line, trains, {
-    loFt: Math.min(gap.trailing.distFt, gap.leading.distFt) - GAP_CONTEXT_FT,
-    hiFt: Math.max(gap.trailing.distFt, gap.leading.distFt) + GAP_CONTEXT_FT,
-  });
+  const view = gapViewFor(line, gap);
   const baseMap = await fetchBaseMap(view);
   return renderRailFrame(view, baseMap, trains, opts);
 }
@@ -140,6 +196,7 @@ module.exports = {
   renderRailBunchingMap,
   lineColor,
   viewFor,
+  gapViewFor,
   fetchBaseMap,
   renderRailFrame,
 };

@@ -3,15 +3,26 @@ const { describeGhost } = require('../../shared/ghostFormat');
 const { formatDistance, formatMinutes, formatTimeET, keycapNumber } = require('../shared/format');
 
 function lineTitle(line) {
-  return `${line} Line`;
+  // Feed line names are SCREAMING (RED/GOLD/BLUE/GREEN); present them cleanly.
+  const name = String(line || '');
+  const cased = name.charAt(0).toUpperCase() + name.slice(1).toLowerCase();
+  return `${cased} Line`;
 }
 
-function directionLabel(direction) {
-  return direction ? `${direction}bound` : '';
+const DIRECTION_WORDS = { N: 'Northbound', S: 'Southbound', E: 'Eastbound', W: 'Westbound' };
+
+// "Northbound to North Springs" (or "northbound to North Springs" for alt text,
+// which lowercases the leading sentence). Falls back to "<dir>bound" with no
+// terminus when either is missing.
+function directionLabel(direction, terminus = null, { lower = false } = {}) {
+  if (!direction) return '';
+  const word = DIRECTION_WORDS[direction] || `${direction}bound`;
+  const dir = lower ? word.toLowerCase() : word;
+  return terminus ? `${dir} to ${terminus}` : dir;
 }
 
 function buildGapPostText(gap, callouts = []) {
-  const dir = directionLabel(gap.direction);
+  const dir = directionLabel(gap.direction, gap.terminus);
   const where = dir ? ` - ${dir}` : '';
   const base = `🚇 ${lineTitle(gap.line)}${where}\n\nNo trains across ~${formatDistance(gap.gapFt)} - a ~${formatMinutes(gap.gapMin)} gap, scheduled around every ${formatMinutes(gap.expectedMin)} this hour`;
   const tail = formatCallouts(callouts);
@@ -19,13 +30,13 @@ function buildGapPostText(gap, callouts = []) {
 }
 
 function buildGapAltText(gap) {
-  const dir = directionLabel(gap.direction).toLowerCase();
+  const dir = directionLabel(gap.direction, gap.terminus, { lower: true });
   const suffix = dir ? ` ${dir}` : '';
   return `Map of the ${lineTitle(gap.line)}${suffix} showing a ${formatMinutes(gap.gapMin)} rail gap across about ${formatDistance(gap.gapFt)}.`;
 }
 
 function buildBunchingPostText(bunch, callouts = []) {
-  const dir = directionLabel(bunch.direction);
+  const dir = directionLabel(bunch.direction, bunch.terminus);
   const where = dir ? ` - ${dir}` : '';
   const trains = [...bunch.trains]
     .sort((a, b) => b.distFt - a.distFt)
@@ -37,7 +48,7 @@ function buildBunchingPostText(bunch, callouts = []) {
 }
 
 function buildBunchingAltText(bunch) {
-  const dir = directionLabel(bunch.direction).toLowerCase();
+  const dir = directionLabel(bunch.direction, bunch.terminus, { lower: true });
   const suffix = dir ? ` ${dir}` : '';
   return `Map of the ${lineTitle(bunch.line)}${suffix} showing ${bunch.trains.length} trains bunched within ${formatDistance(bunch.spanFt)}.`;
 }
@@ -50,7 +61,7 @@ function buildBunchingVideoPostText(video, bunch) {
 }
 
 function buildBunchingVideoAltText(bunch) {
-  const dir = directionLabel(bunch.direction).toLowerCase();
+  const dir = directionLabel(bunch.direction, bunch.terminus, { lower: true });
   const suffix = dir ? ` ${dir}` : '';
   return `Timelapse map of the ${lineTitle(bunch.line)}${suffix} showing recent movement of ${bunch.trains.length} bunched trains.`;
 }
@@ -63,14 +74,22 @@ function buildGapVideoPostText(video, gap) {
 }
 
 function buildGapVideoAltText(gap) {
-  const dir = directionLabel(gap.direction).toLowerCase();
+  const dir = directionLabel(gap.direction, gap.terminus, { lower: true });
   const suffix = dir ? ` ${dir}` : '';
   return `Timelapse map of the ${lineTitle(gap.line)}${suffix} showing recent movement of the trains flanking a ${formatMinutes(gap.gapMin)} gap.`;
 }
 
-function buildSpeedmapPostText(line, direction, summary, startTime, endTime, callouts = []) {
+function buildSpeedmapPostText(
+  line,
+  direction,
+  summary,
+  startTime,
+  endTime,
+  callouts = [],
+  terminus = null,
+) {
   const avg = summary.avg == null ? 'unavailable' : `${summary.avg.toFixed(1)} mph`;
-  const dir = directionLabel(direction);
+  const dir = directionLabel(direction, terminus);
   const window = `${formatTimeET(startTime)}-${formatTimeET(endTime)} ET`;
   const head = `🚦 ${lineTitle(line)}${dir ? ` - ${dir}` : ''}\n${window} · average speed ${avg}`;
   const tail = formatCallouts(callouts);
@@ -85,9 +104,9 @@ function buildSpeedmapPostText(line, direction, summary, startTime, endTime, cal
   );
 }
 
-function buildSpeedmapAltText(line, direction, summary) {
+function buildSpeedmapAltText(line, direction, summary, terminus = null) {
   const avg = summary.avg == null ? 'unavailable' : `${summary.avg.toFixed(1)} mph`;
-  const dir = directionLabel(direction).toLowerCase();
+  const dir = directionLabel(direction, terminus, { lower: true });
   const suffix = dir ? ` ${dir}` : '';
   return `Speedmap of the ${lineTitle(line)}${suffix} over a one-hour window, with line segments colored by average train speed. Overall average: ${avg}. Red segments indicate trains under 15 mph, orange under 25, yellow under 35, purple under 45, green 45 and above.`;
 }

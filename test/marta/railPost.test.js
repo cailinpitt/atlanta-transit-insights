@@ -41,23 +41,25 @@ test('rail gap post text and alt text describe line, direction, and headway', ()
   const gap = {
     line: 'RED',
     direction: 'N',
+    terminus: 'North Springs',
     gapFt: 40_000,
     gapMin: 15.2,
     expectedMin: 5,
     ratio: 3.04,
   };
-  const text = buildGapPostText(gap, ['2nd RED Line gap reported today']);
-  assert.match(text, /^🚇 RED Line - Nbound/);
+  const text = buildGapPostText(gap, ['2nd Red Line gap reported today']);
+  assert.match(text, /^🚇 Red Line - Northbound to North Springs/);
   assert.match(text, /~7\.58 mi/);
   assert.match(text, /~15 min gap/);
-  assert.match(text, /📊 2nd RED Line gap reported today/);
-  assert.match(buildGapAltText(gap), /RED Line nbound/);
+  assert.match(text, /📊 2nd Red Line gap reported today/);
+  assert.match(buildGapAltText(gap), /Red Line northbound to North Springs/);
 });
 
 test('rail bunching post text and alt text include train count and labels', () => {
   const bunch = {
     line: 'BLUE',
     direction: 'E',
+    terminus: 'Indian Creek',
     spanFt: 1500,
     trains: [
       { trainId: 'a', distFt: 10_000 },
@@ -65,41 +67,51 @@ test('rail bunching post text and alt text include train count and labels', () =
     ],
   };
   const text = buildBunchingPostText(bunch);
-  assert.match(text, /^🚇 BLUE Line - Ebound/);
+  assert.match(text, /^🚇 Blue Line - Eastbound to Indian Creek/);
   assert.match(text, /2 trains within 0\.28 mi/);
   assert.match(text, /#b \(1️⃣\), #a \(2️⃣\)/);
   assert.match(buildBunchingAltText(bunch), /2 trains bunched/);
   assert.match(buildBunchingVideoPostText({ elapsedSec: 300 }, bunch), /5 min of recent movement/);
-  assert.match(buildBunchingVideoAltText(bunch), /Timelapse map of the BLUE Line/);
+  assert.match(buildBunchingVideoAltText(bunch), /Timelapse map of the Blue Line/);
 });
 
 test('rail gap video reply text and alt text describe recent movement', () => {
   const gap = {
     line: 'RED',
     direction: 'N',
+    terminus: 'North Springs',
     gapFt: 40_000,
     gapMin: 15.2,
     expectedMin: 5,
     ratio: 3.04,
   };
   assert.match(buildGapVideoPostText({ elapsedSec: 480 }, gap), /8 min of recent movement/);
-  assert.match(buildGapVideoAltText(gap), /Timelapse map of the RED Line nbound/);
+  assert.match(
+    buildGapVideoAltText(gap),
+    /Timelapse map of the Red Line northbound to North Springs/,
+  );
 });
 
 test('rail speedmap post text and alt text describe line, direction, and bands', () => {
   const summary = { avg: 28.25 };
   const start = new Date('2026-06-14T14:00:00Z');
   const end = new Date('2026-06-14T15:00:00Z');
-  const text = buildSpeedmapPostText('GOLD', 'S', summary, start, end, [
-    'slowest reported in 14 days',
-  ]);
-  assert.match(text, /^🚦 GOLD Line - Sbound/);
+  const text = buildSpeedmapPostText(
+    'GOLD',
+    'S',
+    summary,
+    start,
+    end,
+    ['slowest reported in 14 days'],
+    'Airport',
+  );
+  assert.match(text, /^🚦 Gold Line - Southbound to Airport/);
   assert.match(text, /average speed 28\.3 mph/);
   assert.match(text, /📊 slowest reported in 14 days/);
   assert.match(text, /🟪 35-45 mph/);
 
-  const alt = buildSpeedmapAltText('GOLD', 'S', summary);
-  assert.match(alt, /Speedmap of the GOLD Line sbound/);
+  const alt = buildSpeedmapAltText('GOLD', 'S', summary, 'Airport');
+  assert.match(alt, /Speedmap of the Gold Line southbound to Airport/);
   assert.match(alt, /Overall average: 28\.3 mph/);
 });
 
@@ -111,7 +123,7 @@ test('formatGhostLine summarizes missing trains and effective headway', () => {
     missing: 5,
     headway: 10,
   });
-  assert.match(line, /GREEN Line/);
+  assert.match(line, /Green Line/);
   assert.match(line, /5 of 8 missing \(63%\)/);
   assert.match(line, /every ~27 min instead of ~10/);
 });

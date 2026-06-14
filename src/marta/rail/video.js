@@ -1,5 +1,5 @@
 const { projectTrain } = require('./lines');
-const { viewFor, fetchBaseMap, renderRailFrame } = require('../map/railIncidents');
+const { viewFor, gapViewFor, fetchBaseMap, renderRailFrame } = require('../map/railIncidents');
 const { encodeFrames } = require('../shared/video');
 
 const VIDEO_WINDOW_MS = 10 * 60 * 1000;
@@ -68,9 +68,9 @@ async function captureRailGapHistoryVideo(gap, line, rows, opts = {}) {
   const frames = framesByTimestamp(enriched).filter(([, trains]) => trains.length > 0);
   if (frames.length < 2) return null;
 
-  const lo = Math.min(...enriched.map((t) => t.distFt)) - 3500;
-  const hi = Math.max(...enriched.map((t) => t.distFt)) + 3500;
-  const view = viewFor(line, enriched, { loFt: lo, hiFt: hi });
+  // Dash the gap stretch (same framing as the still) so the timelapse reads as a
+  // hole in service the flanking trains are moving around. Base map fetched once.
+  const view = gapViewFor(line, gap);
   const baseMap = await fetchBaseMap(view);
   const images = [];
   for (const [, trains] of frames) {

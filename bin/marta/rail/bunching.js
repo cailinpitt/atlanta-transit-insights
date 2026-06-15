@@ -92,7 +92,9 @@ async function main() {
       current: bunches.map((b) => ({ route: b.line, direction: b.direction })),
       now,
     });
-    if (closed > 0) console.log(`Resolved ${closed} open rail bunching event(s)`);
+    if (closed.length > 0) {
+      console.log(`Resolved ${closed.length} open rail bunching event(s)`);
+    }
   }
   if (bunches.length === 0) {
     console.log('No rail bunching detected');

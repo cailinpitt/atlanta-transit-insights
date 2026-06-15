@@ -4,8 +4,8 @@
 // feed. MARTA analog of bin/metra/alerts.js, streamlined for Phase 6:
 //   - input is native GTFS-rt (no XML quirks, no severity scoring);
 //   - posts are text-only (no disruption-segment maps);
-//   - the resolution reply is text-only — the archive-page link card waits for
-//     the website + data origin (Phase 8/9), which don't exist yet;
+//   - the resolution reply links to the incident archive page once the original
+//     post URI is known;
 //   - no single-train cancellation/delay lifecycle (MARTA's are general service
 //     alerts, not Metra-style annulments of one timetabled train).
 // Lifecycle state lives in src/marta/alert/store.js (its own tables on the
@@ -21,7 +21,13 @@ const {
   buildAlertText,
   buildResolutionText,
 } = require('../../src/marta/alert/significance');
-const { loginAlerts, postText, resolveReplyRef } = require('../../src/marta/shared/bluesky');
+const {
+  loginAlerts,
+  postText,
+  postWithExternal,
+  resolveReplyRef,
+} = require('../../src/marta/shared/bluesky');
+const { resolvedEventLink } = require('../../src/marta/shared/eventLink');
 const {
   getAlertPost,
   recordAlertSeen,
@@ -41,6 +47,7 @@ const io = {
   fetchAlerts,
   loginAlerts,
   postText,
+  postWithExternal,
   resolveReplyRef,
 };
 
@@ -96,7 +103,9 @@ async function postNewAlert(alert, rel, agentGetter, now = Date.now()) {
 }
 
 async function postResolution(alertRow, agentGetter) {
-  const text = buildResolutionText(alertRow.headline);
+  const link = resolvedEventLink(alertRow.post_uri, alertRow.headline || 'MARTA alert resolved');
+  const baseText = buildResolutionText(alertRow.headline);
+  const text = link ? `${baseText}\n\n${link.url}` : baseText;
 
   if (DRY_RUN) {
     console.log(
@@ -116,7 +125,9 @@ async function postResolution(alertRow, agentGetter) {
   try {
     const replyRef = await io.resolveReplyRef(agent, alertRow.post_uri);
     if (!replyRef) throw new Error('could not resolve reply ref for alert post');
-    const result = await io.postText(agent, text, replyRef);
+    const result = link
+      ? await io.postWithExternal(agent, text, link, replyRef)
+      : await io.postText(agent, text, replyRef);
     console.log(`Posted marta resolution for alert ${alertRow.alert_id}: ${result.url}`);
     recordAlertResolved({ alertId: alertRow.alert_id, replyUri: result.uri });
   } catch (e) {

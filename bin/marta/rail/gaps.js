@@ -82,7 +82,9 @@ async function main() {
       current: gaps.map((g) => ({ route: g.line, direction: g.direction })),
       now,
     });
-    if (closed > 0) console.log(`Resolved ${closed} open rail gap event(s)`);
+    if (closed.length > 0) {
+      console.log(`Resolved ${closed.length} open rail gap event(s)`);
+    }
   }
   if (gaps.length === 0) {
     console.log('No significant rail gaps detected');

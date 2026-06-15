@@ -392,11 +392,12 @@ function reconcileDetectorEvents({ table, kind, current, now = Date.now() }) {
       `)
       .all(kind);
     const close = db.prepare(`UPDATE ${table} SET resolved_ts = ? WHERE id = ?`);
-    let closed = 0;
+    const closed = [];
     for (const row of openRows) {
       if (currentKeys.has(eventKey(row))) continue;
-      close.run(row.last_seen_ts ?? now, row.id);
-      closed += 1;
+      const resolvedTs = row.last_seen_ts ?? now;
+      close.run(resolvedTs, row.id);
+      closed.push({ ...row, resolved_ts: resolvedTs });
     }
     return closed;
   });

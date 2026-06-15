@@ -55,6 +55,11 @@ function loadBinWithTempDb() {
       posts.push({ text, replyRef: replyRef || null, uri });
       return { uri, cid: `cid${posts.length}`, url: `https://bsky.app/${uri}` };
     },
+    postWithExternal: async (_agent, text, link, replyRef) => {
+      const uri = `at://did/app.bsky.feed.post/rk${posts.length + 1}`;
+      posts.push({ text, link, replyRef: replyRef || null, uri });
+      return { uri, cid: `cid${posts.length}`, url: `https://bsky.app/${uri}` };
+    },
     resolveReplyRef: async (_agent, uri) => ({ root: { uri }, parent: { uri } }),
   });
 
@@ -140,6 +145,8 @@ test('feed-drop posts a threaded resolution after the clear-tick threshold', asy
     const resolutions = posts.filter((p) => p.replyRef);
     assert.equal(resolutions.length, 1);
     assert.match(resolutions[0].text, /resolved/i);
+    assert.match(resolutions[0].text, /https:\/\/atlantatransitalerts\.app\/event\/rk1\/resolved/);
+    assert.equal(resolutions[0].link.url, 'https://atlantatransitalerts.app/event/rk1/resolved');
     assert.deepEqual(resolutions[0].replyRef, {
       root: { uri: posts[0].uri },
       parent: { uri: posts[0].uri },

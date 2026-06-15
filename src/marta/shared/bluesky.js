@@ -92,11 +92,29 @@ function postUrl(result) {
   return `https://bsky.app/profile/${did}/post/${rkey}`;
 }
 
+function linkFacets(text) {
+  const re = /https:\/\/atlantatransitalerts\.app\/[^\s)]+/g;
+  const enc = (s) => Buffer.byteLength(s, 'utf8');
+  const facets = [];
+  for (const m of text.matchAll(re)) {
+    facets.push({
+      index: {
+        byteStart: enc(text.slice(0, m.index)),
+        byteEnd: enc(text.slice(0, m.index + m[0].length)),
+      },
+      features: [{ $type: 'app.bsky.richtext.facet#link', uri: m[0] }],
+    });
+  }
+  return facets.length > 0 ? facets : undefined;
+}
+
 async function postWithImage(agent, text, imageBuffer, altText, replyRef = null) {
   const upload = await agent.uploadBlob(imageBuffer, { encoding: 'image/jpeg' });
+  const facets = linkFacets(text);
   const result = await agent.post({
     text,
     ...(replyRef && { reply: replyRef }),
+    ...(facets && { facets }),
     embed: {
       $type: 'app.bsky.embed.images',
       images: [{ image: upload.data.blob, alt: altText }],
@@ -164,9 +182,11 @@ async function postWithVideo(agent, text, videoBuffer, altText, replyRef = null)
       throw new Error(`Video processing failed: ${status.jobStatus.error || 'unknown'}`);
   }
 
+  const facets = linkFacets(text);
   const result = await agent.post({
     text,
     ...(replyRef && { reply: replyRef }),
+    ...(facets && { facets }),
     embed: {
       $type: 'app.bsky.embed.video',
       video: blob,
@@ -177,9 +197,42 @@ async function postWithVideo(agent, text, videoBuffer, altText, replyRef = null)
 }
 
 async function postText(agent, text, replyRef = null) {
+  const facets = linkFacets(text);
   const result = await agent.post({
     text,
     ...(replyRef && { reply: replyRef }),
+    ...(facets && { facets }),
+  });
+  return { url: postUrl(result), uri: result.uri, cid: result.cid };
+}
+
+async function postWithExternal(agent, text, link, replyRef = null) {
+  let thumb;
+  if (link?.thumbUrl) {
+    try {
+      const resp = await fetch(link.thumbUrl);
+      if (resp.ok) {
+        const buf = Buffer.from(await resp.arrayBuffer());
+        const ct = resp.headers.get('content-type') || 'image/png';
+        const upload = await agent.uploadBlob(buf, { encoding: ct });
+        thumb = upload.data.blob;
+      }
+    } catch (_) {}
+  }
+  const facets = linkFacets(text);
+  const result = await agent.post({
+    text,
+    ...(replyRef && { reply: replyRef }),
+    ...(facets && { facets }),
+    embed: {
+      $type: 'app.bsky.embed.external',
+      external: {
+        uri: link.url,
+        title: link.title,
+        description: link.description,
+        ...(thumb && { thumb }),
+      },
+    },
   });
   return { url: postUrl(result), uri: result.uri, cid: result.cid };
 }
@@ -247,5 +300,6 @@ module.exports = {
   postWithImage,
   postWithVideo,
   postText,
+  postWithExternal,
   resolveReplyRef,
 };

@@ -108,7 +108,9 @@ async function main() {
       current: activeBunches.map((b) => ({ route: b.route, direction: b.shapeId })),
       now,
     });
-    if (closed > 0) console.log(`Resolved ${closed} open bus bunching event(s)`);
+    if (closed.length > 0) {
+      console.log(`Resolved ${closed.length} open bus bunching event(s)`);
+    }
   }
 
   let bunch = null;

@@ -31,7 +31,7 @@ async function main() {
     return;
   }
 
-  const result = await captureRailSystemTimelapse(rows, lineGeom, { interpolate });
+  const result = await captureRailSystemTimelapse(rows, lineGeom, { interpolate, windowMin });
   if (!result) {
     console.log('System timelapse produced <2 frames, nothing to post');
     return;

@@ -1,6 +1,12 @@
 const { projectTrain } = require('./lines');
 const { pointAlongShape } = require('../bus/shapes');
-const { viewFor, gapViewFor, fetchBaseMap, renderRailFrame } = require('../map/railIncidents');
+const {
+  viewFor,
+  gapViewFor,
+  fetchBaseMap,
+  renderRailFrame,
+  bunchBounds,
+} = require('../map/railIncidents');
 const { encodeFrames } = require('../shared/video');
 const { buildSmoothFrames, snapshotsByTimestamp } = require('../shared/smoothFrames');
 
@@ -31,7 +37,9 @@ async function captureRailBunchingHistoryVideo(bunch, line, rows, opts = {}) {
   const snapshots = snapshotsByTimestamp(enriched).filter((s) => s.vehicles.length > 0);
   if (snapshots.length < 2) return null;
 
-  const view = viewFor(line, enriched);
+  // Frame to the bunch's stretch over the whole clip (all enriched positions,
+  // ±context) so the viewport stays tight on the event yet stable as trains move.
+  const view = viewFor(line, enriched, bunchBounds(line, enriched));
   const baseMap = await fetchBaseMap(view);
 
   const frames = buildSmoothFrames(snapshots, {

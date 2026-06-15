@@ -5,7 +5,7 @@
 // origin→destination, the same role CTA's seq-ordered pattern points play.
 const sharp = require('sharp');
 const { encode } = require('../../shared/polyline');
-const { bearing } = require('../../shared/geo');
+const { bearing, cumulativeDistances, haversineFt } = require('../../shared/geo');
 const { fitZoom, project } = require('../../shared/projection');
 const {
   STYLE,
@@ -32,6 +32,7 @@ const {
 } = require('./common');
 
 const BUS_COLOR = 'ff2a6d'; // hot pink/red reads well on dark
+const CONTEXT_PAD_FT = 1500; // feet of route context on each side of the bunch
 const BUS_MARKER_RADIUS = 34;
 const TERMINAL_MARKER_RADIUS = BUS_MARKER_RADIUS;
 const STOP_MARKER_SIZE = 32;
@@ -39,9 +40,41 @@ const STOP_MARKER_SIZE = 32;
 // in the right-of-travel direction (perpendicular to view bearing).
 const STOP_OFFSET_PX = 22;
 
+// Walk the GTFS shape building a cumulative distance, find each bunched
+// vehicle's nearest shape point by straight-line proximity, and return the
+// shape stretch within CONTEXT_PAD_FT of that range. We match by geographic
+// proximity rather than trusting a vehicle's own distFt so one mis-projected
+// outlier can't blow the slice open to the whole route.
+function sliceShapeAroundBunch(shape, vehicles) {
+  const points = shape.points || [];
+  if (points.length < 2 || vehicles.length === 0) return points;
+  const cum = cumulativeDistances(points);
+  const distAt = (i) => points[i].distFt ?? cum[i];
+  const vehicleDists = vehicles.map((v) => {
+    let bestIdx = 0;
+    let bestDist = haversineFt(v, points[0]);
+    for (let i = 1; i < points.length; i++) {
+      const d = haversineFt(v, points[i]);
+      if (d < bestDist) {
+        bestDist = d;
+        bestIdx = i;
+      }
+    }
+    return distAt(bestIdx);
+  });
+  const lo = Math.min(...vehicleDists) - CONTEXT_PAD_FT;
+  const hi = Math.max(...vehicleDists) + CONTEXT_PAD_FT;
+  const slice = points.filter((_, i) => distAt(i) >= lo && distAt(i) <= hi);
+  return slice.length >= 2 ? slice : points;
+}
+
 // Static framing: bbox, center, zoom, route polyline overlay, direction arrow,
-// origin/terminal points.
-function computeBunchingView(_bunch, shape) {
+// origin/terminal points. The bbox frames tightly around the bunched vehicles
+// (±CONTEXT_PAD_FT) — NOT the whole route — so the impact reads clearly at a
+// glance; the full route still draws as the overlay and runs off the frame
+// edges. Matches cta-insights src/map/bus/bunching.js. Video captures pass
+// extraVehicles so the viewport stays stable as buses move across frames.
+function computeBunchingView(bunch, shape, extraVehicles = []) {
   const routeShape = shape.points || [];
   const routePoints = thinPolylinePoints(routeShape).map((p) => [p.lat, p.lon]);
   const encoded = encodeURIComponent(encode(routePoints));
@@ -50,22 +83,26 @@ function computeBunchingView(_bunch, shape) {
     `path-${ROUTE_CORE_STROKE}+${ROUTE_CORE_COLOR}(${encoded})`,
   ];
 
-  const bboxPoints = routeShape;
+  // Slice around the bunch itself; expand the bbox to also cover any extra
+  // (video) vehicle positions so later frames don't drift off-screen.
+  const slice = sliceShapeAroundBunch(shape, bunch.vehicles);
+  const framingVehicles = [...bunch.vehicles, ...extraVehicles];
+  const allLats = [...slice.map((p) => p.lat), ...framingVehicles.map((v) => v.lat)];
+  const allLons = [...slice.map((p) => p.lon), ...framingVehicles.map((v) => v.lon)];
   const bbox = {
-    minLat: Math.min(...bboxPoints.map((p) => p.lat)),
-    maxLat: Math.max(...bboxPoints.map((p) => p.lat)),
-    minLon: Math.min(...bboxPoints.map((p) => p.lon)),
-    maxLon: Math.max(...bboxPoints.map((p) => p.lon)),
+    minLat: Math.min(...allLats),
+    maxLat: Math.max(...allLats),
+    minLon: Math.min(...allLons),
+    maxLon: Math.max(...allLons),
   };
   const centerLat = (bbox.minLat + bbox.maxLat) / 2;
   const centerLon = (bbox.minLon + bbox.maxLon) / 2;
-  const rawZoom = fitZoom(bbox, WIDTH, HEIGHT, 110);
+  const rawZoom = fitZoom(bbox, WIDTH, HEIGHT, 60);
   const zoom = Math.max(10, Math.min(17, rawZoom));
 
-  // Route-wide direction. GTFS shape points run origin→destination.
-  const slicePoints = routeShape.map((p) => ({ lat: p.lat, lon: p.lon }));
-  const bearingDeg =
-    slicePoints.length >= 2 ? bearing(slicePoints[0], slicePoints[slicePoints.length - 1]) : 0;
+  // Local direction along the framed slice (GTFS shape runs origin→destination),
+  // not the whole route — so the arrow tracks the bunch's stretch.
+  const bearingDeg = slice.length >= 2 ? bearing(slice[0], slice[slice.length - 1]) : 0;
 
   const originPoint = shape.points[0];
   const terminalPoint = shape.points[shape.points.length - 1];

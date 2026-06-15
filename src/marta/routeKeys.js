@@ -5,7 +5,11 @@ const RAIL_ROUTES = new Map([
   ['RED', 'red'],
 ]);
 
-const STREETCAR_ROUTES = new Set(['A', 'ATLSC', 'STREETCAR']);
+// Atlanta Streetcar identifiers. The GTFS route is short_name "ATLSC"
+// (route_id 26982, route_type 0). NOTE: do NOT add 'A' here — route "A" in the
+// realtime feed is the "Rapid A Line" BRT (route_type 3, a bus) whose vehicles
+// sprawl well past downtown; tagging it streetcar mislabeled Rapid-A alerts 🚋.
+const STREETCAR_ROUTES = new Set(['ATLSC', 'STREETCAR']);
 
 function routeKey(route) {
   return String(route || '').trim();

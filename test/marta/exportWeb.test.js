@@ -314,7 +314,7 @@ test('pairs rail bunching and ghosts with matching rail alerts', () => {
   assert.deepEqual(rail.detections.map((det) => det.source).sort(), ['bunching', 'ghost']);
 });
 
-test('exports Streetcar aliases as streetcar incidents instead of raw route A', () => {
+test('exports an ATLSC alert as streetcar; route A bunching is bus, not streetcar', () => {
   seedAlert(
     {
       alertId: 'streetcar-alert',
@@ -325,16 +325,20 @@ test('exports Streetcar aliases as streetcar incidents instead of raw route A', 
     },
     NOW + 31 * 60_000,
   );
+  // Route "A" is the Rapid A Line BRT (a bus), NOT the streetcar. A bunching on
+  // it classifies as bus, so it must NOT fold into the ATLSC streetcar alert
+  // (mode mismatch). Left unpaired, the lone detector never surfaces as its own
+  // incident either — so route "A" appears nowhere in the export.
   incidents.recordBunching(
     {
       kind: 'bus',
       route: 'A',
-      direction: 'streetcar-shape',
+      direction: 'rapid-a-shape',
       vehicleCount: 2,
       severityFt: 900,
       nearStop: 'SUMMERHILL',
       posted: true,
-      postUri: 'at://did:plc:bus/app.bsky.feed.post/streetcarbunch',
+      postUri: 'at://did:plc:bus/app.bsky.feed.post/rapidabunch',
     },
     NOW + 32 * 60_000,
   );
@@ -344,8 +348,9 @@ test('exports Streetcar aliases as streetcar incidents instead of raw route A', 
   assert.ok(streetcar);
   assert.equal(streetcar.mode, 'streetcar');
   assert.deepEqual(streetcar.routes, ['streetcar']);
-  assert.equal(streetcar.detections[0].scope.route, 'streetcar');
-  assert.match(streetcar.detections[0].description, /Streetcar/);
+  // The Rapid A bunching did not merge into the streetcar alert.
+  assert.deepEqual(streetcar.detections, []);
+  // And route "A" surfaces nowhere — not as streetcar, not as a bus incident.
   assert.equal(
     out.incidents.some((incident) => incident.routes.includes('A')),
     false,

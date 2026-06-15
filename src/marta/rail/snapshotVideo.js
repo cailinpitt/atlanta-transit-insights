@@ -116,6 +116,12 @@ async function captureRailSystemTimelapse(rows, lineGeom, opts = {}) {
     buffer,
     frameCount: trainFrames.length,
     elapsedSec: Math.round((videoEndTs - snapshots[0].ts) / 1000),
+    // The capture window we queried (minutes). The first/last observation rarely
+    // land exactly on the window edges — the oldest stored row is a sample-
+    // interval inside the cutoff — so elapsedSec rounds to 59 about half the
+    // time. The headline should report the window the timelapse covers, not that
+    // sampling artifact, so it reads a consistent "60-min" each run.
+    windowMin: opts.windowMin ?? null,
     startTs: snapshots[0].ts,
     endTs: videoEndTs,
     allTrains: [...seen.values()],

@@ -123,7 +123,7 @@ function countByLine(trains) {
 
 function buildTimelapsePostText(meta) {
   const trains = meta.allTrains || meta.finalTrains || [];
-  const windowMin = Math.max(1, Math.round(meta.elapsedSec / 60));
+  const windowMin = meta.windowMin ?? Math.max(1, Math.round(meta.elapsedSec / 60));
   const byLine = countByLine(trains);
   const parts = ALL_LINES.map((l) => `${LINE_NAMES[l]} ${byLine.get(l) || 0}`);
   const window = `${formatTimeET(new Date(meta.startTs))}-${formatTimeET(new Date(meta.endTs))} ET`;
@@ -132,7 +132,7 @@ function buildTimelapsePostText(meta) {
 
 function buildTimelapseAltText(meta) {
   const trains = meta.allTrains || meta.finalTrains || [];
-  const windowMin = Math.max(1, Math.round(meta.elapsedSec / 60));
+  const windowMin = meta.windowMin ?? Math.max(1, Math.round(meta.elapsedSec / 60));
   const byLine = countByLine(trains);
   const summary = ALL_LINES.map((l) => `${byLine.get(l) || 0} ${LINE_NAMES[l]}`).join(', ');
   return `${windowMin}-minute timelapse of MARTA rail movement across metro Atlanta, colored by line. ${trains.length} trains appeared during the window: ${summary}.`;

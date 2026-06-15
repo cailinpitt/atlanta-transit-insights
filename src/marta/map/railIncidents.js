@@ -30,6 +30,7 @@ const LINE_COLORS = {
 };
 const TRAIN_RADIUS = 32;
 const GAP_CONTEXT_FT = 3500;
+const BUNCH_CONTEXT_FT = 3500; // feet of line context on each side of a bunch
 
 function lineColor(line) {
   return LINE_COLORS[line] || '00d8ff';
@@ -185,8 +186,18 @@ async function renderRailGapMap(gap, line, opts = {}) {
   return renderRailFrame(view, baseMap, trains, opts);
 }
 
+// Distance window around a rail bunch (min→max train distFt) with context on
+// each side, for framing. Mirrors the gap framing so a bunch zooms to the
+// cluster instead of fitting the whole line. Trains carry a projected distFt;
+// if none are finite, fall back to the full line.
+function bunchBounds(line, trains, contextFt = BUNCH_CONTEXT_FT) {
+  const dists = trains.map((t) => t.distFt).filter((d) => Number.isFinite(d));
+  if (dists.length === 0) return { loFt: 0, hiFt: line.lengthFt };
+  return { loFt: Math.min(...dists) - contextFt, hiFt: Math.max(...dists) + contextFt };
+}
+
 async function renderRailBunchingMap(bunch, line, opts = {}) {
-  const view = viewFor(line, bunch.trains);
+  const view = viewFor(line, bunch.trains, bunchBounds(line, bunch.trains));
   const baseMap = await fetchBaseMap(view);
   return renderRailFrame(view, baseMap, bunch.trains, opts);
 }
@@ -196,6 +207,7 @@ module.exports = {
   renderRailBunchingMap,
   lineColor,
   viewFor,
+  bunchBounds,
   gapViewFor,
   fetchBaseMap,
   renderRailFrame,

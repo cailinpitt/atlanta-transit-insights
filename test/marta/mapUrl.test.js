@@ -61,6 +61,28 @@ test('MARTA bus bunching map overlays are short enough for dense long routes', (
   assert.ok(staticUrlLength(computeBunchingView(bunch, shape)) < 8000);
 });
 
+test('MARTA bus bunching view frames the bunch, not the whole route', () => {
+  const shape = denseShape();
+  const bunch = {
+    vehicles: [
+      { lat: shape.points[900].lat, lon: shape.points[900].lon, distFt: 53_000 },
+      { lat: shape.points[920].lat, lon: shape.points[920].lon, distFt: 54_000 },
+      { lat: shape.points[940].lat, lon: shape.points[940].lon, distFt: 55_000 },
+    ],
+  };
+  const view = computeBunchingView(bunch, shape);
+
+  // Centered on the bunch (mid-route ~point 920), not the route midpoint.
+  assert.ok(Math.abs(view.centerLat - shape.points[920].lat) < 0.01);
+  assert.ok(Math.abs(view.centerLon - shape.points[920].lon) < 0.01);
+  // A sliced window zooms in much tighter than fitting all 95k ft of route.
+  const wholeRoute = computeBunchingView(
+    { vehicles: [shape.points[0], shape.points.at(-1)] },
+    shape,
+  );
+  assert.ok(view.zoom > wholeRoute.zoom + 1);
+});
+
 test('MARTA rail gap map overlays are short enough for dense long lines', () => {
   const line = { line: 'BLUE', ...denseShape() };
   const gap = {

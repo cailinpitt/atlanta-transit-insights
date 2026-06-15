@@ -202,6 +202,9 @@ function ghostDetection(row) {
       : `Route ${route} missing buses`;
   const bullets = [`${Number(row.missing).toFixed(0)} missing`];
   if (missingPct != null) bullets.push(`${missingPct}% missing`);
+  if (row.canceled_trips > 0) {
+    bullets.push(`${row.canceled_trips} MARTA-canceled trip${row.canceled_trips === 1 ? '' : 's'}`);
+  }
   return {
     id: `marta-ghost-${row.id}`,
     source: 'ghost',
@@ -219,6 +222,8 @@ function ghostDetection(row) {
       observed: row.observed,
       expected: row.expected,
       missing: row.missing,
+      canceled_trips: row.canceled_trips ?? null,
+      unexplained_missing: row.unexplained_missing ?? null,
     },
     bullets,
   };
@@ -321,6 +326,13 @@ function tableExists(db, tableName) {
   );
 }
 
+function columnExists(db, tableName, columnName) {
+  return db
+    .prepare(`PRAGMA table_info(${tableName})`)
+    .all()
+    .some((row) => row.name === columnName);
+}
+
 function readAlerts(db) {
   if (!tableExists(db, 'alert_posts')) return [];
   const rows = db
@@ -352,6 +364,13 @@ function readAlerts(db) {
 }
 
 function readDetections(db) {
+  if (!tableExists(db, 'gap_events')) return [];
+  const ghostCanceledExpr = columnExists(db, 'ghost_events', 'canceled_trips')
+    ? 'canceled_trips'
+    : 'NULL AS canceled_trips';
+  const ghostUnexplainedExpr = columnExists(db, 'ghost_events', 'unexplained_missing')
+    ? 'unexplained_missing'
+    : 'NULL AS unexplained_missing';
   const gaps = db
     .prepare(
       `SELECT id, ts, kind, route, direction, gap_ft, gap_min, expected_min,
@@ -375,6 +394,7 @@ function readDetections(db) {
   const ghosts = db
     .prepare(
       `SELECT id, ts, kind, route, direction, observed, expected, missing,
+              ${ghostCanceledExpr}, ${ghostUnexplainedExpr},
               post_uri, resolved_ts, resolved_post_uri
        FROM ghost_events
        WHERE post_uri IS NOT NULL

@@ -86,6 +86,8 @@ function getDb() {
         observed REAL,
         expected REAL,
         missing REAL,
+        canceled_trips INTEGER,
+        unexplained_missing REAL,
         post_uri TEXT,
         last_seen_ts INTEGER,
         resolved_ts INTEGER,
@@ -139,6 +141,8 @@ function getDb() {
       addColumnIfMissing(db, table, 'resolved_ts', 'INTEGER');
       addColumnIfMissing(db, table, 'resolved_post_uri', 'TEXT');
     }
+    addColumnIfMissing(db, 'ghost_events', 'canceled_trips', 'INTEGER');
+    addColumnIfMissing(db, 'ghost_events', 'unexplained_missing', 'REAL');
     _initedDb = db;
   }
   return db;
@@ -342,13 +346,25 @@ function gapCooldownAllows(
   return events.every((ev) => candidate.ratio >= ev.ratio * 1.25);
 }
 
-function recordGhostEvent({ kind, route, direction, observed, expected, missing, postUri, ts }) {
+function recordGhostEvent({
+  kind,
+  route,
+  direction,
+  observed,
+  expected,
+  missing,
+  canceledTrips,
+  unexplainedMissing,
+  postUri,
+  ts,
+}) {
   const now = ts || Date.now();
   getDb()
     .prepare(`
       INSERT OR IGNORE INTO ghost_events
-        (ts, kind, route, direction, observed, expected, missing, post_uri, last_seen_ts)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        (ts, kind, route, direction, observed, expected, missing, canceled_trips, unexplained_missing,
+         post_uri, last_seen_ts)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `)
     .run(
       now,
@@ -358,6 +374,8 @@ function recordGhostEvent({ kind, route, direction, observed, expected, missing,
       observed ?? null,
       expected ?? null,
       missing ?? null,
+      canceledTrips ?? null,
+      unexplainedMissing ?? null,
       postUri,
       now,
     );

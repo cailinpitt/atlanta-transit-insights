@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { detectBusGhosts } = require('../../src/marta/bus/ghosts');
+const { detectBusGhosts, ghostsFromObservations } = require('../../src/marta/bus/ghosts');
 
 const NOW = 1_781_000_000_000;
 const INTERVAL = 10 * 60 * 1000;
@@ -36,6 +36,18 @@ test('a sustained shortfall fires a ghost', () => {
   assert.equal(events[0].observedActive, 4);
   assert.equal(events[0].expectedActive, 10);
   assert.equal(events[0].missing, 6);
+});
+
+test('ghost event includes canceled trip context when provided', () => {
+  const events = detectBusGhosts({
+    routes: ['20'],
+    getObservations: () => buildObs([4, 4, 4, 4, 4, 4]),
+    expectedActive: () => 10,
+    canceledTrips: () => 3,
+  });
+  assert.equal(events.length, 1);
+  assert.equal(events[0].missing, 6);
+  assert.equal(events[0].canceledTrips, 3);
 });
 
 test('near-full service does not fire (below absolute threshold)', () => {
@@ -102,4 +114,46 @@ test('no schedule for the route+direction is skipped', () => {
   });
   assert.equal(events.length, 0);
   assert.ok(drops.some((d) => d.reason === 'no_schedule'));
+});
+
+test('ghostsFromObservations resolves canceled trip statuses through GTFS direction', () => {
+  const gtfs = {
+    tripsById: new Map([
+      ['trip-live', { route_id: 'r20', direction_id: '0' }],
+      ['trip-cancel-1', { route_id: 'r20', direction_id: '0' }],
+      ['trip-cancel-2', { route_id: 'r20', direction_id: '0' }],
+      ['trip-other-dir', { route_id: 'r20', direction_id: '1' }],
+    ]),
+    routesById: new Map([['r20', { route_short_name: '20' }]]),
+  };
+  const observations = buildObs([4, 4, 4, 4, 4, 4]).map((row) => ({
+    ...row,
+    tripId: 'trip-live',
+  }));
+  const tripStatuses = [
+    { tripId: 'trip-cancel-1', tripRelationship: 'CANCELED' },
+    { tripId: 'trip-cancel-2', tripRelationship: 'CANCELED' },
+    { tripId: 'trip-cancel-2', tripRelationship: 'CANCELED' },
+    { tripId: 'trip-other-dir', tripRelationship: 'CANCELED' },
+  ];
+  const events = ghostsFromObservations(observations, {
+    gtfs,
+    tripStatuses,
+    routes: ['20'],
+    index: {
+      routes: {
+        20: {
+          0: {
+            activeByHour: { weekday: Object.fromEntries([...Array(24)].map((_, h) => [h, 10])) },
+          },
+          1: {
+            activeByHour: { weekday: Object.fromEntries([...Array(24)].map((_, h) => [h, 10])) },
+          },
+        },
+      },
+    },
+    now: Date.UTC(2026, 5, 15, 12),
+  });
+  assert.equal(events.length, 1);
+  assert.equal(events[0].canceledTrips, 2, 'dedupes repeated canceled trip statuses');
 });

@@ -32,7 +32,11 @@ async function main() {
     return;
   }
 
-  const events = ghostsFromObservations(rows, { gtfs, now });
+  const tripStatuses = storage.getRecentBusTripStatuses(now - WINDOW_MS);
+  const events = ghostsFromObservations(rows, { gtfs, tripStatuses, now }).map((e) => ({
+    ...e,
+    unexplainedMissing: Math.max(0, e.missing - (e.canceledTrips || 0)),
+  }));
   if (!argv['dry-run']) {
     const closed = incidents.reconcileGhostEvents({
       kind: 'bus',
@@ -55,11 +59,17 @@ async function main() {
       direction: e.direction || null,
       source: 'ghost',
       severity: 1,
-      detail: { observed: e.observedActive, expected: e.expectedActive, missing: e.missing },
+      detail: {
+        observed: e.observedActive,
+        expected: e.expectedActive,
+        missing: e.missing,
+        canceledTrips: e.canceledTrips || 0,
+        unexplainedMissing: e.unexplainedMissing,
+      },
       posted: !argv['dry-run'],
     });
     console.log(
-      `  Route ${e.route} ${e.direction}: ${e.observedActive.toFixed(1)} observed vs ${e.expectedActive.toFixed(1)} expected (${e.missing.toFixed(1)} missing across ${e.snapshots} snapshots)`,
+      `  Route ${e.route} ${e.direction}: ${e.observedActive.toFixed(1)} observed vs ${e.expectedActive.toFixed(1)} expected (${e.missing.toFixed(1)} missing, ${e.canceledTrips || 0} canceled, ${e.unexplainedMissing.toFixed(1)} unexplained across ${e.snapshots} snapshots)`,
     );
   }
 
@@ -98,6 +108,8 @@ async function main() {
         observed: e.observedActive,
         expected: e.expectedActive,
         missing: e.missing,
+        canceledTrips: e.canceledTrips || 0,
+        unexplainedMissing: e.unexplainedMissing,
         postUri: result.uri,
         ts,
       });

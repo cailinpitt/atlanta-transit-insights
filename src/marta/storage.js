@@ -10,6 +10,7 @@
 //
 // Tables:
 //   bus_observations  one row / vehicle / snapshot  (VehiclePositions)
+//   bus_trip_status   one row / (snapshot, trip)     (TripUpdates summary)
 //   bus_trip_updates  one row / (snapshot, trip, stop)  (TripUpdates)
 //   rail_observations one row / tracked train / snapshot  (Path A positions)
 //   rail_arrivals     one row / (snapshot, train→station) incl. scheduled rows
@@ -60,7 +61,35 @@ function getDb() {
 
     -- Bus TripUpdates flattened to one row per (poll, trip, stop). MARTA omits
     -- GTFS-rt delay, so adherence = predicted arrival − scheduled (stored as
-    -- schedule_deviation_sec).
+    -- schedule_deviation_sec). This table is optional because it is large; the
+    -- compact bus_trip_status table is always written.
+    CREATE TABLE IF NOT EXISTS bus_trip_status (
+      ts INTEGER NOT NULL,
+      trip_id TEXT NOT NULL,
+      route TEXT,
+      vehicle_id TEXT,
+      label TEXT,
+      trip_relationship TEXT,
+      start_date TEXT,
+      start_time TEXT,
+      stop_count INTEGER NOT NULL DEFAULT 0,
+      first_stop_sequence INTEGER,
+      first_stop_id TEXT,
+      first_arrival_time INTEGER,
+      first_arrival_sched INTEGER,
+      last_stop_sequence INTEGER,
+      last_stop_id TEXT,
+      last_arrival_time INTEGER,
+      last_arrival_sched INTEGER,
+      feed_ts INTEGER
+    );
+    CREATE INDEX IF NOT EXISTS idx_bus_trip_status_trip_ts
+      ON bus_trip_status(trip_id, ts);
+    CREATE INDEX IF NOT EXISTS idx_bus_trip_status_route_ts
+      ON bus_trip_status(route, ts);
+    CREATE INDEX IF NOT EXISTS idx_bus_trip_status_rel_ts
+      ON bus_trip_status(trip_relationship, ts);
+
     CREATE TABLE IF NOT EXISTS bus_trip_updates (
       ts INTEGER NOT NULL,
       trip_id TEXT NOT NULL,
@@ -158,20 +187,52 @@ function recordBusObservations(vehicles, now = Date.now()) {
 function recordBusTripUpdates(tripUpdates, now = Date.now()) {
   if (!tripUpdates || tripUpdates.length === 0) return;
   try {
-    const stmt = getDb().prepare(`
+    const statusStmt = getDb().prepare(`
+      INSERT INTO bus_trip_status
+        (ts, trip_id, route, vehicle_id, label, trip_relationship, start_date, start_time,
+         stop_count, first_stop_sequence, first_stop_id, first_arrival_time, first_arrival_sched,
+         last_stop_sequence, last_stop_id, last_arrival_time, last_arrival_sched, feed_ts)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    const stopStmt = getDb().prepare(`
       INSERT INTO bus_trip_updates
         (ts, trip_id, route, vehicle_id, stop_sequence, stop_id, schedule_relationship,
          arrival_time, arrival_sched, departure_time, departure_sched, schedule_deviation_sec, feed_ts)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
+    const storeStops = process.env.MARTA_STORE_TRIP_UPDATE_STOPS === '1';
     const tx = getDb().transaction((items) => {
       for (const tu of items) {
         if (!tu.tripId) continue;
+        const stops = tu.stopUpdates || [];
+        const first = stops[0] || null;
+        const last = stops[stops.length - 1] || null;
+        statusStmt.run(
+          now,
+          String(tu.tripId),
+          str(tu.realtimeRouteId),
+          str(tu.vehicleId),
+          str(tu.label),
+          str(tu.scheduleRelationship),
+          str(tu.startDate),
+          str(tu.startTime),
+          stops.length,
+          Number.isFinite(first?.stopSequence) ? first.stopSequence : null,
+          str(first?.stopId),
+          fin(first?.arrivalTime),
+          fin(first?.arrivalScheduledTime),
+          Number.isFinite(last?.stopSequence) ? last.stopSequence : null,
+          str(last?.stopId),
+          fin(last?.arrivalTime),
+          fin(last?.arrivalScheduledTime),
+          fin(tu.timestamp),
+        );
+        if (!storeStops) continue;
         // A trip with no stop updates still gets one summary row so a canceled
         // trip with an empty stop list is recorded.
-        const stops = tu.stopUpdates && tu.stopUpdates.length > 0 ? tu.stopUpdates : [null];
-        for (const s of stops) {
-          stmt.run(
+        const stopRows = stops.length > 0 ? stops : [null];
+        for (const s of stopRows) {
+          stopStmt.run(
             now,
             String(tu.tripId),
             str(tu.realtimeRouteId),
@@ -292,6 +353,24 @@ function getRecentBusObservationsAll(sinceTs) {
     .all(sinceTs);
 }
 
+function getRecentBusTripStatuses(sinceTs) {
+  return getDb()
+    .prepare(`
+      SELECT ts, trip_id AS tripId, route, vehicle_id AS vehicleId, label,
+             trip_relationship AS tripRelationship, start_date AS startDate,
+             start_time AS startTime, stop_count AS stopCount,
+             first_stop_sequence AS firstStopSequence, first_stop_id AS firstStopId,
+             first_arrival_time AS firstArrivalTime, first_arrival_sched AS firstArrivalScheduledTime,
+             last_stop_sequence AS lastStopSequence, last_stop_id AS lastStopId,
+             last_arrival_time AS lastArrivalTime, last_arrival_sched AS lastArrivalScheduledTime,
+             feed_ts AS feedTs
+      FROM bus_trip_status
+      WHERE ts >= ?
+      ORDER BY ts
+    `)
+    .all(sinceTs);
+}
+
 function getRecentRailObservations(line, sinceTs) {
   return getDb()
     .prepare(`
@@ -331,6 +410,7 @@ function getRailArrivals(line, sinceTs, { realtimeOnly = false } = {}) {
 // allowlist so it can't be injected.
 const SNAPSHOT_TABLES = new Set([
   'bus_observations',
+  'bus_trip_status',
   'bus_trip_updates',
   'rail_observations',
   'rail_arrivals',
@@ -370,6 +450,7 @@ module.exports = {
   recordRailSnapshot,
   getRecentBusObservations,
   getRecentBusObservationsAll,
+  getRecentBusTripStatuses,
   getRecentRailObservations,
   getRecentRailObservationsAll,
   getRailArrivals,

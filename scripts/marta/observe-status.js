@@ -24,13 +24,13 @@ function tableStat(t) {
   return { rows: row.c, oldest: row.mn, newest: row.mx, snaps10m, snaps1h };
 }
 
-const TABLES = ['bus_observations', 'bus_trip_updates', 'rail_observations', 'rail_arrivals'];
+const TABLES = ['bus_observations', 'bus_trip_status', 'rail_observations', 'rail_arrivals'];
 // How stale is too stale, per feed (positions/rail every ~min, trip-updates ~5m).
 const STALE_MS = {
   bus_observations: 3 * MIN,
   rail_observations: 3 * MIN,
   rail_arrivals: 3 * MIN,
-  bus_trip_updates: 12 * MIN,
+  bus_trip_status: 12 * MIN,
 };
 
 let warnings = 0;

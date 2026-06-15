@@ -18,7 +18,12 @@ function formatGhostLine(event, routeTitle) {
     headway: event.headway,
   });
   const head = `🚌 ${routeTitle} ${dir} · ${missingShown} of ${expectedShown} missing (${pct}%)`;
-  return headwayPhrase ? `${head} · ${headwayPhrase}` : head;
+  const parts = [head];
+  if (headwayPhrase) parts.push(headwayPhrase);
+  if (event.canceledTrips > 0) {
+    parts.push(`${event.canceledTrips} MARTA-canceled trip${event.canceledTrips === 1 ? '' : 's'}`);
+  }
+  return parts.join(' · ');
 }
 
 module.exports = { abbreviateDirection, formatGhostLine };

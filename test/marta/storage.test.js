@@ -66,19 +66,45 @@ test('bus observations round-trip, preserving optional speed', () => {
   );
 });
 
-test('bus trip updates flatten to one row per stop', () => {
+test('bus trip updates store compact trip status by default', () => {
   storage.recordBusTripUpdates(tripUpdates, T0);
+  const statuses = storage.getRecentBusTripStatuses(T0 - 1).filter((r) => r.ts === T0);
+  assert.equal(statuses.length, tripUpdates.length);
+  assert.ok(
+    statuses.some((r) => r.tripRelationship),
+    'trip-level relationship is stored',
+  );
+  assert.ok(
+    statuses.some((r) => r.stopCount > 0),
+    'summary keeps stop count',
+  );
+  const stopRows = storage
+    .getDb()
+    .prepare('SELECT COUNT(*) AS n FROM bus_trip_updates WHERE ts = ?')
+    .get(T0);
+  assert.equal(stopRows.n, 0, 'stop-level TripUpdates are opt-in');
+});
+
+test('bus trip update stop rows can be retained when explicitly enabled', () => {
+  const t1 = T0 + 1;
+  process.env.MARTA_STORE_TRIP_UPDATE_STOPS = '1';
+  try {
+    storage.recordBusTripUpdates(tripUpdates, t1);
+  } finally {
+    delete process.env.MARTA_STORE_TRIP_UPDATE_STOPS;
+  }
   const expectedRows = tripUpdates.reduce((n, tu) => n + Math.max(1, tu.stopUpdates.length), 0);
   const got = storage
     .getDb()
     .prepare('SELECT COUNT(*) AS n FROM bus_trip_updates WHERE ts = ?')
-    .get(T0);
+    .get(t1);
   assert.equal(got.n, expectedRows);
-  // scheduleDeviationSec round-trips for stops carrying predicted+scheduled.
   const dev = storage
     .getDb()
-    .prepare('SELECT COUNT(*) AS n FROM bus_trip_updates WHERE schedule_deviation_sec IS NOT NULL')
-    .get();
+    .prepare(
+      'SELECT COUNT(*) AS n FROM bus_trip_updates WHERE ts = ? AND schedule_deviation_sec IS NOT NULL',
+    )
+    .get(t1);
   assert.ok(dev.n > 0, 'adherence stored for some stops');
 });
 

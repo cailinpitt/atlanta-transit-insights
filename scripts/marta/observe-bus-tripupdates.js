@@ -1,10 +1,8 @@
 #!/usr/bin/env node
-// MARTA bus TripUpdates observer — kept SEPARATE from observe-buses.js because
-// each fetch flattens to ~14k rows (every active trip × every upcoming stop),
-// ~100x heavier than positions. No detector reads trip updates yet; they're the
-// schedule-adherence / predicted-arrival substrate for future work, so this runs
-// on a slow cadence (cron */5) rather than at position density. The
-// observe-buses rolloff trims this table too.
+// MARTA bus TripUpdates observer — kept SEPARATE from observe-buses.js. The
+// default DB write is compact: one row per trip status, including trip-level
+// CANCELED signals used to enrich ghost-bus detection. Full stop-level rows are
+// only retained when MARTA_STORE_TRIP_UPDATE_STOPS=1 because they are large.
 require('dotenv').config({ path: require('node:path').join(__dirname, '..', '..', '.env') });
 const { getTripUpdates } = require('../../src/marta/bus/api');
 const { runTicks } = require('../../src/marta/observeUtil');

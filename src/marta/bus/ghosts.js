@@ -33,8 +33,16 @@ function tailMedian(perSnapshot) {
 //   getObservations:  (route) => [{ ts, vehicleId, direction }] in the window
 //   expectedActive:   (route, direction) => scheduled active trips this hour, or null
 //   expectedHeadway:  (route, direction) => display-only headway min, or null
+//   canceledTrips:    (route, direction) => distinct canceled trips in the window
 //   onDrop:           optional ({reason, ...}) diagnostic sink
-function detectBusGhosts({ routes, getObservations, expectedActive, expectedHeadway, onDrop }) {
+function detectBusGhosts({
+  routes,
+  getObservations,
+  expectedActive,
+  expectedHeadway,
+  canceledTrips,
+  onDrop,
+}) {
   const events = [];
   const drop = (reason, info) => onDrop?.({ reason, ...info });
 
@@ -135,6 +143,7 @@ function detectBusGhosts({ routes, getObservations, expectedActive, expectedHead
         expectedActive: active,
         observedActive,
         missing,
+        canceledTrips: canceledTrips ? canceledTrips(route, direction) : 0,
         snapshots: perSnapshot.size,
         headway: expectedHeadway ? expectedHeadway(route, direction) : null,
       });
@@ -147,7 +156,10 @@ function detectBusGhosts({ routes, getObservations, expectedActive, expectedHead
 
 // Bridge: resolve each stored bus observation's route + canonical direction via
 // GTFS, group by route, and detect against the schedule index's activeByHour.
-function ghostsFromObservations(observations, { gtfs, index, routes, now = Date.now() } = {}) {
+function ghostsFromObservations(
+  observations,
+  { gtfs, index, routes, tripStatuses, now = Date.now() } = {},
+) {
   const idx = loadScheduleIndex(index);
   const nowDate = new Date(now);
   const byRoute = new Map();
@@ -159,11 +171,26 @@ function ghostsFromObservations(observations, { gtfs, index, routes, now = Date.
     if (!byRoute.has(route)) byRoute.set(route, []);
     byRoute.get(route).push({ ts: o.ts, vehicleId: o.vehicleId, direction: trip.direction_id });
   }
+
+  const canceledByRouteDir = new Map();
+  for (const s of tripStatuses || []) {
+    if (s.tripRelationship !== 'CANCELED') continue;
+    const trip = gtfs.tripsById.get(s.tripId);
+    if (!trip) continue;
+    const route = gtfs.routesById.get(trip.route_id)?.route_short_name || s.route;
+    if (!route) continue;
+    const key = `${String(route)}\u0000${trip.direction_id ?? ''}`;
+    if (!canceledByRouteDir.has(key)) canceledByRouteDir.set(key, new Set());
+    canceledByRouteDir.get(key).add(String(s.tripId));
+  }
+
   return detectBusGhosts({
     routes: routes || [...byRoute.keys()],
     getObservations: (r) => byRoute.get(r) || [],
     expectedActive: (route, direction) => activeTripsForRoute(idx, route, direction, nowDate),
     expectedHeadway: (route, direction) => headwayForRoute(idx, route, direction, nowDate),
+    canceledTrips: (route, direction) =>
+      canceledByRouteDir.get(`${String(route)}\u0000${direction ?? ''}`)?.size || 0,
   });
 }
 

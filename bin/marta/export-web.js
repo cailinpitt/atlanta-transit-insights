@@ -13,6 +13,11 @@ const DB_PATH =
 
 const PAIR_BUFFER_MS = 2 * 60 * 60 * 1000;
 const PAIR_GRACE_MS = 10 * 60 * 1000;
+const DETECTION_ACTIVE_MS = {
+  gap: 45 * 60 * 1000,
+  bunching: 45 * 60 * 1000,
+  ghost: 90 * 60 * 1000,
+};
 
 function atUriToUrl(uri) {
   if (!uri) return null;
@@ -105,16 +110,31 @@ function detectionScope(det) {
   };
 }
 
-function detectionBlock(det) {
+function detectionActiveWindowMs(det) {
+  return DETECTION_ACTIVE_MS[det.source] ?? 60 * 60 * 1000;
+}
+
+function detectionLifecycle(det, now) {
+  const resolvedTs = det.ts + detectionActiveWindowMs(det);
+  const active = now < resolvedTs;
+  return lifecycleBlock({
+    firstSeenTs: det.ts,
+    resolvedTs: active ? null : resolvedTs,
+    active,
+  });
+}
+
+function latestResolvedTs(values) {
+  const nums = values.filter((v) => v != null && Number.isFinite(v));
+  return nums.length > 0 ? Math.max(...nums) : null;
+}
+
+function detectionBlock(det, now) {
   return {
     id: det.id,
     source: det.source,
     scope: detectionScope(det),
-    lifecycle: lifecycleBlock({
-      firstSeenTs: det.ts,
-      resolvedTs: null,
-      active: true,
-    }),
+    lifecycle: detectionLifecycle(det, now),
     post_url: det.post_url,
     description: det.description,
     evidence: {
@@ -246,8 +266,10 @@ function findMatches(alert, detections, usedIds) {
     .sort((a, b) => Math.abs(a.ts - alert.first_seen_ts) - Math.abs(b.ts - alert.first_seen_ts));
 }
 
-function buildIncidentFromAlert(alert, matches) {
-  const active = alert.resolved_ts == null || matches.some((det) => det.resolved_ts == null);
+function buildIncidentFromAlert(alert, matches, now) {
+  const detectionLifecycles = matches.map((det) => detectionLifecycle(det, now));
+  const active =
+    alert.resolved_ts == null || detectionLifecycles.some((lifecycle) => lifecycle.active);
   const routeSet = new Set(alert.routes);
   for (const det of matches) routeSet.add(det.route);
   const routes = [...routeSet];
@@ -264,28 +286,26 @@ function buildIncidentFromAlert(alert, matches) {
     sources: matches.length > 0 ? ['marta', 'bot'] : ['marta'],
     lifecycle: lifecycleBlock({
       firstSeenTs: Number.isFinite(firstSeen) ? firstSeen : alert.first_seen_ts,
-      resolvedTs: active ? null : alert.resolved_ts,
+      resolvedTs: active
+        ? null
+        : latestResolvedTs([alert.resolved_ts, ...detectionLifecycles.map((l) => l.resolved_ts)]),
       active,
     }),
     official_alert: officialAlertBlock(alert),
-    detections: matches.map(detectionBlock),
+    detections: matches.map((det) => detectionBlock(det, now)),
   };
 }
 
-function buildIncidentFromDetection(det) {
+function buildIncidentFromDetection(det, now) {
   return {
     id: postUrlRkey(det.post_url) ?? det.id,
     agency: 'marta',
     mode: det.mode,
     routes: [det.route],
     sources: ['bot'],
-    lifecycle: lifecycleBlock({
-      firstSeenTs: det.ts,
-      resolvedTs: null,
-      active: true,
-    }),
+    lifecycle: detectionLifecycle(det, now),
     official_alert: null,
-    detections: [detectionBlock(det)],
+    detections: [detectionBlock(det, now)],
   };
 }
 
@@ -384,16 +404,16 @@ function dataStart(alerts, detections) {
   return times.length > 0 ? Math.min(...times) : null;
 }
 
-function buildIncidents(alerts, detections) {
+function buildIncidents(alerts, detections, now = Date.now()) {
   const usedDetections = new Set();
   const incidents = [];
   for (const alert of alerts) {
     const matches = findMatches(alert, detections, usedDetections);
     for (const det of matches) usedDetections.add(det.id);
-    incidents.push(buildIncidentFromAlert(alert, matches));
+    incidents.push(buildIncidentFromAlert(alert, matches, now));
   }
   for (const det of detections) {
-    if (!usedDetections.has(det.id)) incidents.push(buildIncidentFromDetection(det));
+    if (!usedDetections.has(det.id)) incidents.push(buildIncidentFromDetection(det, now));
   }
   incidents.sort(
     (a, b) =>
@@ -410,7 +430,7 @@ function buildExport(db, now = Date.now()) {
     schema_version: 2,
     generated_at: now,
     data_start_ts: dataStart(alerts, detections),
-    incidents: buildIncidents(alerts, detections),
+    incidents: buildIncidents(alerts, detections, now),
   };
 }
 

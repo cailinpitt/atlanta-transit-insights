@@ -8,7 +8,7 @@
 # Env:
 #   ATLANTA_INSIGHTS       repo path (default: parent of this script's dir)
 #   RCLONE_REMOTE          rclone remote:bucket
-#                          (default: r2:atlanta-transit-alerts-data)
+#                          (default: r2atlanta:atlanta-transit-alerts-data)
 #   DISPATCH_REPO          owner/repo to rebuild
 #                          (default: cailinpitt/atlanta-transit-alerts)
 #   GITHUB_DISPATCH_TOKEN  PAT allowed to POST repository_dispatch.
@@ -16,7 +16,7 @@ set -e
 
 SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
 REPO="${ATLANTA_INSIGHTS:-$(cd "$SCRIPT_DIR/../.." && pwd)}"
-REMOTE="${RCLONE_REMOTE:-r2:atlanta-transit-alerts-data}"
+REMOTE="${RCLONE_REMOTE:-r2atlanta:atlanta-transit-alerts-data}"
 DISPATCH_REPO="${DISPATCH_REPO:-cailinpitt/atlanta-transit-alerts}"
 
 if [ -z "${GITHUB_DISPATCH_TOKEN:-}" ] && [ -f "$REPO/.env" ]; then

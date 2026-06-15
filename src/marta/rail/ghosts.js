@@ -9,7 +9,7 @@ const { loadScheduleIndex, activeForLine, headwayForLine } = require('../bus/sch
 
 // `observations` are rail_observations rows { ts, train_id, line }. Returns the
 // same event shape as bus ghosts, with `route` = line and direction collapsed.
-function railGhostsFromObservations(observations, { index, lines, now = Date.now() } = {}) {
+function railGhostsFromObservations(observations, { index, lines, onDrop, now = Date.now() } = {}) {
   const idx = loadScheduleIndex(index);
   const nowDate = new Date(now);
   const byLine = new Map();
@@ -25,6 +25,7 @@ function railGhostsFromObservations(observations, { index, lines, now = Date.now
     getObservations: (line) => byLine.get(line) || [],
     expectedActive: (line) => activeForLine(idx, line, nowDate),
     expectedHeadway: (line) => headwayForLine(idx, line, nowDate),
+    onDrop,
   });
 }
 

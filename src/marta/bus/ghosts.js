@@ -158,7 +158,7 @@ function detectBusGhosts({
 // GTFS, group by route, and detect against the schedule index's activeByHour.
 function ghostsFromObservations(
   observations,
-  { gtfs, index, routes, tripStatuses, now = Date.now() } = {},
+  { gtfs, index, routes, tripStatuses, onDrop, now = Date.now() } = {},
 ) {
   const idx = loadScheduleIndex(index);
   const nowDate = new Date(now);
@@ -189,6 +189,7 @@ function ghostsFromObservations(
     getObservations: (r) => byRoute.get(r) || [],
     expectedActive: (route, direction) => activeTripsForRoute(idx, route, direction, nowDate),
     expectedHeadway: (route, direction) => headwayForRoute(idx, route, direction, nowDate),
+    onDrop,
     canceledTrips: (route, direction) =>
       canceledByRouteDir.get(`${String(route)}\u0000${direction ?? ''}`)?.size || 0,
   });

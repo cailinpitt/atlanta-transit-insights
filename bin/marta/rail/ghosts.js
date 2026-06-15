@@ -8,6 +8,7 @@ const { loadGtfs } = require('../../../src/marta/gtfs');
 const { loadShapes } = require('../../../src/marta/bus/shapes');
 const { buildLineGeometry } = require('../../../src/marta/rail/lines');
 const { railGhostsFromObservations } = require('../../../src/marta/rail/ghosts');
+const { MISSING_ABS_THRESHOLD } = require('../../../src/marta/bus/ghosts');
 const storage = require('../../../src/marta/storage');
 const incidents = require('../../../src/marta/shared/incidents');
 const { loginTrain, postText } = require('../../../src/marta/shared/bluesky');
@@ -30,9 +31,11 @@ async function main() {
     return;
   }
 
+  const drops = [];
   const events = railGhostsFromObservations(rows, {
     lines: [...lineGeom.keys()].sort(),
     now,
+    onDrop: (d) => drops.push(d),
   });
   if (!argv['dry-run']) {
     const closed = incidents.reconcileGhostEvents({
@@ -41,6 +44,27 @@ async function main() {
       now,
     });
     if (closed.length > 0) console.log(`Resolved ${closed.length} open rail ghost event(s)`);
+
+    // Sub-threshold near-misses feed the roundup correlation (posted=0), matching
+    // CTA's bin/train/ghosts.js. Rail collapses direction, so direction stays null.
+    for (const d of drops) {
+      if (
+        d.reason === 'below_abs_threshold' &&
+        d.route &&
+        d.missing != null &&
+        d.missing >= MISSING_ABS_THRESHOLD * 0.5
+      ) {
+        incidents.recordMetaSignal({
+          kind: 'rail',
+          line: d.route,
+          direction: null,
+          source: 'ghost',
+          severity: Math.min(1, d.missing / MISSING_ABS_THRESHOLD),
+          detail: { observed: d.observedActive, expected: d.expectedActive, missing: d.missing },
+          posted: false,
+        });
+      }
+    }
   }
   if (events.length === 0) {
     console.log('No ghost train events meet the threshold, staying silent');

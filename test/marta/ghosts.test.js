@@ -73,6 +73,19 @@ test('near-full service does not fire (below absolute threshold)', () => {
   assert.ok(drops.some((d) => d.reason === 'below_abs_threshold'));
 });
 
+test('a below-abs-threshold drop carries the detail the roundup near-miss needs', () => {
+  // observed 8 of 10 → missing 2, under MISSING_ABS_THRESHOLD (3) so no posted
+  // ghost, but missing ≥ 3*0.5 so the bin records a scaled-severity meta_signal.
+  const { events, drops } = run([8, 8, 8, 8, 8, 8], 10);
+  assert.equal(events.length, 0);
+  const near = drops.find((d) => d.reason === 'below_abs_threshold');
+  assert.ok(near, 'expected a below_abs_threshold drop');
+  assert.equal(near.route, '20');
+  assert.equal(near.missing, 2);
+  assert.equal(near.observedActive, 8);
+  assert.equal(near.expectedActive, 10);
+});
+
 test('sparse routes are skipped', () => {
   // Observations present, but the route is only scheduled for 1 active bus.
   const { events, drops } = run([1, 1, 1, 1], 1);

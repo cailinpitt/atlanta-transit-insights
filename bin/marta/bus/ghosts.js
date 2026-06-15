@@ -50,11 +50,41 @@ async function main() {
   }
 
   const tripStatuses = storage.getRecentBusTripStatuses(now - WINDOW_MS);
-  const events = ghostsFromObservations(rows, { gtfs, tripStatuses, now }).map((e) => ({
+  const drops = [];
+  const events = ghostsFromObservations(rows, {
+    gtfs,
+    tripStatuses,
+    now,
+    onDrop: (d) => drops.push(d),
+  }).map((e) => ({
     ...e,
     directionLabel: directionLabelFor(gtfs, e.route, e.direction),
     unexplainedMissing: Math.max(0, e.missing - (e.canceledTrips || 0)),
   }));
+
+  // Sub-threshold near-misses feed the roundup correlation (posted=0) so a route
+  // that's almost-ghosting still contributes a weak signal. Mirrors CTA's
+  // bin/bus/ghosts.js; severity scales with how close it came to the bar.
+  if (!argv['dry-run']) {
+    for (const d of drops) {
+      if (
+        d.reason === 'below_abs_threshold' &&
+        d.route &&
+        d.missing != null &&
+        d.missing >= MISSING_ABS_THRESHOLD * 0.5
+      ) {
+        incidents.recordMetaSignal({
+          kind: 'bus',
+          line: d.route,
+          direction: d.direction || null,
+          source: 'ghost',
+          severity: Math.min(1, d.missing / MISSING_ABS_THRESHOLD),
+          detail: { observed: d.observedActive, expected: d.expectedActive, missing: d.missing },
+          posted: false,
+        });
+      }
+    }
+  }
   if (!argv['dry-run']) {
     const closed = incidents.reconcileGhostEvents({
       kind: 'bus',

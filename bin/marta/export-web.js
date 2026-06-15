@@ -494,14 +494,17 @@ function detectorMatchesRoundup(roundup, det) {
 }
 
 function buildIncidentFromRoundup(roundup, matches) {
-  const active = roundup.resolved_ts == null || matches.some((det) => det.resolved_ts == null);
+  // The roundup anchor owns the incident lifecycle, matching CTA: the anchor's
+  // own clear-ticks resolution sweep (bin/marta/incident-roundup.js) decides when
+  // service is back to normal. Paired gap/bunch/ghost detectors are evidence only
+  // — their individual lifecycles must NOT gate the incident, or a single detector
+  // that never reconciles would pin the event active long after the anchor cleared.
+  const active = roundup.resolved_ts == null;
   const firstSeen = Math.min(
     roundup.ts,
     ...matches.map((det) => det.ts).filter((ts) => ts != null),
   );
-  const resolved = active
-    ? null
-    : Math.max(roundup.resolved_ts ?? 0, ...matches.map((det) => det.resolved_ts ?? 0));
+  const resolved = active ? null : roundup.resolved_ts;
   return {
     id: postUrlRkey(roundup.post_url) ?? roundup.id,
     agency: 'marta',

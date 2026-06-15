@@ -307,7 +307,15 @@ function rowsByAlertId(rows) {
   return out;
 }
 
+function tableExists(db, tableName) {
+  return (
+    db.prepare("SELECT 1 AS ok FROM sqlite_master WHERE type = 'table' AND name = ?").get(tableName)
+      ?.ok === 1
+  );
+}
+
 function readAlerts(db) {
+  if (!tableExists(db, 'alert_posts')) return [];
   const rows = db
     .prepare(
       `SELECT alert_id, mode, routes, headline, description, cause, effect,
@@ -317,13 +325,15 @@ function readAlerts(db) {
        ORDER BY first_seen_ts DESC, alert_id ASC`,
     )
     .all();
-  const versionRows = db
-    .prepare(
-      `SELECT alert_id, ts, headline, description, routes
-       FROM alert_versions
-       ORDER BY alert_id, ts ASC, id ASC`,
-    )
-    .all();
+  const versionRows = tableExists(db, 'alert_versions')
+    ? db
+        .prepare(
+          `SELECT alert_id, ts, headline, description, routes
+           FROM alert_versions
+           ORDER BY alert_id, ts ASC, id ASC`,
+        )
+        .all()
+    : [];
   const versions = rowsByAlertId(versionRows);
   return rows.map((row) => ({
     ...row,

@@ -142,6 +142,25 @@ function getDb() {
     );
     CREATE INDEX IF NOT EXISTS idx_rail_arr_line_station_ts
       ON rail_arrivals(line, station, ts);
+
+    -- Atlanta Streetcar vehicle positions (OTP feed): one row per streetcar per
+    -- poll with its true position. Stored separately from heavy rail so the four
+    -- rail lines stay pure, but the same Path-A shape (position deltas between
+    -- polls give speed). vehicle_id is the OTP id ("MARTA:1001"); label is the
+    -- fleet number ("1001").
+    CREATE TABLE IF NOT EXISTS streetcar_observations (
+      ts INTEGER NOT NULL,
+      vehicle_id TEXT NOT NULL,
+      label TEXT,
+      line TEXT NOT NULL,
+      direction TEXT,
+      trip_id TEXT,
+      lat REAL,
+      lon REAL,
+      event_ts INTEGER            -- feed's per-vehicle lastUpdate (epoch ms)
+    );
+    CREATE INDEX IF NOT EXISTS idx_streetcar_obs_veh_ts
+      ON streetcar_observations(vehicle_id, ts);
   `);
   return _db;
 }
@@ -325,6 +344,37 @@ function recordRailSnapshot(parsed, now = Date.now()) {
   recordRailArrivals(parsed.arrivals, now);
 }
 
+// Atlanta Streetcar vehicle positions from the OTP feed (src/marta/streetcar).
+function recordStreetcarObservations(vehicles, now = Date.now()) {
+  if (!vehicles || vehicles.length === 0) return;
+  try {
+    const stmt = getDb().prepare(`
+      INSERT INTO streetcar_observations
+        (ts, vehicle_id, label, line, direction, trip_id, lat, lon, event_ts)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    const tx = getDb().transaction((items) => {
+      for (const v of items) {
+        if (v.vehicleId == null || !v.line) continue;
+        stmt.run(
+          now,
+          String(v.vehicleId),
+          str(v.label),
+          String(v.line),
+          str(v.direction),
+          str(v.tripId),
+          fin(v.lat),
+          fin(v.lon),
+          fin(v.eventTs),
+        );
+      }
+    });
+    tx(vehicles);
+  } catch (e) {
+    console.warn(`recordStreetcarObservations failed: ${e.message}`);
+  }
+}
+
 // --- Reads (the substrate the detectors will build on) ---
 
 function getRecentBusObservations(route, sinceTs) {
@@ -393,6 +443,18 @@ function getRecentRailObservationsAll(sinceTs) {
     .all(sinceTs);
 }
 
+function getRecentStreetcarObservations(sinceTs) {
+  return getDb()
+    .prepare(`
+      SELECT ts, vehicle_id AS vehicleId, label, line, direction, trip_id AS tripId,
+             lat, lon, event_ts AS eventTs
+      FROM streetcar_observations
+      WHERE ts >= ? AND lat IS NOT NULL AND lon IS NOT NULL
+      ORDER BY ts
+    `)
+    .all(sinceTs);
+}
+
 function getRailArrivals(line, sinceTs, { realtimeOnly = false } = {}) {
   return getDb()
     .prepare(`
@@ -414,6 +476,7 @@ const SNAPSHOT_TABLES = new Set([
   'bus_trip_updates',
   'rail_observations',
   'rail_arrivals',
+  'streetcar_observations',
 ]);
 function getSnapshotTimestamps(table, sinceTs) {
   if (!SNAPSHOT_TABLES.has(table)) throw new Error(`unknown table ${table}`);
@@ -448,11 +511,13 @@ module.exports = {
   recordRailObservations,
   recordRailArrivals,
   recordRailSnapshot,
+  recordStreetcarObservations,
   getRecentBusObservations,
   getRecentBusObservationsAll,
   getRecentBusTripStatuses,
   getRecentRailObservations,
   getRecentRailObservationsAll,
+  getRecentStreetcarObservations,
   getRailArrivals,
   getSnapshotTimestamps,
   rolloffOldObservations,

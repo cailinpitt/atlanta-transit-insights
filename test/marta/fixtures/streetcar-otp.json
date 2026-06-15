@@ -1,0 +1,44 @@
+{
+  "route": {
+    "shortName": "SC",
+    "patterns": [
+      {
+        "code": "MARTA:26982:1:02",
+        "directionId": 1,
+        "vehiclePositions": [
+          {
+            "vehicleId": "MARTA:1001",
+            "label": "1001",
+            "lat": 33.7544441,
+            "lon": -84.3881302,
+            "speed": null,
+            "heading": null,
+            "lastUpdate": "2026-06-15T19:08:53-04:00",
+            "trip": { "gtfsId": "MARTA:10811992", "tripShortName": null }
+          }
+        ]
+      },
+      {
+        "code": "MARTA:26982:1:01",
+        "directionId": 1,
+        "vehiclePositions": []
+      },
+      {
+        "code": "MARTA:26982:0:01",
+        "directionId": 0,
+        "vehiclePositions": [
+          {
+            "vehicleId": "MARTA:1002",
+            "label": "1002",
+            "lat": 33.7556114,
+            "lon": -84.3868713,
+            "speed": null,
+            "heading": null,
+            "lastUpdate": "2026-06-15T19:08:53-04:00",
+            "trip": { "gtfsId": "MARTA:10811931", "tripShortName": null }
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -4,8 +4,15 @@
 // reconstructed from position deltas between snapshots (Path A), so this runs
 // multiple ticks per firing to capture closely-spaced positions; run cron every
 // minute. Requires MARTA_TRAIN_KEY.
+//
+// The Atlanta Streetcar rides along here too: it's the rail's slow cousin
+// (Path-A positions, speed from deltas), so we poll its OTP feed on the same
+// 30s tick and store it in streetcar_observations. The streetcar fetch is
+// best-effort — its endpoint is an undocumented rider-app backend, so a hiccup
+// there must never break heavy-rail ingestion.
 require('dotenv').config({ path: require('node:path').join(__dirname, '..', '..', '.env') });
 const { fetchTrainData } = require('../../src/marta/rail/api');
+const { fetchStreetcarVehicles } = require('../../src/marta/streetcar/api');
 const { rolloffOldObservations } = require('../../src/marta/storage');
 const { runTicks } = require('../../src/marta/observeUtil');
 
@@ -14,8 +21,16 @@ const INTERVAL_MS = Number(process.env.MARTA_OBSERVE_RAIL_INTERVAL_MS || 30_000)
 
 async function tick() {
   const parsed = await fetchTrainData(); // records by default
+  let streetcarCount = 0;
+  try {
+    const sc = await fetchStreetcarVehicles(); // records by default
+    streetcarCount = sc.vehicles.length;
+  } catch (e) {
+    console.warn(`observe-rail: streetcar fetch failed: ${e.message}`);
+  }
   console.log(
-    `observe-rail: ${parsed.trains.length} trains, ${parsed.arrivals.length} arrivals @ ${new Date().toISOString()}`,
+    `observe-rail: ${parsed.trains.length} trains, ${parsed.arrivals.length} arrivals, ` +
+      `${streetcarCount} streetcars @ ${new Date().toISOString()}`,
   );
 }
 

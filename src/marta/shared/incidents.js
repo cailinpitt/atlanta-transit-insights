@@ -370,12 +370,12 @@ function eventKey({ route, direction }) {
 function reconcileDetectorEvents({ table, kind, current, now = Date.now() }) {
   const db = getDb();
   const currentKeys = new Set((current || []).map(eventKey));
+  const postedClause = hasColumn(db, table, 'posted') ? 'posted = 1 AND ' : '';
   const tx = db.transaction(() => {
     const markSeen = db.prepare(`
       UPDATE ${table}
       SET last_seen_ts = ?
-      WHERE posted = 1
-        AND resolved_ts IS NULL
+      WHERE ${postedClause}resolved_ts IS NULL
         AND kind = ?
         AND route = ?
         AND COALESCE(direction, '') = COALESCE(?, '')
@@ -388,7 +388,7 @@ function reconcileDetectorEvents({ table, kind, current, now = Date.now() }) {
       .prepare(`
         SELECT id, route, direction, ts, last_seen_ts
         FROM ${table}
-        WHERE posted = 1 AND resolved_ts IS NULL AND kind = ?
+        WHERE ${postedClause}resolved_ts IS NULL AND kind = ?
       `)
       .all(kind);
     const close = db.prepare(`UPDATE ${table} SET resolved_ts = ? WHERE id = ?`);

@@ -147,6 +147,53 @@ test('exports detector incidents as resolved after lifecycle reconciliation clos
   assert.equal(botOnly.detections[0].lifecycle.resolved_ts, ts);
 });
 
+test('reconciliation keeps only the newest open detector event per active key', () => {
+  incidents.recordGap(
+    {
+      kind: 'bus',
+      route: '997',
+      direction: 'shape-x',
+      gapFt: 20_000,
+      gapMin: 30,
+      expectedMin: 10,
+      ratio: 3,
+      nearStop: null,
+      posted: true,
+      postUri: 'at://did:plc:bus/app.bsky.feed.post/oldergap',
+    },
+    NOW + 60 * 60_000,
+  );
+  incidents.recordGap(
+    {
+      kind: 'bus',
+      route: '997',
+      direction: 'shape-x',
+      gapFt: 30_000,
+      gapMin: 45,
+      expectedMin: 10,
+      ratio: 4.5,
+      nearStop: null,
+      posted: true,
+      postUri: 'at://did:plc:bus/app.bsky.feed.post/newergap',
+    },
+    NOW + 70 * 60_000,
+  );
+  incidents.reconcileGapEvents({
+    kind: 'bus',
+    current: [{ route: '997', direction: 'shape-x' }],
+    now: NOW + 75 * 60_000,
+  });
+
+  const out = buildExport(storage.getDb(), NOW + 80 * 60_000);
+  const older = out.incidents.find((incident) => incident.id === 'oldergap');
+  const newer = out.incidents.find((incident) => incident.id === 'newergap');
+  assert.ok(older);
+  assert.ok(newer);
+  assert.equal(older.lifecycle.active, false);
+  assert.equal(older.lifecycle.resolved_ts, NOW + 70 * 60_000);
+  assert.equal(newer.lifecycle.active, true);
+});
+
 test('pairs rail bunching and ghosts with matching rail alerts', () => {
   seedAlert(
     {

@@ -392,9 +392,23 @@ function reconcileDetectorEvents({ table, kind, current, now = Date.now() }) {
       `)
       .all(kind);
     const close = db.prepare(`UPDATE ${table} SET resolved_ts = ? WHERE id = ?`);
+    const newestOpenByKey = new Map();
+    for (const row of openRows) {
+      const key = eventKey(row);
+      const prev = newestOpenByKey.get(key);
+      if (!prev || row.ts > prev.ts) newestOpenByKey.set(key, row);
+    }
     const closed = [];
     for (const row of openRows) {
-      if (currentKeys.has(eventKey(row))) continue;
+      const key = eventKey(row);
+      if (currentKeys.has(key)) {
+        const newest = newestOpenByKey.get(key);
+        if (newest?.id === row.id) continue;
+        const resolvedTs = newest?.ts ?? row.last_seen_ts ?? now;
+        close.run(resolvedTs, row.id);
+        closed.push({ ...row, resolved_ts: resolvedTs });
+        continue;
+      }
       const resolvedTs = row.last_seen_ts ?? now;
       close.run(resolvedTs, row.id);
       closed.push({ ...row, resolved_ts: resolvedTs });

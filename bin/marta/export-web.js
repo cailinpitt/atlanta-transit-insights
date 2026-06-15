@@ -8,6 +8,7 @@ const Fs = require('node:fs');
 const Path = require('node:path');
 const Database = require('better-sqlite3');
 const { canonicalMode, canonicalRoute, routeMatchKey } = require('../../src/marta/routeKeys');
+const { describeBotEvidenceBullets } = require('../../src/shared/observationDescribe');
 
 const DB_PATH =
   process.env.MARTA_HISTORY_DB_PATH || Path.join(__dirname, '..', '..', 'state', 'marta.sqlite');
@@ -124,7 +125,10 @@ function detectionBlock(det) {
     description: det.description,
     evidence: {
       details: det.evidence,
-      signals: [det.source],
+      // Roundups bundle several detectors; surface the real sub-signals
+      // ('ghost', 'gap', …) so the event page shows them as Signal chips.
+      // Single detectors carry their own source as the lone signal.
+      signals: det.source === 'roundup' ? (det.evidence?.signals ?? []) : [det.source],
       bullets: det.bullets,
     },
   };
@@ -139,12 +143,23 @@ function roundupDetection(row) {
     .split(',')
     .map((s) => s.trim())
     .filter(Boolean);
-  let bullets = [];
+  let rawBullets = [];
   try {
-    bullets = row.bullets ? JSON.parse(row.bullets) : [];
+    rawBullets = row.bullets ? JSON.parse(row.bullets) : [];
   } catch (_) {
-    bullets = [];
+    rawBullets = [];
   }
+  // Pre-render the per-source picks into plain-English strings here, the same
+  // way CTA's export does. The roundup_anchors.bullets column stores raw
+  // {source, detail} objects; shipping those to the web app crashes its bullet
+  // renderer (it calls String.prototype.replace on each entry). The shared
+  // renderer keeps post and web wording in one place.
+  const bullets =
+    describeBotEvidenceBullets({
+      detection_source: 'roundup',
+      kind: mode === 'rail' ? 'train' : 'bus',
+      bullets: rawBullets,
+    }) ?? [];
   const description =
     mode === 'rail'
       ? `${titleCaseRoute(route)} Line service signals`
@@ -342,23 +357,6 @@ function buildIncidentFromAlert(alert, matches) {
   };
 }
 
-function buildIncidentFromDetection(det) {
-  return {
-    id: postUrlRkey(det.post_url) ?? det.id,
-    agency: 'marta',
-    mode: det.mode,
-    routes: [det.route],
-    sources: ['bot'],
-    lifecycle: lifecycleBlock({
-      firstSeenTs: det.ts,
-      resolvedTs: det.resolved_ts ?? null,
-      active: det.resolved_ts == null,
-    }),
-    official_alert: null,
-    detections: [detectionBlock(det)],
-  };
-}
-
 function rowsByAlertId(rows) {
   const out = new Map();
   for (const row of rows) {
@@ -535,9 +533,12 @@ function buildIncidents(alerts, detections, roundups = []) {
     for (const det of matches) usedDetections.add(det.id);
     incidents.push(buildIncidentFromRoundup(roundup, matches));
   }
-  for (const det of detections) {
-    if (!usedDetections.has(det.id)) incidents.push(buildIncidentFromDetection(det));
-  }
+  // Unpaired single detectors do NOT become their own incidents — matching CTA,
+  // where website events come only from official alerts and multi-signal
+  // roundups. A lone gap/bunch/ghost still posts to Bluesky from the insights
+  // account, but it only surfaces on the site as evidence once it's folded into
+  // a roundup or an official alert above. This is what keeps a single detector
+  // from spawning a standalone event page.
   incidents.sort(
     (a, b) =>
       (b.lifecycle.first_seen_ts ?? 0) - (a.lifecycle.first_seen_ts ?? 0) ||

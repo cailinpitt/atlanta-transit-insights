@@ -94,7 +94,11 @@ test('pairs posted bot detections with matching official alerts', () => {
   assert.equal(incident.lifecycle.active, true);
 });
 
-test('keeps nonmatching route detections as bot-only incidents', () => {
+test('drops an unpaired single detector instead of making a standalone event', () => {
+  // A lone gap on a route with no official alert and no roundup must NOT become
+  // its own incident — matching CTA, where website events come only from
+  // official alerts and multi-signal roundups. The post still goes to Bluesky;
+  // it just doesn't spawn an event page on its own.
   incidents.recordGap(
     {
       kind: 'bus',
@@ -112,15 +116,28 @@ test('keeps nonmatching route detections as bot-only incidents', () => {
   );
 
   const out = buildExport(storage.getDb(), NOW + 10 * 60_000);
-  const botOnly = out.incidents.find((incident) => incident.id === 'gap999');
-  assert.ok(botOnly);
-  assert.equal(botOnly.official_alert, null);
-  assert.deepEqual(botOnly.routes, ['999']);
-  assert.equal(botOnly.detections[0].source, 'gap');
+  assert.equal(
+    out.incidents.some((incident) => incident.id === 'gap999'),
+    false,
+  );
+  assert.equal(
+    out.incidents.some((incident) => (incident.routes || []).includes('999')),
+    false,
+  );
 });
 
-test('exports detector incidents as resolved after lifecycle reconciliation closes them', () => {
+test('reconciliation resolves a detector folded under an official alert', () => {
   const ts = NOW + 40 * 60_000;
+  seedAlert(
+    {
+      alertId: 'alert-998',
+      mode: 'bus',
+      routes: '998',
+      headline: 'Route 998 delays',
+      postUri: 'at://did:plc:alerts/app.bsky.feed.post/alert998',
+    },
+    ts - 60_000,
+  );
   incidents.recordGap(
     {
       kind: 'bus',
@@ -139,12 +156,12 @@ test('exports detector incidents as resolved after lifecycle reconciliation clos
   incidents.reconcileGapEvents({ kind: 'bus', current: [], now: NOW + 45 * 60_000 });
 
   const out = buildExport(storage.getDb(), NOW + 50 * 60_000);
-  const botOnly = out.incidents.find((incident) => incident.id === 'closedgap');
-  assert.ok(botOnly);
-  assert.equal(botOnly.lifecycle.active, false);
-  assert.equal(botOnly.lifecycle.resolved_ts, ts);
-  assert.equal(botOnly.detections[0].lifecycle.active, false);
-  assert.equal(botOnly.detections[0].lifecycle.resolved_ts, ts);
+  const incident = out.incidents.find((row) => row.official_alert?.id === 'alert-998');
+  assert.ok(incident);
+  const gapDet = incident.detections.find((det) => det.source === 'gap');
+  assert.ok(gapDet);
+  assert.equal(gapDet.lifecycle.active, false);
+  assert.equal(gapDet.lifecycle.resolved_ts, ts);
 });
 
 test('uses alerts-account roundup as bot incident anchor and folds detector evidence under it', () => {
@@ -194,7 +211,17 @@ test('uses alerts-account roundup as bot incident anchor and folds detector evid
   );
 });
 
-test('reconciliation keeps only the newest open detector event per active key', () => {
+test('reconciliation resolves the superseded detector but keeps the newest active', () => {
+  seedAlert(
+    {
+      alertId: 'alert-997',
+      mode: 'bus',
+      routes: '997',
+      headline: 'Route 997 delays',
+      postUri: 'at://did:plc:alerts/app.bsky.feed.post/alert997',
+    },
+    NOW + 59 * 60_000,
+  );
   incidents.recordGap(
     {
       kind: 'bus',
@@ -232,8 +259,11 @@ test('reconciliation keeps only the newest open detector event per active key', 
   });
 
   const out = buildExport(storage.getDb(), NOW + 80 * 60_000);
-  const older = out.incidents.find((incident) => incident.id === 'oldergap');
-  const newer = out.incidents.find((incident) => incident.id === 'newergap');
+  const incident = out.incidents.find((row) => row.official_alert?.id === 'alert-997');
+  assert.ok(incident);
+  const byRkey = (rkey) => incident.detections.find((det) => det.post_url?.endsWith(`/${rkey}`));
+  const older = byRkey('oldergap');
+  const newer = byRkey('newergap');
   assert.ok(older);
   assert.ok(newer);
   assert.equal(older.lifecycle.active, false);

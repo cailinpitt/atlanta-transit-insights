@@ -95,7 +95,6 @@ test('pairs posted bot detections with matching official alerts', () => {
 });
 
 test('keeps nonmatching route detections as bot-only incidents', () => {
-  const ts = NOW + 4 * 60_000;
   incidents.recordGap(
     {
       kind: 'bus',
@@ -109,7 +108,7 @@ test('keeps nonmatching route detections as bot-only incidents', () => {
       posted: true,
       postUri: OTHER_URI,
     },
-    ts,
+    NOW + 4 * 60_000,
   );
 
   const out = buildExport(storage.getDb(), NOW + 10 * 60_000);
@@ -118,34 +117,6 @@ test('keeps nonmatching route detections as bot-only incidents', () => {
   assert.equal(botOnly.official_alert, null);
   assert.deepEqual(botOnly.routes, ['999']);
   assert.equal(botOnly.detections[0].source, 'gap');
-  assert.equal(botOnly.lifecycle.active, true);
-  assert.equal(botOnly.lifecycle.resolved_ts, null);
-});
-
-test('ages stale bot-only detections out of active status', () => {
-  const ts = NOW - 2 * 60 * 60_000;
-  incidents.recordGap(
-    {
-      kind: 'bus',
-      route: '998',
-      direction: 'shape-y',
-      gapFt: 21_000,
-      gapMin: 32,
-      expectedMin: 10,
-      ratio: 3.2,
-      nearStop: null,
-      posted: true,
-      postUri: 'at://did:plc:bus/app.bsky.feed.post/oldgap',
-    },
-    ts,
-  );
-
-  const out = buildExport(storage.getDb(), NOW);
-  const botOnly = out.incidents.find((incident) => incident.id === 'oldgap');
-  assert.ok(botOnly);
-  assert.equal(botOnly.lifecycle.active, false);
-  assert.equal(botOnly.lifecycle.resolved_ts, ts + 45 * 60_000);
-  assert.equal(botOnly.detections[0].lifecycle.active, false);
 });
 
 test('pairs rail bunching and ghosts with matching rail alerts', () => {

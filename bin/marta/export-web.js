@@ -126,6 +126,44 @@ function detectionBlock(det) {
   };
 }
 
+function roundupDetection(row) {
+  const route = String(row.line);
+  const kind = row.kind;
+  const mode = modeForKind(kind);
+  const signals = String(row.signals || '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
+  let bullets = [];
+  try {
+    bullets = row.bullets ? JSON.parse(row.bullets) : [];
+  } catch (_) {
+    bullets = [];
+  }
+  const description =
+    kind === 'rail'
+      ? `${titleCaseRoute(route)} Line service signals`
+      : `Route ${route} service signals`;
+  return {
+    id: `marta-roundup-${row.id}`,
+    source: 'roundup',
+    kind,
+    mode,
+    route,
+    direction: null,
+    near_stop: null,
+    ts: row.ts,
+    resolved_ts: row.resolved_ts ?? null,
+    post_url: atUriToUrl(row.post_uri),
+    resolved_post_url: atUriToUrl(row.resolution_post_uri),
+    description,
+    evidence: {
+      signals,
+    },
+    bullets,
+  };
+}
+
 function gapDetection(row) {
   const route = String(row.route);
   const gapMin = Math.round(row.gap_min);
@@ -405,20 +443,77 @@ function readDetections(db) {
   return [...gaps, ...bunches, ...ghosts].sort((a, b) => b.ts - a.ts || a.id.localeCompare(b.id));
 }
 
-function dataStart(alerts, detections) {
-  const times = [...alerts.map((a) => a.first_seen_ts), ...detections.map((d) => d.ts)].filter(
-    (ts) => ts != null,
-  );
+function readRoundups(db) {
+  if (!tableExists(db, 'roundup_anchors')) return [];
+  const rows = db
+    .prepare(
+      `SELECT id, kind, line, post_uri, ts, resolved_ts, resolution_post_uri, signals, bullets
+       FROM roundup_anchors
+       WHERE post_uri IS NOT NULL
+       ORDER BY ts DESC, id DESC`,
+    )
+    .all();
+  return rows.map(roundupDetection);
+}
+
+function dataStart(alerts, detections, roundups = []) {
+  const times = [
+    ...alerts.map((a) => a.first_seen_ts),
+    ...detections.map((d) => d.ts),
+    ...roundups.map((r) => r.ts),
+  ].filter((ts) => ts != null);
   return times.length > 0 ? Math.min(...times) : null;
 }
 
-function buildIncidents(alerts, detections) {
+function detectorMatchesRoundup(roundup, det) {
+  if (roundup.id === det.id) return false;
+  if (roundup.mode !== det.mode) return false;
+  if (normalizeRoute(roundup.route) !== normalizeRoute(det.route)) return false;
+  if (Math.abs(det.ts - roundup.ts) > PAIR_BUFFER_MS) return false;
+  const roundupEnd = roundup.resolved_ts ?? Number.POSITIVE_INFINITY;
+  if (roundupEnd + PAIR_GRACE_MS < det.ts) return false;
+  return true;
+}
+
+function buildIncidentFromRoundup(roundup, matches) {
+  const active = roundup.resolved_ts == null || matches.some((det) => det.resolved_ts == null);
+  const firstSeen = Math.min(
+    roundup.ts,
+    ...matches.map((det) => det.ts).filter((ts) => ts != null),
+  );
+  const resolved = active
+    ? null
+    : Math.max(roundup.resolved_ts ?? 0, ...matches.map((det) => det.resolved_ts ?? 0));
+  return {
+    id: postUrlRkey(roundup.post_url) ?? roundup.id,
+    agency: 'marta',
+    mode: roundup.mode,
+    routes: [roundup.route],
+    sources: ['bot'],
+    lifecycle: lifecycleBlock({
+      firstSeenTs: Number.isFinite(firstSeen) ? firstSeen : roundup.ts,
+      resolvedTs: resolved || null,
+      active,
+    }),
+    official_alert: null,
+    detections: [detectionBlock(roundup), ...matches.map(detectionBlock)],
+  };
+}
+
+function buildIncidents(alerts, detections, roundups = []) {
   const usedDetections = new Set();
   const incidents = [];
   for (const alert of alerts) {
     const matches = findMatches(alert, detections, usedDetections);
     for (const det of matches) usedDetections.add(det.id);
     incidents.push(buildIncidentFromAlert(alert, matches));
+  }
+  for (const roundup of roundups) {
+    const matches = detections
+      .filter((det) => !usedDetections.has(det.id) && detectorMatchesRoundup(roundup, det))
+      .sort((a, b) => Math.abs(a.ts - roundup.ts) - Math.abs(b.ts - roundup.ts));
+    for (const det of matches) usedDetections.add(det.id);
+    incidents.push(buildIncidentFromRoundup(roundup, matches));
   }
   for (const det of detections) {
     if (!usedDetections.has(det.id)) incidents.push(buildIncidentFromDetection(det));
@@ -434,11 +529,12 @@ function buildIncidents(alerts, detections) {
 function buildExport(db, now = Date.now()) {
   const alerts = readAlerts(db);
   const detections = readDetections(db);
+  const roundups = readRoundups(db);
   return {
     schema_version: 2,
     generated_at: now,
-    data_start_ts: dataStart(alerts, detections),
-    incidents: buildIncidents(alerts, detections),
+    data_start_ts: dataStart(alerts, detections, roundups),
+    incidents: buildIncidents(alerts, detections, roundups),
   };
 }
 

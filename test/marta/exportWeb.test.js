@@ -147,6 +147,53 @@ test('exports detector incidents as resolved after lifecycle reconciliation clos
   assert.equal(botOnly.detections[0].lifecycle.resolved_ts, ts);
 });
 
+test('uses alerts-account roundup as bot incident anchor and folds detector evidence under it', () => {
+  const roundupTs = NOW + 50 * 60_000;
+  incidents.recordRoundupAnchor({
+    kind: 'bus',
+    line: '996',
+    postUri: 'at://did:plc:martaalerts/app.bsky.feed.post/roundup996',
+    postCid: 'cid-roundup',
+    ts: roundupTs,
+    signals: ['gap', 'bunching'],
+    bullets: [{ source: 'gap', detail: { ratio: 3.5 } }],
+  });
+  incidents.recordGap(
+    {
+      kind: 'bus',
+      route: '996',
+      direction: 'shape-r',
+      gapFt: 20_000,
+      gapMin: 35,
+      expectedMin: 10,
+      ratio: 3.5,
+      nearStop: null,
+      posted: true,
+      postUri: 'at://did:plc:bus/app.bsky.feed.post/gap996',
+    },
+    roundupTs + 60_000,
+  );
+
+  const out = buildExport(storage.getDb(), roundupTs + 5 * 60_000);
+  const incident = out.incidents.find((row) => row.id === 'roundup996');
+  assert.ok(incident);
+  assert.equal(incident.official_alert, null);
+  assert.deepEqual(incident.sources, ['bot']);
+  assert.equal(incident.detections[0].source, 'roundup');
+  assert.equal(
+    incident.detections[0].post_url,
+    'https://bsky.app/profile/did:plc:martaalerts/post/roundup996',
+  );
+  assert.deepEqual(
+    incident.detections.map((det) => det.source),
+    ['roundup', 'gap'],
+  );
+  assert.equal(
+    out.incidents.some((row) => row.id === 'gap996'),
+    false,
+  );
+});
+
 test('reconciliation keeps only the newest open detector event per active key', () => {
   incidents.recordGap(
     {

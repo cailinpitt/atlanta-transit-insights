@@ -144,6 +144,24 @@ function getDb() {
       );
       CREATE INDEX IF NOT EXISTS idx_meta_signals_kind_line_ts
         ON meta_signals(kind, line, ts);
+
+      CREATE TABLE IF NOT EXISTS roundup_anchors (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        kind TEXT NOT NULL,
+        line TEXT NOT NULL,
+        post_uri TEXT NOT NULL UNIQUE,
+        post_cid TEXT,
+        ts INTEGER NOT NULL,
+        expires_ts INTEGER NOT NULL,
+        clear_ticks INTEGER NOT NULL DEFAULT 0,
+        resolved_ts INTEGER,
+        resolution_post_uri TEXT,
+        signals TEXT,
+        pending_resolved_ts INTEGER,
+        bullets TEXT
+      );
+      CREATE INDEX IF NOT EXISTS idx_roundup_anchors_kind_expires
+        ON roundup_anchors(kind, expires_ts);
     `);
     for (const table of ['bunching_events', 'gap_events', 'ghost_events']) {
       addColumnIfMissing(db, table, 'last_seen_ts', 'INTEGER');
@@ -152,6 +170,16 @@ function getDb() {
     }
     addColumnIfMissing(db, 'ghost_events', 'canceled_trips', 'INTEGER');
     addColumnIfMissing(db, 'ghost_events', 'unexplained_missing', 'REAL');
+    for (const [name, type] of [
+      ['clear_ticks', 'INTEGER NOT NULL DEFAULT 0'],
+      ['resolved_ts', 'INTEGER'],
+      ['resolution_post_uri', 'TEXT'],
+      ['signals', 'TEXT'],
+      ['pending_resolved_ts', 'INTEGER'],
+      ['bullets', 'TEXT'],
+    ]) {
+      addColumnIfMissing(db, 'roundup_anchors', name, type);
+    }
     _initedDb = db;
   }
   return db;
@@ -616,6 +644,82 @@ function recordMetaSignal(
     );
 }
 
+function getRecentMetaSignals({ kind, line, withinMs }, now = Date.now()) {
+  const sinceTs = now - withinMs;
+  const params = [kind, sinceTs];
+  let sql = 'SELECT * FROM meta_signals WHERE kind = ? AND ts >= ?';
+  if (line) {
+    sql += ' AND line = ?';
+    params.push(line);
+  }
+  sql += ' ORDER BY ts DESC';
+  return getDb()
+    .prepare(sql)
+    .all(...params);
+}
+
+function recordRoundupAnchor({
+  kind,
+  line,
+  postUri,
+  postCid,
+  ts,
+  signals,
+  bullets,
+  ttlMs = 2 * 60 * 60 * 1000,
+}) {
+  const signalsStr = signals && signals.length > 0 ? [...new Set(signals)].join(',') : null;
+  const bulletsStr = bullets && bullets.length > 0 ? JSON.stringify(bullets) : null;
+  getDb()
+    .prepare(`
+      INSERT OR REPLACE INTO roundup_anchors
+        (kind, line, post_uri, post_cid, ts, expires_ts, signals, bullets)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `)
+    .run(kind, String(line), postUri, postCid || null, ts, ts + ttlMs, signalsStr, bulletsStr);
+}
+
+function listUnresolvedRoundupAnchors(kind) {
+  return getDb()
+    .prepare(`
+      SELECT id, line, post_uri, post_cid, ts, clear_ticks
+      FROM roundup_anchors
+      WHERE kind = ? AND resolved_ts IS NULL
+    `)
+    .all(kind);
+}
+
+function updateRoundupClearTicks(id, clearTicks, _now = Date.now(), pendingClearTs = Date.now()) {
+  if (clearTicks === 0) {
+    getDb()
+      .prepare(
+        'UPDATE roundup_anchors SET clear_ticks = 0, pending_resolved_ts = NULL WHERE id = ?',
+      )
+      .run(id);
+    return;
+  }
+  getDb()
+    .prepare(`
+      UPDATE roundup_anchors
+      SET clear_ticks = ?,
+          pending_resolved_ts = COALESCE(pending_resolved_ts, ?)
+      WHERE id = ?
+    `)
+    .run(clearTicks, pendingClearTs, id);
+}
+
+function markRoundupResolved(id, resolutionPostUri, ts = Date.now()) {
+  getDb()
+    .prepare(`
+      UPDATE roundup_anchors
+      SET resolved_ts = COALESCE(pending_resolved_ts, ?),
+          resolution_post_uri = ?,
+          pending_resolved_ts = NULL
+      WHERE id = ?
+    `)
+    .run(ts, resolutionPostUri, id);
+}
+
 // Drop expired cooldowns (+ ancient legacy null-ttl rows) and stale meta_signals.
 // Event tables are an archive — kept forever.
 function rolloffOld(now = Date.now()) {
@@ -647,5 +751,10 @@ module.exports = {
   bunchingCapAllows,
   bunchingCooldownAllows,
   recordMetaSignal,
+  getRecentMetaSignals,
+  recordRoundupAnchor,
+  listUnresolvedRoundupAnchors,
+  updateRoundupClearTicks,
+  markRoundupResolved,
   rolloffOld,
 };

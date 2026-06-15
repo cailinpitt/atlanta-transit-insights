@@ -280,7 +280,46 @@ test('pairs rail bunching and ghosts with matching rail alerts', () => {
   const rail = out.incidents.find((incident) => incident.official_alert?.id === 'rail-blue');
   assert.ok(rail);
   assert.equal(rail.mode, 'rail');
+  assert.deepEqual(rail.routes, ['blue']);
   assert.deepEqual(rail.detections.map((det) => det.source).sort(), ['bunching', 'ghost']);
+});
+
+test('exports Streetcar aliases as streetcar incidents instead of raw route A', () => {
+  seedAlert(
+    {
+      alertId: 'streetcar-alert',
+      mode: 'streetcar',
+      routes: 'ATLSC',
+      headline: 'Atlanta Streetcar delays',
+      postUri: 'at://did:plc:alerts/app.bsky.feed.post/streetcaralert',
+    },
+    NOW + 31 * 60_000,
+  );
+  incidents.recordBunching(
+    {
+      kind: 'bus',
+      route: 'A',
+      direction: 'streetcar-shape',
+      vehicleCount: 2,
+      severityFt: 900,
+      nearStop: 'SUMMERHILL',
+      posted: true,
+      postUri: 'at://did:plc:bus/app.bsky.feed.post/streetcarbunch',
+    },
+    NOW + 32 * 60_000,
+  );
+
+  const out = buildExport(storage.getDb(), NOW + 40 * 60_000);
+  const streetcar = out.incidents.find((incident) => incident.id === 'streetcaralert');
+  assert.ok(streetcar);
+  assert.equal(streetcar.mode, 'streetcar');
+  assert.deepEqual(streetcar.routes, ['streetcar']);
+  assert.equal(streetcar.detections[0].scope.route, 'streetcar');
+  assert.match(streetcar.detections[0].description, /Streetcar/);
+  assert.equal(
+    out.incidents.some((incident) => incident.routes.includes('A')),
+    false,
+  );
 });
 
 test('bin writes the schema-v2 payload', () => {

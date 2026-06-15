@@ -7,6 +7,7 @@ require('../../src/shared/env');
 const Fs = require('node:fs');
 const Path = require('node:path');
 const Database = require('better-sqlite3');
+const { canonicalMode, canonicalRoute, routeMatchKey } = require('../../src/marta/routeKeys');
 
 const DB_PATH =
   process.env.MARTA_HISTORY_DB_PATH || Path.join(__dirname, '..', '..', 'state', 'marta.sqlite');
@@ -38,9 +39,7 @@ function parseRoutes(routes) {
 }
 
 function normalizeRoute(route) {
-  return String(route || '')
-    .trim()
-    .toUpperCase();
+  return routeMatchKey(route);
 }
 
 function titleCaseRoute(route) {
@@ -51,6 +50,10 @@ function titleCaseRoute(route) {
 
 function modeForKind(kind) {
   return kind === 'rail' ? 'rail' : kind;
+}
+
+function canonicalRoutes(routes) {
+  return (routes || []).map(canonicalRoute);
 }
 
 function lifecycleBlock({ firstSeenTs, resolvedTs, active, durationMs }) {
@@ -66,16 +69,17 @@ function lifecycleBlock({ firstSeenTs, resolvedTs, active, durationMs }) {
 
 function officialScope(alert) {
   return {
-    routes: alert.routes,
+    routes: canonicalRoutes(alert.routes),
     agency_wide: alert.routes.length === 0,
   };
 }
 
 function officialAlertBlock(alert) {
+  const routes = canonicalRoutes(alert.routes);
   const block = {
     id: alert.alert_id,
-    mode: alert.mode,
-    routes: alert.routes,
+    mode: canonicalMode(alert.mode, routes),
+    routes,
     headline: alert.headline ?? null,
     description: alert.description ?? null,
     cause: alert.cause ?? null,
@@ -99,7 +103,7 @@ function officialAlertBlock(alert) {
 
 function detectionScope(det) {
   return {
-    route: det.route,
+    route: canonicalRoute(det.route),
     direction: det.direction ?? null,
     near_stop: det.near_stop ?? null,
   };
@@ -129,7 +133,8 @@ function detectionBlock(det) {
 function roundupDetection(row) {
   const route = String(row.line);
   const kind = row.kind;
-  const mode = modeForKind(kind);
+  const outRoute = canonicalRoute(route);
+  const mode = canonicalMode(modeForKind(kind), outRoute);
   const signals = String(row.signals || '')
     .split(',')
     .map((s) => s.trim())
@@ -141,15 +146,17 @@ function roundupDetection(row) {
     bullets = [];
   }
   const description =
-    kind === 'rail'
+    mode === 'rail'
       ? `${titleCaseRoute(route)} Line service signals`
-      : `Route ${route} service signals`;
+      : mode === 'streetcar'
+        ? 'Streetcar service signals'
+        : `Route ${route} service signals`;
   return {
     id: `marta-roundup-${row.id}`,
     source: 'roundup',
     kind,
     mode,
-    route,
+    route: outRoute,
     direction: null,
     near_stop: null,
     ts: row.ts,
@@ -166,18 +173,22 @@ function roundupDetection(row) {
 
 function gapDetection(row) {
   const route = String(row.route);
+  const outRoute = canonicalRoute(route);
+  const mode = canonicalMode(modeForKind(row.kind), outRoute);
   const gapMin = Math.round(row.gap_min);
   const expectedMin = Math.round(row.expected_min);
   const description =
-    row.kind === 'rail'
+    mode === 'rail'
       ? `${titleCaseRoute(route)} Line ${gapMin} min gap`
-      : `Route ${route} ${gapMin} min gap`;
+      : mode === 'streetcar'
+        ? `Streetcar ${gapMin} min gap`
+        : `Route ${route} ${gapMin} min gap`;
   return {
     id: `marta-gap-${row.id}`,
     source: 'gap',
     kind: row.kind,
-    mode: modeForKind(row.kind),
-    route,
+    mode,
+    route: outRoute,
     direction: row.direction ?? null,
     near_stop: row.near_stop ?? null,
     ts: row.ts,
@@ -201,18 +212,22 @@ function gapDetection(row) {
 
 function bunchingDetection(row) {
   const route = String(row.route);
+  const outRoute = canonicalRoute(route);
+  const mode = canonicalMode(modeForKind(row.kind), outRoute);
   const spanMi = row.severity_ft / 5280;
-  const vehicleWord = row.kind === 'rail' ? 'trains' : 'buses';
+  const vehicleWord = mode === 'rail' ? 'trains' : mode === 'streetcar' ? 'streetcars' : 'buses';
   const description =
-    row.kind === 'rail'
+    mode === 'rail'
       ? `${titleCaseRoute(route)} Line ${row.vehicle_count} trains bunched`
-      : `Route ${route} ${row.vehicle_count} buses bunched`;
+      : mode === 'streetcar'
+        ? `Streetcar ${row.vehicle_count} streetcars bunched`
+        : `Route ${route} ${row.vehicle_count} buses bunched`;
   return {
     id: `marta-bunching-${row.id}`,
     source: 'bunching',
     kind: row.kind,
-    mode: modeForKind(row.kind),
-    route,
+    mode,
+    route: outRoute,
     direction: row.direction ?? null,
     near_stop: row.near_stop ?? null,
     ts: row.ts,
@@ -230,14 +245,18 @@ function bunchingDetection(row) {
 
 function ghostDetection(row) {
   const route = String(row.route);
+  const outRoute = canonicalRoute(route);
+  const mode = canonicalMode(modeForKind(row.kind), outRoute);
   const missingPct =
     row.expected && row.expected > 0
       ? Math.round((Number(row.missing) / Number(row.expected)) * 100)
       : null;
   const description =
-    row.kind === 'rail'
+    mode === 'rail'
       ? `${titleCaseRoute(route)} Line missing trains`
-      : `Route ${route} missing buses`;
+      : mode === 'streetcar'
+        ? 'Streetcar missing vehicles'
+        : `Route ${route} missing buses`;
   const bullets = [`${Number(row.missing).toFixed(0)} missing`];
   if (missingPct != null) bullets.push(`${missingPct}% missing`);
   if (row.canceled_trips > 0) {
@@ -247,8 +266,8 @@ function ghostDetection(row) {
     id: `marta-ghost-${row.id}`,
     source: 'ghost',
     kind: row.kind,
-    mode: modeForKind(row.kind),
-    route,
+    mode,
+    route: outRoute,
     direction: row.direction ?? null,
     near_stop: null,
     ts: row.ts,
@@ -274,8 +293,9 @@ function routeMatches(alert, det) {
 }
 
 function modeMatches(alert, det) {
-  if (alert.mode === 'general') return true;
-  return alert.mode === det.mode;
+  const alertMode = canonicalMode(alert.mode, alert.routes);
+  if (alertMode === 'general') return true;
+  return alertMode === det.mode;
 }
 
 function timeMatches(alert, det) {
@@ -298,7 +318,7 @@ function findMatches(alert, detections, usedIds) {
 
 function buildIncidentFromAlert(alert, matches) {
   const active = alert.resolved_ts == null || matches.some((det) => det.resolved_ts == null);
-  const routeSet = new Set(alert.routes);
+  const routeSet = new Set(canonicalRoutes(alert.routes));
   for (const det of matches) routeSet.add(det.route);
   const routes = [...routeSet];
   const firstSeen = Math.min(
@@ -309,7 +329,7 @@ function buildIncidentFromAlert(alert, matches) {
   return {
     id: postUrlRkey(primaryPost) ?? alert.alert_id,
     agency: 'marta',
-    mode: alert.mode,
+    mode: canonicalMode(alert.mode, routes),
     routes,
     sources: matches.length > 0 ? ['marta', 'bot'] : ['marta'],
     lifecycle: lifecycleBlock({
@@ -488,7 +508,7 @@ function buildIncidentFromRoundup(roundup, matches) {
     id: postUrlRkey(roundup.post_url) ?? roundup.id,
     agency: 'marta',
     mode: roundup.mode,
-    routes: [roundup.route],
+    routes: [canonicalRoute(roundup.route)],
     sources: ['bot'],
     lifecycle: lifecycleBlock({
       firstSeenTs: Number.isFinite(firstSeen) ? firstSeen : roundup.ts,

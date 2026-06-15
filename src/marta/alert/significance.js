@@ -16,6 +16,7 @@
 // route roster — MARTA is a single agency, so any alert scoped to it is
 // relevant. routeId/routeType are surfaced for display + mode tagging only.
 const { graphemeLength } = require('../../shared/post');
+const { isStreetcarRoute } = require('../routeKeys');
 const { LINES: RAIL_LINES } = require('../rail/api');
 
 const EMOJI_WARN = '⚠️';
@@ -96,6 +97,7 @@ function alertText(alert) {
 // an ambiguous 0 falls through to the routeId/rail check, then null. Real bus
 // alerts carry route_type 3; real heavy-rail carries 1 (or 2).
 function entityMode(e) {
+  if (e.routeId && isStreetcarRoute(e.routeId)) return 'streetcar';
   if (e.routeType === 1 || e.routeType === 2) return 'rail';
   if (e.routeType === 3) return 'bus';
   if (e.routeId && RAIL_LINE_SET.has(String(e.routeId).toUpperCase())) return 'rail';

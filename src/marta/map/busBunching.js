@@ -5,7 +5,7 @@
 // origin→destination, the same role CTA's seq-ordered pattern points play.
 const sharp = require('sharp');
 const { encode } = require('../../shared/polyline');
-const { cumulativeDistances, haversineFt, bearing } = require('../../shared/geo');
+const { bearing } = require('../../shared/geo');
 const { fitZoom, project } = require('../../shared/projection');
 const {
   STYLE,
@@ -32,7 +32,6 @@ const {
 } = require('./common');
 
 const BUS_COLOR = 'ff2a6d'; // hot pink/red reads well on dark
-const CONTEXT_PAD_FT = 1500; // feet of route context on each side of the bunch
 const BUS_MARKER_RADIUS = 34;
 const TERMINAL_MARKER_RADIUS = BUS_MARKER_RADIUS;
 const STOP_MARKER_SIZE = 32;
@@ -40,46 +39,18 @@ const STOP_MARKER_SIZE = 32;
 // in the right-of-travel direction (perpendicular to view bearing).
 const STOP_OFFSET_PX = 22;
 
-// Slice the shape to a window around the bunched buses, matching by straight-
-// line proximity to the polyline (we walk a cumulative haversine distance
-// rather than trusting per-point distFt for the proximity match).
-function sliceShapeAroundBunch(shape, bunch, extraPoints = []) {
-  const cum = cumulativeDistances(shape.points);
-  const routePoints = [...bunch.vehicles, ...extraPoints].filter(
-    (p) => Number.isFinite(p.lat) && Number.isFinite(p.lon),
-  );
-  const vehiclePositions = routePoints.map((v) => {
-    let bestIdx = 0;
-    let bestDist = haversineFt(v, shape.points[0]);
-    for (let i = 1; i < shape.points.length; i++) {
-      const d = haversineFt(v, shape.points[i]);
-      if (d < bestDist) {
-        bestDist = d;
-        bestIdx = i;
-      }
-    }
-    return cum[bestIdx];
-  });
-  const minCum = Math.min(...vehiclePositions) - CONTEXT_PAD_FT;
-  const maxCum = Math.max(...vehiclePositions) + CONTEXT_PAD_FT;
-  return shape.points.filter((_, i) => cum[i] >= minCum && cum[i] <= maxCum);
-}
-
 // Static framing: bbox, center, zoom, route polyline overlay, direction arrow,
 // origin/terminal points.
-function computeBunchingView(bunch, shape, extraPoints = []) {
-  const slice = sliceShapeAroundBunch(shape, bunch, extraPoints);
-  const routePoints = thinPolylinePoints(slice).map((p) => [p.lat, p.lon]);
+function computeBunchingView(_bunch, shape) {
+  const routeShape = shape.points || [];
+  const routePoints = thinPolylinePoints(routeShape).map((p) => [p.lat, p.lon]);
   const encoded = encodeURIComponent(encode(routePoints));
   const overlays = [
     `path-${ROUTE_HALO_STROKE}+${ROUTE_HALO_COLOR}(${encoded})`,
     `path-${ROUTE_CORE_STROKE}+${ROUTE_CORE_COLOR}(${encoded})`,
   ];
 
-  const framePoints = [...bunch.vehicles, ...extraPoints].filter(
-    (p) => Number.isFinite(p.lat) && Number.isFinite(p.lon),
-  );
-  const bboxPoints = framePoints.length > 0 ? framePoints : slice;
+  const bboxPoints = routeShape;
   const bbox = {
     minLat: Math.min(...bboxPoints.map((p) => p.lat)),
     maxLat: Math.max(...bboxPoints.map((p) => p.lat)),
@@ -88,12 +59,11 @@ function computeBunchingView(bunch, shape, extraPoints = []) {
   };
   const centerLat = (bbox.minLat + bbox.maxLat) / 2;
   const centerLon = (bbox.minLon + bbox.maxLon) / 2;
-  const rawZoom = fitZoom(bbox, WIDTH, HEIGHT, 60);
+  const rawZoom = fitZoom(bbox, WIDTH, HEIGHT, 110);
   const zoom = Math.max(10, Math.min(17, rawZoom));
 
-  // Route-wide direction from the slice endpoints. GTFS shape points run
-  // origin→destination, so slice[0]→slice[end] IS the service direction.
-  const slicePoints = slice.map((p) => ({ lat: p.lat, lon: p.lon }));
+  // Route-wide direction. GTFS shape points run origin→destination.
+  const slicePoints = routeShape.map((p) => ({ lat: p.lat, lon: p.lon }));
   const bearingDeg =
     slicePoints.length >= 2 ? bearing(slicePoints[0], slicePoints[slicePoints.length - 1]) : 0;
 

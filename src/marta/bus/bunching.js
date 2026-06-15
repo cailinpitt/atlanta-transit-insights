@@ -15,6 +15,40 @@ const TERMINAL_DIST_FT = 500; // start-terminal layovers, not real bunching
 // exceeding the distFt span means a stale/wrong projection (e.g. a bus that just
 // laid over and restarted its run). Slack covers GPS jitter + route curvature.
 const GEO_SLACK_FT = 500;
+const MOTION_MIN_DELTA_FT = 100;
+
+function motionSign(deltaFt) {
+  if (!Number.isFinite(deltaFt) || Math.abs(deltaFt) < MOTION_MIN_DELTA_FT) return null;
+  return deltaFt > 0 ? 1 : -1;
+}
+
+function addMotionSigns(vehicles, rows) {
+  const byVid = new Map();
+  for (const row of rows || []) {
+    const vid = row.vehicleId ?? row.vehicle_id;
+    const d = Number(row.distFt);
+    if (vid == null || !Number.isFinite(d)) continue;
+    if (!byVid.has(vid)) byVid.set(vid, []);
+    byVid.get(vid).push({ ts: row.ts ?? row.tmstmp ?? 0, distFt: d });
+  }
+  for (const v of vehicles || []) {
+    const pts = byVid.get(v.vehicleId);
+    if (!pts || pts.length < 2) continue;
+    pts.sort((a, b) => a.ts - b.ts);
+    v.motionSign = motionSign(pts[pts.length - 1].distFt - pts[0].distFt);
+  }
+  return vehicles;
+}
+
+function sameDirectionMemberCount(cluster) {
+  const counts = new Map();
+  for (const v of cluster) {
+    if (v.motionSign == null) continue;
+    counts.set(v.motionSign, (counts.get(v.motionSign) || 0) + 1);
+  }
+  if (counts.size === 0) return null;
+  return Math.max(...counts.values());
+}
 
 // Clusters ranked best-first by size desc, then tightest max-gap — the caller
 // picks the first whose shape isn't on cooldown. `now` and `tmstmp` are epoch ms.
@@ -51,6 +85,11 @@ function detectAllBunching(vehicles, now = Date.now()) {
         j++;
       }
       const cluster = sorted.slice(i, j + 1);
+      const sameDirectionCount = sameDirectionMemberCount(cluster);
+      if (sameDirectionCount != null && sameDirectionCount < 2) {
+        i = j + 1;
+        continue;
+      }
       if (cluster[0].distFt < TERMINAL_DIST_FT) {
         i = j + 1;
         continue;
@@ -132,7 +171,10 @@ function findParkedBusVids(
 
 // Convenience: project stored bus observations onto their shapes, then detect.
 // Bunching needs no schedule index — it's spatial only.
-function bunchesFromObservations(observations, { gtfs, shapes, now = Date.now() } = {}) {
+function bunchesFromObservations(
+  observations,
+  { gtfs, shapes, motionRows = observations, now = Date.now() } = {},
+) {
   const vehicles = [];
   for (const o of observations || []) {
     const proj = projectObservation(o, { gtfs, shapes });
@@ -148,6 +190,16 @@ function bunchesFromObservations(observations, { gtfs, shapes, now = Date.now() 
       lon: o.lon,
     });
   }
+  if (motionRows && motionRows !== observations) {
+    const projectedMotion = [];
+    for (const o of motionRows || []) {
+      const proj = projectObservation(o, { gtfs, shapes });
+      if (proj) projectedMotion.push({ vehicleId: o.vehicleId, ts: o.ts, distFt: proj.distFt });
+    }
+    addMotionSigns(vehicles, projectedMotion);
+  } else {
+    addMotionSigns(vehicles, vehicles);
+  }
   return detectAllBunching(vehicles, now);
 }
 
@@ -156,6 +208,7 @@ module.exports = {
   detectBunching,
   assignBusNumbers,
   findParkedBusVids,
+  addMotionSigns,
   bunchesFromObservations,
   BUNCHING_THRESHOLD_FT,
   TERMINAL_DIST_FT,

@@ -6,6 +6,26 @@
 const { haversineFt } = require('../../shared/geo');
 const { projectToShape, MAX_OFFROUTE_FT } = require('./shapes');
 
+const SMALL_WORDS = new Set(['at', 'and', 'of', 'the']);
+
+function titleCaseStopName(name) {
+  return String(name || '')
+    .toLowerCase()
+    .replace(/\b([a-z])/g, (_m, ch, offset, s) => {
+      const word = s.slice(offset).match(/^[a-z]+/)?.[0] || '';
+      if (offset > 0 && SMALL_WORDS.has(word)) return ch;
+      return ch.toUpperCase();
+    })
+    .replace(/\bNe\b/g, 'NE')
+    .replace(/\bNw\b/g, 'NW')
+    .replace(/\bSe\b/g, 'SE')
+    .replace(/\bSw\b/g, 'SW')
+    .replace(/\bMarta\b/g, 'MARTA')
+    .replace(/\bGsu\b/g, 'GSU')
+    .replace(/\bGa\b/g, 'GA')
+    .replace(/\s+@\s+/g, ' @ ');
+}
+
 function stopCoords(s) {
   const lat = Number(s.stop_lat);
   const lon = Number(s.stop_lon);
@@ -21,7 +41,12 @@ function nearestStop(gtfs, lat, lon) {
     if (!c) continue;
     const d = haversineFt({ lat, lon }, c);
     if (!best || d < best.distFt) {
-      best = { stopName: s.stop_name || s.stop_id, lat: c.lat, lon: c.lon, distFt: d };
+      best = {
+        stopName: titleCaseStopName(s.stop_name || s.stop_id),
+        lat: c.lat,
+        lon: c.lon,
+        distFt: d,
+      };
     }
   }
   return best;
@@ -53,10 +78,15 @@ function stopsNearShape(gtfs, shape, loFt, hiFt, { maxOffrouteFt = MAX_OFFROUTE_
     const proj = projectToShape(shape, c.lat, c.lon);
     if (!proj || proj.offsetFt > maxOffrouteFt) continue;
     if (proj.distFt < loFt || proj.distFt > hiFt) continue;
-    out.push({ stopName: s.stop_name || s.stop_id, distFt: proj.distFt, lat: c.lat, lon: c.lon });
+    out.push({
+      stopName: titleCaseStopName(s.stop_name || s.stop_id),
+      distFt: proj.distFt,
+      lat: c.lat,
+      lon: c.lon,
+    });
   }
   out.sort((a, b) => a.distFt - b.distFt);
   return out;
 }
 
-module.exports = { nearestStop, stopsNearShape };
+module.exports = { nearestStop, stopsNearShape, titleCaseStopName };

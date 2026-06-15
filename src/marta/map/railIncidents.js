@@ -45,16 +45,15 @@ function sliceLine(line, loFt, hiFt) {
   return slice.length >= 2 ? slice : line.points;
 }
 
-function viewFor(line, trains, { loFt = 0, hiFt = line.lengthFt } = {}) {
-  const slice = sliceLine(line, loFt, hiFt);
+function viewFor(line, _trains, { loFt = 0, hiFt = line.lengthFt } = {}) {
+  const slice = loFt === 0 && hiFt === line.lengthFt ? line.points : sliceLine(line, loFt, hiFt);
   const color = lineColor(line.line);
   const encoded = encodeURIComponent(encode(thinPolylinePoints(slice).map((p) => [p.lat, p.lon])));
   const overlays = [
     `path-${ROUTE_HALO_STROKE}+${ROUTE_HALO_COLOR}(${encoded})`,
     `path-${ROUTE_CORE_STROKE}+${color}(${encoded})`,
   ];
-  const framePts = trains.filter((p) => Number.isFinite(p.lat) && Number.isFinite(p.lon));
-  const pts = framePts.length > 0 ? framePts : slice;
+  const pts = slice;
   const bbox = {
     minLat: Math.min(...pts.map((p) => p.lat)),
     maxLat: Math.max(...pts.map((p) => p.lat)),
@@ -66,7 +65,7 @@ function viewFor(line, trains, { loFt = 0, hiFt = line.lengthFt } = {}) {
   // Fractional zoom — Mapbox Static accepts it and project() honors it. Flooring
   // here threw away up to a full zoom level (a 2x scale loss), which on a near-
   // straight rail line shrank the route to a small band in the middle of the frame.
-  const zoom = Math.max(10, Math.min(17, fitZoom(bbox, WIDTH, HEIGHT, 90)));
+  const zoom = Math.max(9, Math.min(17, fitZoom(bbox, WIDTH, HEIGHT, 110)));
   const bearingDeg = slice.length >= 2 ? bearing(slice[0], slice[slice.length - 1]) : 0;
   return { overlays, centerLat, centerLon, zoom, bearingDeg, color };
 }
@@ -187,9 +186,7 @@ async function renderRailGapMap(gap, line, opts = {}) {
 }
 
 async function renderRailBunchingMap(bunch, line, opts = {}) {
-  const lo = Math.min(...bunch.trains.map((t) => t.distFt)) - GAP_CONTEXT_FT;
-  const hi = Math.max(...bunch.trains.map((t) => t.distFt)) + GAP_CONTEXT_FT;
-  const view = viewFor(line, bunch.trains, { loFt: lo, hiFt: hi });
+  const view = viewFor(line, bunch.trains);
   const baseMap = await fetchBaseMap(view);
   return renderRailFrame(view, baseMap, bunch.trains, opts);
 }

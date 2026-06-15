@@ -30,6 +30,14 @@ test('two buses within the threshold form a bunch', () => {
   assert.equal(bunches[0].maxGapFt, 300);
 });
 
+test('opposite-moving buses passing each other are not a bunch', () => {
+  const bunches = detectAllBunching(
+    [veh(2000, 'a', { motionSign: 1 }), veh(2300, 'b', { motionSign: -1 })],
+    NOW,
+  );
+  assert.equal(bunches.length, 0);
+});
+
 test('buses beyond the threshold are not a bunch', () => {
   assert.deepEqual(detectAllBunching([veh(2000, 'a'), veh(3200, 'b')], NOW), []);
 });

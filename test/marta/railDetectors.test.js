@@ -23,6 +23,14 @@ test('rail bunching clusters trains within the threshold', () => {
   assert.equal(b[0].line, 'RED');
 });
 
+test('opposite-moving trains passing each other are not bunched', () => {
+  const b = detectRailBunching([
+    train(10_000, 'a', { motionSign: 1 }),
+    train(11_500, 'b', { motionSign: -1 }),
+  ]);
+  assert.equal(b.length, 0);
+});
+
 test('rail trains beyond the threshold are not bunched', () => {
   assert.deepEqual(detectRailBunching([train(10_000, 'a'), train(15_000, 'b')]), []);
 });

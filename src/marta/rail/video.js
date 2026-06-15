@@ -31,9 +31,7 @@ async function captureRailBunchingHistoryVideo(bunch, line, rows, opts = {}) {
   const snapshots = snapshotsByTimestamp(enriched).filter((s) => s.vehicles.length > 0);
   if (snapshots.length < 2) return null;
 
-  const lo = Math.min(...enriched.map((t) => t.distFt)) - 3500;
-  const hi = Math.max(...enriched.map((t) => t.distFt)) + 3500;
-  const view = viewFor(line, enriched, { loFt: lo, hiFt: hi });
+  const view = viewFor(line, enriched);
   const baseMap = await fetchBaseMap(view);
 
   const frames = buildSmoothFrames(snapshots, {

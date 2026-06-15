@@ -8,6 +8,16 @@ const { latestTrainPositions } = require('./trains');
 const RAIL_BUNCH_THRESHOLD_FT = 2640; // ~0.5 mi
 const GEO_SLACK_FT = 1000; // straight-line vs along-line slack (curves, parallel track)
 
+function sameDirectionMemberCount(cluster) {
+  const counts = new Map();
+  for (const t of cluster) {
+    if (t.motionSign == null) continue;
+    counts.set(t.motionSign, (counts.get(t.motionSign) || 0) + 1);
+  }
+  if (counts.size === 0) return null;
+  return Math.max(...counts.values());
+}
+
 // `trains` are latestTrainPositions() entries. Returns clusters best-first
 // (size desc, then tightest max-gap).
 function detectRailBunching(trains, { thresholdFt = RAIL_BUNCH_THRESHOLD_FT } = {}) {
@@ -44,6 +54,11 @@ function detectRailBunching(trains, { thresholdFt = RAIL_BUNCH_THRESHOLD_FT } = 
         j++;
       }
       const cluster = sorted.slice(i, j + 1);
+      const sameDirectionCount = sameDirectionMemberCount(cluster);
+      if (sameDirectionCount != null && sameDirectionCount < 2) {
+        i = j + 1;
+        continue;
+      }
       // Whole cluster inside the start- or end-terminal zone → layover queue.
       if (
         zoneFt &&

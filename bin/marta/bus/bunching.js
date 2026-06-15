@@ -78,7 +78,7 @@ async function main() {
   }
   const parkedVids = findParkedBusVids(projectedWindow);
 
-  const bunches = bunchesFromObservations(latest, { gtfs, shapes, now });
+  const bunches = bunchesFromObservations(latest, { gtfs, shapes, motionRows: rows, now });
   if (bunches.length === 0) {
     console.log('No bunching detected');
     return;

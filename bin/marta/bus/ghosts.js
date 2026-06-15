@@ -22,6 +22,23 @@ function routeTitleFor(gtfs, route) {
   return long ? `Route ${route} (${long})` : `Route ${route}`;
 }
 
+function directionLabelFor(gtfs, route, direction) {
+  const counts = new Map();
+  for (const trip of gtfs.tripsById.values()) {
+    if (String(trip.direction_id) !== String(direction)) continue;
+    const r = gtfs.routesById.get(trip.route_id);
+    if (String(r?.route_short_name) !== String(route)) continue;
+    const headsign = String(trip.trip_headsign || '').trim();
+    if (!headsign) continue;
+    counts.set(headsign, (counts.get(headsign) || 0) + 1);
+  }
+  let best = null;
+  for (const [headsign, count] of counts) {
+    if (!best || count > best.count) best = { headsign, count };
+  }
+  return best?.headsign || null;
+}
+
 async function main() {
   setup();
   const gtfs = loadGtfs(GTFS_DIR);
@@ -35,6 +52,7 @@ async function main() {
   const tripStatuses = storage.getRecentBusTripStatuses(now - WINDOW_MS);
   const events = ghostsFromObservations(rows, { gtfs, tripStatuses, now }).map((e) => ({
     ...e,
+    directionLabel: directionLabelFor(gtfs, e.route, e.direction),
     unexplainedMissing: Math.max(0, e.missing - (e.canceledTrips || 0)),
   }));
   if (!argv['dry-run']) {

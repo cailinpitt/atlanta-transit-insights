@@ -1,6 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { detectBusGhosts, ghostsFromObservations } = require('../../src/marta/bus/ghosts');
+const { formatGhostLine } = require('../../src/marta/bus/ghostPost');
 
 const NOW = 1_781_000_000_000;
 const INTERVAL = 10 * 60 * 1000;
@@ -48,6 +49,22 @@ test('ghost event includes canceled trip context when provided', () => {
   assert.equal(events.length, 1);
   assert.equal(events[0].missing, 6);
   assert.equal(events[0].canceledTrips, 3);
+});
+
+test('ghost post line uses headsign labels instead of raw dir ids', () => {
+  const line = formatGhostLine(
+    {
+      direction: '0',
+      directionLabel: 'Decatur Station',
+      observedActive: 2,
+      expectedActive: 4,
+      missing: 2,
+      headway: 15,
+    },
+    'Route 15 (Clifton Road / Candler Road)',
+  );
+  assert.match(line, /Decatur Station/);
+  assert.doesNotMatch(line, /dir 0/);
 });
 
 test('near-full service does not fire (below absolute threshold)', () => {

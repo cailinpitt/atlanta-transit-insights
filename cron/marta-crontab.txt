@@ -16,8 +16,9 @@
 * * * * * cd __REPO__ && __NODE__ scripts/marta/observe-buses.js >> __REPO__/state/logs/observe-buses.log 2>&1
 # Rail (trains + arrivals): every minute, 2 ticks 30s apart for position-delta speed.
 * * * * * cd __REPO__ && __NODE__ scripts/marta/observe-rail.js >> __REPO__/state/logs/observe-rail.log 2>&1
-# Bus TripUpdates: every 5 min — ~14k rows/fetch and unused by detectors yet, so
-# kept off the 30s path (adherence/prediction substrate for later).
+# Bus TripUpdates: every 5 min. Stores compact trip-level status, including
+# MARTA-announced cancellations used to enrich ghost-bus detection. Full
+# stop-level prediction rows are opt-in only (MARTA_STORE_TRIP_UPDATE_STOPS=1).
 */5 * * * * cd __REPO__ && __NODE__ scripts/marta/observe-bus-tripupdates.js >> __REPO__/state/logs/observe-bus-tripupdates.log 2>&1
 # Refresh static GTFS + rebuild the schedule index nightly at 03:30.
 30 3 * * * cd __REPO__ && __NODE__ scripts/marta/fetch-static-gtfs.js && __NODE__ scripts/marta/build-schedule-index.js >> __REPO__/state/logs/gtfs-refresh.log 2>&1

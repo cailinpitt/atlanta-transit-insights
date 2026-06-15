@@ -48,4 +48,8 @@
 # a threaded "resolved" reply when one clears. The 2-min cadence pairs with
 # ALERT_CLEAR_TICKS=3 for a ~6-min flicker-safe clear window (src/marta/alert/store.js).
 1-59/2 * * * * cd __REPO__ && __NODE__ bin/marta/alerts.js >> __REPO__/state/logs/alerts.log 2>&1
+# Off-box backup of state/marta.sqlite to Cloudflare R2. Uses SQLite .backup,
+# integrity-checks the snapshot, gzips it, then uploads to the private backup
+# bucket. See docs/MARTA_BACKUPS.md.
+23 4 * * * cd __REPO__ && /bin/bash scripts/marta/backup-db.sh >> __REPO__/state/logs/backup-db.log 2>&1
 # MARTA-INSIGHTS-END

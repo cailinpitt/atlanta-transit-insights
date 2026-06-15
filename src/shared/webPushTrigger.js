@@ -19,7 +19,7 @@ const Path = require('node:path');
 const ChildProcess = require('node:child_process');
 const Fs = require('node:fs');
 
-const SCRIPT = Path.resolve(__dirname, '..', '..', 'bin', 'push-web-data.sh');
+const DEFAULT_SCRIPT = Path.resolve(__dirname, '..', '..', 'bin', 'push-web-data.sh');
 
 let pending = false;
 
@@ -35,8 +35,9 @@ function flushPendingWebPush() {
   if (!pending) return false;
   pending = false;
   try {
-    if (!Fs.existsSync(SCRIPT)) {
-      console.warn(`webPushTrigger: ${SCRIPT} missing, cron will catch up`);
+    const script = process.env.PUSH_WEB_SCRIPT || DEFAULT_SCRIPT;
+    if (!Fs.existsSync(script)) {
+      console.warn(`webPushTrigger: ${script} missing, cron will catch up`);
       return false;
     }
     const logPath =
@@ -51,10 +52,13 @@ function flushPendingWebPush() {
       // Log dir not writable — fall back to discarding output rather than
       // failing the trigger entirely.
     }
-    const child = ChildProcess.spawn('/bin/sh', [SCRIPT], {
+    const child = ChildProcess.spawn('/bin/sh', [script], {
       detached: true,
       stdio,
-      env: process.env,
+      env: {
+        ...process.env,
+        RCLONE_REMOTE: process.env.RCLONE_REMOTE || 'r2atlanta:atlanta-transit-alerts-data',
+      },
     });
     child.unref();
     console.log(`webPushTrigger: spawned push-web-data.sh (pid=${child.pid})`);

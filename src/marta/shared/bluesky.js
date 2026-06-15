@@ -13,6 +13,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const { AtpAgent } = require('@atproto/api');
+const { markWebPushPending } = require('../../shared/webPushTrigger');
 
 // Persist session JWTs to disk and resume on subsequent runs so each cron tick
 // doesn't call agent.login() fresh (Bluesky caps createSession ~300/day +
@@ -120,6 +121,7 @@ async function postWithImage(agent, text, imageBuffer, altText, replyRef = null)
       images: [{ image: upload.data.blob, alt: altText }],
     },
   });
+  markWebPushPending();
   return { url: postUrl(result), uri: result.uri, cid: result.cid };
 }
 
@@ -193,6 +195,7 @@ async function postWithVideo(agent, text, videoBuffer, altText, replyRef = null)
       alt: altText,
     },
   });
+  markWebPushPending();
   return { url: postUrl(result), uri: result.uri, cid: result.cid };
 }
 
@@ -203,6 +206,7 @@ async function postText(agent, text, replyRef = null) {
     ...(replyRef && { reply: replyRef }),
     ...(facets && { facets }),
   });
+  markWebPushPending();
   return { url: postUrl(result), uri: result.uri, cid: result.cid };
 }
 
@@ -234,6 +238,7 @@ async function postWithExternal(agent, text, link, replyRef = null) {
       },
     },
   });
+  markWebPushPending();
   return { url: postUrl(result), uri: result.uri, cid: result.cid };
 }
 

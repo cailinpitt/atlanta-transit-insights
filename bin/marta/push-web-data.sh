@@ -23,5 +23,5 @@ if git diff --quiet -- public-data/alerts.json public-data/daily-counts.json pub
 fi
 
 git add public-data/alerts.json public-data/daily-counts.json public-data/alerts.csv
-git commit -m "Publish MARTA web data"
+HUSKY=0 git commit -m "Publish MARTA web data"
 git push origin main

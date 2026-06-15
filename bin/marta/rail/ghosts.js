@@ -34,6 +34,14 @@ async function main() {
     lines: [...lineGeom.keys()].sort(),
     now,
   });
+  if (!argv['dry-run']) {
+    const closed = incidents.reconcileGhostEvents({
+      kind: 'rail',
+      current: events.map((e) => ({ route: e.route, direction: null })),
+      now,
+    });
+    if (closed > 0) console.log(`Resolved ${closed} open rail ghost event(s)`);
+  }
   if (events.length === 0) {
     console.log('No ghost train events meet the threshold, staying silent');
     return;

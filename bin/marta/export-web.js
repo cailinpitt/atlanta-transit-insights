@@ -112,10 +112,11 @@ function detectionBlock(det) {
     scope: detectionScope(det),
     lifecycle: lifecycleBlock({
       firstSeenTs: det.ts,
-      resolvedTs: null,
-      active: true,
+      resolvedTs: det.resolved_ts ?? null,
+      active: det.resolved_ts == null,
     }),
     post_url: det.post_url,
+    resolved_post_url: det.resolved_post_url ?? null,
     description: det.description,
     evidence: {
       details: det.evidence,
@@ -142,7 +143,9 @@ function gapDetection(row) {
     direction: row.direction ?? null,
     near_stop: row.near_stop ?? null,
     ts: row.ts,
+    resolved_ts: row.resolved_ts ?? null,
     post_url: atUriToUrl(row.post_uri),
+    resolved_post_url: atUriToUrl(row.resolved_post_uri),
     description,
     evidence: {
       gap_ft: row.gap_ft,
@@ -175,7 +178,9 @@ function bunchingDetection(row) {
     direction: row.direction ?? null,
     near_stop: row.near_stop ?? null,
     ts: row.ts,
+    resolved_ts: row.resolved_ts ?? null,
     post_url: atUriToUrl(row.post_uri),
+    resolved_post_url: atUriToUrl(row.resolved_post_uri),
     description,
     evidence: {
       vehicle_count: row.vehicle_count,
@@ -206,7 +211,9 @@ function ghostDetection(row) {
     direction: row.direction ?? null,
     near_stop: null,
     ts: row.ts,
+    resolved_ts: row.resolved_ts ?? null,
     post_url: atUriToUrl(row.post_uri),
+    resolved_post_url: atUriToUrl(row.resolved_post_uri),
     description,
     evidence: {
       observed: row.observed,
@@ -281,8 +288,8 @@ function buildIncidentFromDetection(det) {
     sources: ['bot'],
     lifecycle: lifecycleBlock({
       firstSeenTs: det.ts,
-      resolvedTs: null,
-      active: true,
+      resolvedTs: det.resolved_ts ?? null,
+      active: det.resolved_ts == null,
     }),
     official_alert: null,
     detections: [detectionBlock(det)],
@@ -348,7 +355,7 @@ function readDetections(db) {
   const gaps = db
     .prepare(
       `SELECT id, ts, kind, route, direction, gap_ft, gap_min, expected_min,
-              ratio, near_stop, post_uri
+              ratio, near_stop, post_uri, resolved_ts, resolved_post_uri
        FROM gap_events
        WHERE posted = 1 AND post_uri IS NOT NULL
        ORDER BY ts DESC, id DESC`,
@@ -358,7 +365,7 @@ function readDetections(db) {
   const bunches = db
     .prepare(
       `SELECT id, ts, kind, route, direction, vehicle_count, severity_ft,
-              near_stop, post_uri
+              near_stop, post_uri, resolved_ts, resolved_post_uri
        FROM bunching_events
        WHERE posted = 1 AND post_uri IS NOT NULL
        ORDER BY ts DESC, id DESC`,
@@ -367,7 +374,8 @@ function readDetections(db) {
     .map(bunchingDetection);
   const ghosts = db
     .prepare(
-      `SELECT id, ts, kind, route, direction, observed, expected, missing, post_uri
+      `SELECT id, ts, kind, route, direction, observed, expected, missing,
+              post_uri, resolved_ts, resolved_post_uri
        FROM ghost_events
        WHERE post_uri IS NOT NULL
        ORDER BY ts DESC, id DESC`,

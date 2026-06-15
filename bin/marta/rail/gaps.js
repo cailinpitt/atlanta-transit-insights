@@ -76,6 +76,14 @@ async function main() {
   }
 
   const gaps = railGapsFromObservations(rows, { lineGeom, now });
+  if (!argv['dry-run']) {
+    const closed = incidents.reconcileGapEvents({
+      kind: 'rail',
+      current: gaps.map((g) => ({ route: g.line, direction: g.direction })),
+      now,
+    });
+    if (closed > 0) console.log(`Resolved ${closed} open rail gap event(s)`);
+  }
   if (gaps.length === 0) {
     console.log('No significant rail gaps detected');
     return;

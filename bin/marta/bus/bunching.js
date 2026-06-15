@@ -90,9 +90,30 @@ async function main() {
     );
   }
 
+  const activeBunches = [];
+  for (const candidate of bunches) {
+    const movingCount = candidate.vehicles.filter((v) => !parkedVids.has(v.vehicleId)).length;
+    const shape = shapes.get(candidate.shapeId);
+    const lengthFt = shape?.lengthFt ?? 0;
+    const dists = candidate.vehicles.map((v) => v.distFt);
+    const lo = Math.min(...dists);
+    const hi = Math.max(...dists);
+    const zoneFt = terminalZoneFt(lengthFt);
+    const terminal = lo < Math.max(zoneFt, TERMINAL_DIST_FT) || lengthFt - hi < zoneFt;
+    if (movingCount >= 2 && !terminal) activeBunches.push(candidate);
+  }
+  if (!argv['dry-run']) {
+    const closed = incidents.reconcileBunchingEvents({
+      kind: 'bus',
+      current: activeBunches.map((b) => ({ route: b.route, direction: b.shapeId })),
+      now,
+    });
+    if (closed > 0) console.log(`Resolved ${closed} open bus bunching event(s)`);
+  }
+
   let bunch = null;
   let cooldownOverridden = false;
-  for (const candidate of bunches) {
+  for (const candidate of activeBunches) {
     const movingCount = candidate.vehicles.filter((v) => !parkedVids.has(v.vehicleId)).length;
     if (movingCount < 2) {
       console.log(

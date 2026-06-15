@@ -20,6 +20,18 @@ const META_SIGNAL_ROLLOFF_MS = 2 * DAY_MS;
 
 let _initedDb = null;
 
+function hasColumn(db, table, column) {
+  return db
+    .prepare(`PRAGMA table_info(${table})`)
+    .all()
+    .some((row) => row.name === column);
+}
+
+function addColumnIfMissing(db, table, column, definition) {
+  if (!hasColumn(db, table, column))
+    db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+}
+
 // Return the shared MARTA DB handle with the incident tables ensured. The guard
 // re-runs CREATE TABLE if the underlying handle changed (tests reopen the DB
 // against a temp path via storage.closeDb()).
@@ -37,7 +49,10 @@ function getDb() {
         severity_ft INTEGER NOT NULL,
         near_stop TEXT,
         posted INTEGER NOT NULL DEFAULT 0,
-        post_uri TEXT
+        post_uri TEXT,
+        last_seen_ts INTEGER,
+        resolved_ts INTEGER,
+        resolved_post_uri TEXT
       );
       CREATE INDEX IF NOT EXISTS idx_bunching_kind_route_ts
         ON bunching_events(kind, route, ts);
@@ -54,7 +69,10 @@ function getDb() {
         ratio REAL NOT NULL,
         near_stop TEXT,
         posted INTEGER NOT NULL DEFAULT 0,
-        post_uri TEXT
+        post_uri TEXT,
+        last_seen_ts INTEGER,
+        resolved_ts INTEGER,
+        resolved_post_uri TEXT
       );
       CREATE INDEX IF NOT EXISTS idx_gap_kind_route_ts
         ON gap_events(kind, route, ts);
@@ -68,7 +86,10 @@ function getDb() {
         observed REAL,
         expected REAL,
         missing REAL,
-        post_uri TEXT
+        post_uri TEXT,
+        last_seen_ts INTEGER,
+        resolved_ts INTEGER,
+        resolved_post_uri TEXT
       );
       CREATE INDEX IF NOT EXISTS idx_ghost_events_kind_route_ts
         ON ghost_events(kind, route, ts);
@@ -113,6 +134,11 @@ function getDb() {
       CREATE INDEX IF NOT EXISTS idx_meta_signals_kind_line_ts
         ON meta_signals(kind, line, ts);
     `);
+    for (const table of ['bunching_events', 'gap_events', 'ghost_events']) {
+      addColumnIfMissing(db, table, 'last_seen_ts', 'INTEGER');
+      addColumnIfMissing(db, table, 'resolved_ts', 'INTEGER');
+      addColumnIfMissing(db, table, 'resolved_post_uri', 'TEXT');
+    }
     _initedDb = db;
   }
   return db;
@@ -152,8 +178,8 @@ function recordBunching(
   getDb()
     .prepare(`
       INSERT INTO bunching_events
-        (ts, kind, route, direction, vehicle_count, severity_ft, near_stop, posted, post_uri)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        (ts, kind, route, direction, vehicle_count, severity_ft, near_stop, posted, post_uri, last_seen_ts)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `)
     .run(
       now,
@@ -165,6 +191,7 @@ function recordBunching(
       nearStop || null,
       posted ? 1 : 0,
       postUri || null,
+      posted ? now : null,
     );
 }
 
@@ -241,8 +268,8 @@ function recordGap(
   getDb()
     .prepare(`
       INSERT INTO gap_events
-        (ts, kind, route, direction, gap_ft, gap_min, expected_min, ratio, near_stop, posted, post_uri)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        (ts, kind, route, direction, gap_ft, gap_min, expected_min, ratio, near_stop, posted, post_uri, last_seen_ts)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `)
     .run(
       now,
@@ -256,6 +283,7 @@ function recordGap(
       nearStop || null,
       posted ? 1 : 0,
       postUri || null,
+      posted ? now : null,
     );
 }
 
@@ -315,14 +343,15 @@ function gapCooldownAllows(
 }
 
 function recordGhostEvent({ kind, route, direction, observed, expected, missing, postUri, ts }) {
+  const now = ts || Date.now();
   getDb()
     .prepare(`
       INSERT OR IGNORE INTO ghost_events
-        (ts, kind, route, direction, observed, expected, missing, post_uri)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        (ts, kind, route, direction, observed, expected, missing, post_uri, last_seen_ts)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     `)
     .run(
-      ts || Date.now(),
+      now,
       kind,
       String(route),
       direction || null,
@@ -330,7 +359,60 @@ function recordGhostEvent({ kind, route, direction, observed, expected, missing,
       expected ?? null,
       missing ?? null,
       postUri,
+      now,
     );
+}
+
+function eventKey({ route, direction }) {
+  return `${String(route)}\u0000${direction || ''}`;
+}
+
+function reconcileDetectorEvents({ table, kind, current, now = Date.now() }) {
+  const db = getDb();
+  const currentKeys = new Set((current || []).map(eventKey));
+  const tx = db.transaction(() => {
+    const markSeen = db.prepare(`
+      UPDATE ${table}
+      SET last_seen_ts = ?
+      WHERE posted = 1
+        AND resolved_ts IS NULL
+        AND kind = ?
+        AND route = ?
+        AND COALESCE(direction, '') = COALESCE(?, '')
+    `);
+    for (const item of current || []) {
+      markSeen.run(now, kind, String(item.route), item.direction || null);
+    }
+
+    const openRows = db
+      .prepare(`
+        SELECT id, route, direction, ts, last_seen_ts
+        FROM ${table}
+        WHERE posted = 1 AND resolved_ts IS NULL AND kind = ?
+      `)
+      .all(kind);
+    const close = db.prepare(`UPDATE ${table} SET resolved_ts = ? WHERE id = ?`);
+    let closed = 0;
+    for (const row of openRows) {
+      if (currentKeys.has(eventKey(row))) continue;
+      close.run(row.last_seen_ts ?? now, row.id);
+      closed += 1;
+    }
+    return closed;
+  });
+  return tx();
+}
+
+function reconcileGapEvents({ kind, current, now }) {
+  return reconcileDetectorEvents({ table: 'gap_events', kind, current, now });
+}
+
+function reconcileBunchingEvents({ kind, current, now }) {
+  return reconcileDetectorEvents({ table: 'bunching_events', kind, current, now });
+}
+
+function reconcileGhostEvents({ kind, current, now }) {
+  return reconcileDetectorEvents({ table: 'ghost_events', kind, current, now });
 }
 
 function recordSpeedmap(
@@ -506,13 +588,16 @@ module.exports = {
   getDb,
   startOfDayET,
   recordBunching,
+  reconcileBunchingEvents,
   bunchingCallouts,
   formatCallouts,
   recordGap,
+  reconcileGapEvents,
   gapCallouts,
   gapCapAllows,
   gapCooldownAllows,
   recordGhostEvent,
+  reconcileGhostEvents,
   recordSpeedmap,
   speedmapCallouts,
   leastRecentlyPostedSpeedmapRoute,

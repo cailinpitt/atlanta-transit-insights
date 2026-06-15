@@ -86,6 +86,14 @@ async function main() {
   }
 
   const bunches = railBunchesFromObservations(rows, { lineGeom, now });
+  if (!argv['dry-run']) {
+    const closed = incidents.reconcileBunchingEvents({
+      kind: 'rail',
+      current: bunches.map((b) => ({ route: b.line, direction: b.direction })),
+      now,
+    });
+    if (closed > 0) console.log(`Resolved ${closed} open rail bunching event(s)`);
+  }
   if (bunches.length === 0) {
     console.log('No rail bunching detected');
     return;

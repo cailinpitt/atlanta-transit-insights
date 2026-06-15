@@ -119,6 +119,34 @@ test('keeps nonmatching route detections as bot-only incidents', () => {
   assert.equal(botOnly.detections[0].source, 'gap');
 });
 
+test('exports detector incidents as resolved after lifecycle reconciliation closes them', () => {
+  const ts = NOW + 40 * 60_000;
+  incidents.recordGap(
+    {
+      kind: 'bus',
+      route: '998',
+      direction: 'shape-y',
+      gapFt: 21_000,
+      gapMin: 32,
+      expectedMin: 10,
+      ratio: 3.2,
+      nearStop: null,
+      posted: true,
+      postUri: 'at://did:plc:bus/app.bsky.feed.post/closedgap',
+    },
+    ts,
+  );
+  incidents.reconcileGapEvents({ kind: 'bus', current: [], now: NOW + 45 * 60_000 });
+
+  const out = buildExport(storage.getDb(), NOW + 50 * 60_000);
+  const botOnly = out.incidents.find((incident) => incident.id === 'closedgap');
+  assert.ok(botOnly);
+  assert.equal(botOnly.lifecycle.active, false);
+  assert.equal(botOnly.lifecycle.resolved_ts, ts);
+  assert.equal(botOnly.detections[0].lifecycle.active, false);
+  assert.equal(botOnly.detections[0].lifecycle.resolved_ts, ts);
+});
+
 test('pairs rail bunching and ghosts with matching rail alerts', () => {
   seedAlert(
     {

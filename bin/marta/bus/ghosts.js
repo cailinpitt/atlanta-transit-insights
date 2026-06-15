@@ -33,6 +33,14 @@ async function main() {
   }
 
   const events = ghostsFromObservations(rows, { gtfs, now });
+  if (!argv['dry-run']) {
+    const closed = incidents.reconcileGhostEvents({
+      kind: 'bus',
+      current: events.map((e) => ({ route: e.route, direction: e.direction || null })),
+      now,
+    });
+    if (closed > 0) console.log(`Resolved ${closed} open bus ghost event(s)`);
+  }
   if (events.length === 0) {
     console.log('No ghost bus events meet the threshold, staying silent');
     return;

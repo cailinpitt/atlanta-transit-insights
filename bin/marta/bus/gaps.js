@@ -91,6 +91,14 @@ async function main() {
   console.log(`Window: ${rows.length} rows, ${latest.length} distinct vehicles`);
 
   const gaps = gapsFromObservations(latest, { gtfs, shapes, now });
+  if (!argv['dry-run']) {
+    const closed = incidents.reconcileGapEvents({
+      kind: 'bus',
+      current: gaps.map((g) => ({ route: g.route, direction: g.shapeId })),
+      now,
+    });
+    if (closed > 0) console.log(`Resolved ${closed} open bus gap event(s)`);
+  }
   if (gaps.length === 0) {
     console.log('No significant gaps detected');
     return;

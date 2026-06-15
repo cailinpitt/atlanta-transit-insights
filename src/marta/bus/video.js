@@ -44,7 +44,7 @@ async function captureBusBunchingHistoryVideo(bunch, shape, rows, opts = {}) {
   const snapshots = snapshotsByTimestamp(enriched).filter((s) => s.vehicles.length > 0);
   if (snapshots.length < 2) return null;
 
-  const extra = enriched.map((v) => ({ lat: v.lat, lon: v.lon }));
+  const extra = enriched.map((v) => ({ lat: v.lat, lon: v.lon, distFt: v.distFt }));
   const view = computeBunchingView(bunch, shape, extra);
   const baseMap = await fetchBunchingBaseMap(view);
   const labels = assignBusNumbers(bunch.vehicles);
@@ -79,7 +79,7 @@ async function captureBusGapHistoryVideo(gap, shape, rows, opts = {}) {
   const snapshots = snapshotsByTimestamp(enriched).filter((s) => s.vehicles.length > 0);
   if (snapshots.length < 2) return null;
 
-  const extra = enriched.map((v) => ({ lat: v.lat, lon: v.lon }));
+  const extra = enriched.map((v) => ({ lat: v.lat, lon: v.lon, distFt: v.distFt }));
   const view = computeGapView(gap, shape, extra);
   const baseMap = await fetchGapBaseMap(view);
   const frames = buildSmoothFrames(snapshots, {

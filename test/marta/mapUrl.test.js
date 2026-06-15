@@ -4,7 +4,7 @@ const assert = require('node:assert/strict');
 const { WIDTH, HEIGHT, STYLE } = require('../../src/marta/map/common');
 const { computeGapView } = require('../../src/marta/map/busGap');
 const { computeBunchingView } = require('../../src/marta/map/busBunching');
-const { viewFor } = require('../../src/marta/map/railIncidents');
+const { viewFor, gapViewFor } = require('../../src/marta/map/railIncidents');
 
 function denseShape(pointCount = 1600) {
   const points = [];
@@ -35,6 +35,19 @@ test('MARTA bus gap map overlays are short enough for dense long routes', () => 
   assert.ok(staticUrlLength(computeGapView(gap, shape)) < 8000);
 });
 
+test('MARTA bus gap view exposes the empty stretch as a dashed path', () => {
+  const shape = denseShape();
+  const gap = {
+    leading: { lat: shape.points[920].lat, lon: shape.points[920].lon, distFt: 55_000 },
+    trailing: { lat: shape.points[760].lat, lon: shape.points[760].lon, distFt: 45_000 },
+  };
+  const view = computeGapView(gap, shape);
+
+  assert.ok(view.gapPath.length >= 2);
+  assert.ok(view.overlays.length > 0);
+  assert.ok(staticUrlLength(view) < 8000);
+});
+
 test('MARTA bus bunching map overlays are short enough for dense long routes', () => {
   const shape = denseShape();
   const bunch = {
@@ -50,15 +63,13 @@ test('MARTA bus bunching map overlays are short enough for dense long routes', (
 
 test('MARTA rail gap map overlays are short enough for dense long lines', () => {
   const line = { line: 'BLUE', ...denseShape() };
-  const trains = [
-    { lat: line.points[80].lat, lon: line.points[80].lon, distFt: 5_000 },
-    { lat: line.points[1420].lat, lon: line.points[1420].lon, distFt: 84_000 },
-  ];
-  const view = viewFor(line, trains, {
-    loFt: Math.min(...trains.map((t) => t.distFt)) - 3500,
-    hiFt: Math.max(...trains.map((t) => t.distFt)) + 3500,
-  });
+  const gap = {
+    trailing: { lat: line.points[80].lat, lon: line.points[80].lon, distFt: 5_000 },
+    leading: { lat: line.points[1420].lat, lon: line.points[1420].lon, distFt: 84_000 },
+  };
+  const view = gapViewFor(line, gap);
 
+  assert.ok(view.gapPath.length >= 2);
   assert.ok(staticUrlLength(view) < 8000);
 });
 

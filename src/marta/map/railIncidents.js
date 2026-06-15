@@ -53,7 +53,8 @@ function viewFor(line, trains, { loFt = 0, hiFt = line.lengthFt } = {}) {
     `path-${ROUTE_HALO_STROKE}+${ROUTE_HALO_COLOR}(${encoded})`,
     `path-${ROUTE_CORE_STROKE}+${color}(${encoded})`,
   ];
-  const pts = [...slice, ...trains];
+  const framePts = trains.filter((p) => Number.isFinite(p.lat) && Number.isFinite(p.lon));
+  const pts = framePts.length > 0 ? framePts : slice;
   const bbox = {
     minLat: Math.min(...pts.map((p) => p.lat)),
     maxLat: Math.max(...pts.map((p) => p.lat)),
@@ -81,12 +82,12 @@ function gapViewFor(line, gap, { contextFt = GAP_CONTEXT_FT } = {}) {
   const lo = Math.min(gap.trailing.distFt, gap.leading.distFt);
   const hi = Math.max(gap.trailing.distFt, gap.leading.distFt);
 
-  const before = line.points.filter((p, i) => distAt(p, i) <= lo);
-  const after = line.points.filter((p, i) => distAt(p, i) >= hi);
-  const inner = line.points.filter((p, i) => distAt(p, i) > lo && distAt(p, i) < hi);
-  const framing = line.points.filter(
-    (p, i) => distAt(p, i) >= lo - contextFt && distAt(p, i) <= hi + contextFt,
-  );
+  const frameLo = lo - contextFt;
+  const frameHi = hi + contextFt;
+  const before = line.points.filter((p, i) => distAt(p, i) >= frameLo && distAt(p, i) <= lo);
+  const after = line.points.filter((p, i) => distAt(p, i) >= hi && distAt(p, i) <= frameHi);
+  const inner = line.points.filter((p, i) => distAt(p, i) >= lo && distAt(p, i) <= hi);
+  const framing = line.points.filter((p, i) => distAt(p, i) >= frameLo && distAt(p, i) <= frameHi);
 
   const overlays = [];
   for (const slice of [before, after]) {
@@ -102,7 +103,8 @@ function gapViewFor(line, gap, { contextFt = GAP_CONTEXT_FT } = {}) {
 
   const trains = [gap.trailing, gap.leading];
   const framePts = framing.length >= 2 ? framing : line.points;
-  const pts = [...framePts, ...trains];
+  const trainPts = trains.filter((p) => Number.isFinite(p.lat) && Number.isFinite(p.lon));
+  const pts = trainPts.length > 0 ? trainPts : framePts;
   const bbox = {
     minLat: Math.min(...pts.map((p) => p.lat)),
     maxLat: Math.max(...pts.map((p) => p.lat)),
@@ -119,7 +121,8 @@ function gapViewFor(line, gap, { contextFt = GAP_CONTEXT_FT } = {}) {
 
 async function fetchBaseMap(view) {
   const token = requireMapboxToken();
-  const url = `https://api.mapbox.com/styles/v1/${STYLE}/static/${view.overlays.join(',')}/${view.centerLon.toFixed(5)},${view.centerLat.toFixed(5)},${view.zoom.toFixed(2)}/${WIDTH}x${HEIGHT}@2x?access_token=${token}`;
+  const overlayPath = view.overlays.length > 0 ? `${view.overlays.join(',')}/` : '';
+  const url = `https://api.mapbox.com/styles/v1/${STYLE}/static/${overlayPath}${view.centerLon.toFixed(5)},${view.centerLat.toFixed(5)},${view.zoom.toFixed(2)}/${WIDTH}x${HEIGHT}@2x?access_token=${token}`;
   return fetchMapboxStatic(url, 20000);
 }
 

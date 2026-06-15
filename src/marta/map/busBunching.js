@@ -43,9 +43,12 @@ const STOP_OFFSET_PX = 22;
 // Slice the shape to a window around the bunched buses, matching by straight-
 // line proximity to the polyline (we walk a cumulative haversine distance
 // rather than trusting per-point distFt for the proximity match).
-function sliceShapeAroundBunch(shape, bunch) {
+function sliceShapeAroundBunch(shape, bunch, extraPoints = []) {
   const cum = cumulativeDistances(shape.points);
-  const vehiclePositions = bunch.vehicles.map((v) => {
+  const routePoints = [...bunch.vehicles, ...extraPoints].filter(
+    (p) => Number.isFinite(p.lat) && Number.isFinite(p.lon),
+  );
+  const vehiclePositions = routePoints.map((v) => {
     let bestIdx = 0;
     let bestDist = haversineFt(v, shape.points[0]);
     for (let i = 1; i < shape.points.length; i++) {
@@ -65,7 +68,7 @@ function sliceShapeAroundBunch(shape, bunch) {
 // Static framing: bbox, center, zoom, route polyline overlay, direction arrow,
 // origin/terminal points.
 function computeBunchingView(bunch, shape, extraPoints = []) {
-  const slice = sliceShapeAroundBunch(shape, bunch);
+  const slice = sliceShapeAroundBunch(shape, bunch, extraPoints);
   const routePoints = thinPolylinePoints(slice).map((p) => [p.lat, p.lon]);
   const encoded = encodeURIComponent(encode(routePoints));
   const overlays = [
@@ -73,26 +76,20 @@ function computeBunchingView(bunch, shape, extraPoints = []) {
     `path-${ROUTE_CORE_STROKE}+${ROUTE_CORE_COLOR}(${encoded})`,
   ];
 
-  const allLats = [
-    ...slice.map((p) => p.lat),
-    ...bunch.vehicles.map((v) => v.lat),
-    ...extraPoints.map((p) => p.lat),
-  ];
-  const allLons = [
-    ...slice.map((p) => p.lon),
-    ...bunch.vehicles.map((v) => v.lon),
-    ...extraPoints.map((p) => p.lon),
-  ];
+  const framePoints = [...bunch.vehicles, ...extraPoints].filter(
+    (p) => Number.isFinite(p.lat) && Number.isFinite(p.lon),
+  );
+  const bboxPoints = framePoints.length > 0 ? framePoints : slice;
   const bbox = {
-    minLat: Math.min(...allLats),
-    maxLat: Math.max(...allLats),
-    minLon: Math.min(...allLons),
-    maxLon: Math.max(...allLons),
+    minLat: Math.min(...bboxPoints.map((p) => p.lat)),
+    maxLat: Math.max(...bboxPoints.map((p) => p.lat)),
+    minLon: Math.min(...bboxPoints.map((p) => p.lon)),
+    maxLon: Math.max(...bboxPoints.map((p) => p.lon)),
   };
   const centerLat = (bbox.minLat + bbox.maxLat) / 2;
   const centerLon = (bbox.minLon + bbox.maxLon) / 2;
   const rawZoom = fitZoom(bbox, WIDTH, HEIGHT, 60);
-  const zoom = Math.max(10, Math.min(17, Math.floor(rawZoom)));
+  const zoom = Math.max(10, Math.min(17, rawZoom));
 
   // Route-wide direction from the slice endpoints. GTFS shape points run
   // origin→destination, so slice[0]→slice[end] IS the service direction.

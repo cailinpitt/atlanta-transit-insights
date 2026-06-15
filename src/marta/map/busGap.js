@@ -15,7 +15,7 @@ const {
   buildBusMarker,
   markerLabelChip,
   buildTerminalMarker,
-  buildStopDot,
+  buildDashedGapSvg,
   buildDirectionArrow,
   fitTitlePill,
   xmlEscape,
@@ -30,7 +30,6 @@ const LAST_SEEN_COLOR = '8884ff';
 const NEXT_UP_COLOR = 'ff2a6d';
 const BUS_MARKER_RADIUS = 34;
 const TERMINAL_MARKER_RADIUS = BUS_MARKER_RADIUS;
-const STOP_DOT_RADIUS = 7;
 const CONTEXT_PAD_FT = 1800;
 
 function gapVehicles(gap) {
@@ -40,60 +39,89 @@ function gapVehicles(gap) {
   ].filter((v) => Number.isFinite(v.lat) && Number.isFinite(v.lon));
 }
 
-function sliceShapeAroundGap(shape, gap) {
-  const cum = cumulativeDistances(shape.points);
+function gapDistanceWindow(shape, gap, contextFt = CONTEXT_PAD_FT) {
   const dists = [gap.trailing?.distFt, gap.leading?.distFt].filter(Number.isFinite);
-  if (dists.length === 0) return shape.points;
-  const lo = Math.max(0, Math.min(...dists) - CONTEXT_PAD_FT);
-  const hi = Math.min(shape.lengthFt || Infinity, Math.max(...dists) + CONTEXT_PAD_FT);
-  const slice = shape.points.filter(
-    (p, i) => (p.distFt ?? cum[i]) >= lo && (p.distFt ?? cum[i]) <= hi,
-  );
-  return slice.length >= 2 ? slice : shape.points;
+  if (dists.length === 0) {
+    return { lo: 0, hi: shape.lengthFt || Infinity, gapLo: 0, gapHi: shape.lengthFt || Infinity };
+  }
+  const gapLo = Math.max(0, Math.min(...dists));
+  const gapHi = Math.min(shape.lengthFt || Infinity, Math.max(...dists));
+  return {
+    lo: Math.max(0, gapLo - contextFt),
+    hi: Math.min(shape.lengthFt || Infinity, gapHi + contextFt),
+    gapLo,
+    gapHi,
+  };
 }
 
-function computeGapView(gap, shape, stops = []) {
-  const slice = sliceShapeAroundGap(shape, gap);
-  const routePoints = thinPolylinePoints(slice).map((p) => [p.lat, p.lon]);
-  const encoded = encodeURIComponent(encode(routePoints));
-  const overlays = [
-    `path-${ROUTE_HALO_STROKE}+${ROUTE_HALO_COLOR}(${encoded})`,
-    `path-${ROUTE_CORE_STROKE}+${ROUTE_CORE_COLOR}(${encoded})`,
-  ];
+function splitShapeForGap(shape, gap) {
+  const cum = cumulativeDistances(shape.points);
+  const { lo, hi, gapLo, gapHi } = gapDistanceWindow(shape, gap);
+  const distAt = (p, i) => p.distFt ?? cum[i];
+  const framing = shape.points.filter((p, i) => distAt(p, i) >= lo && distAt(p, i) <= hi);
+  const before = shape.points.filter((p, i) => distAt(p, i) >= lo && distAt(p, i) <= gapLo);
+  const inner = shape.points.filter((p, i) => distAt(p, i) >= gapLo && distAt(p, i) <= gapHi);
+  const after = shape.points.filter((p, i) => distAt(p, i) >= gapHi && distAt(p, i) <= hi);
+  return {
+    framing: framing.length >= 2 ? framing : shape.points,
+    before,
+    inner,
+    after,
+  };
+}
+
+function computeGapView(gap, shape, extraPoints = []) {
+  const { framing, before, inner, after } = splitShapeForGap(shape, gap);
+  const overlays = [];
+  for (const routeSlice of [before, after]) {
+    if (routeSlice.length < 2) continue;
+    const routePoints = thinPolylinePoints(routeSlice).map((p) => [p.lat, p.lon]);
+    const encoded = encodeURIComponent(encode(routePoints));
+    overlays.push(
+      `path-${ROUTE_HALO_STROKE}+${ROUTE_HALO_COLOR}(${encoded})`,
+      `path-${ROUTE_CORE_STROKE}+${ROUTE_CORE_COLOR}(${encoded})`,
+    );
+  }
+  const gapPath = inner.map((p) => ({ lat: p.lat, lon: p.lon }));
   const vehicles = gapVehicles(gap);
-  const points = [...slice, ...vehicles, ...stops];
-  const allLats = points.map((p) => p.lat);
-  const allLons = points.map((p) => p.lon);
+  const flankStops = [gap.flankBefore, gap.flankAfter].filter(
+    (s) => s?.lat != null && s?.lon != null,
+  );
+  const points = [...vehicles, ...flankStops, ...extraPoints].filter(
+    (p) => Number.isFinite(p.lat) && Number.isFinite(p.lon),
+  );
+  const bboxPoints = points.length > 0 ? points : framing;
   const bbox = {
-    minLat: Math.min(...allLats),
-    maxLat: Math.max(...allLats),
-    minLon: Math.min(...allLons),
-    maxLon: Math.max(...allLons),
+    minLat: Math.min(...bboxPoints.map((p) => p.lat)),
+    maxLat: Math.max(...bboxPoints.map((p) => p.lat)),
+    minLon: Math.min(...bboxPoints.map((p) => p.lon)),
+    maxLon: Math.max(...bboxPoints.map((p) => p.lon)),
   };
   const centerLat = (bbox.minLat + bbox.maxLat) / 2;
   const centerLon = (bbox.minLon + bbox.maxLon) / 2;
-  const zoom = Math.max(10, Math.min(17, Math.floor(fitZoom(bbox, WIDTH, HEIGHT, 90))));
-  const bearingDeg = slice.length >= 2 ? bearing(slice[0], slice[slice.length - 1]) : 0;
+  const zoom = Math.max(10, Math.min(17, fitZoom(bbox, WIDTH, HEIGHT, 90)));
+  const bearingDeg = framing.length >= 2 ? bearing(framing[0], framing[framing.length - 1]) : 0;
   const origin = shape.points[0] ? { lat: shape.points[0].lat, lon: shape.points[0].lon } : null;
   const terminal = shape.points.at(-1)
     ? { lat: shape.points.at(-1).lat, lon: shape.points.at(-1).lon }
     : null;
-  return { overlays, centerLat, centerLon, zoom, bearingDeg, origin, terminal };
+  return { overlays, gapPath, centerLat, centerLon, zoom, bearingDeg, origin, terminal };
 }
 
 async function fetchGapBaseMap(view) {
   const token = requireMapboxToken();
-  const url = `https://api.mapbox.com/styles/v1/${STYLE}/static/${view.overlays.join(',')}/${view.centerLon.toFixed(5)},${view.centerLat.toFixed(5)},${view.zoom.toFixed(2)}/${WIDTH}x${HEIGHT}@2x?access_token=${token}`;
+  const overlayPath = view.overlays.length > 0 ? `${view.overlays.join(',')}/` : '';
+  const url = `https://api.mapbox.com/styles/v1/${STYLE}/static/${overlayPath}${view.centerLon.toFixed(5)},${view.centerLat.toFixed(5)},${view.zoom.toFixed(2)}/${WIDTH}x${HEIGHT}@2x?access_token=${token}`;
   return fetchMapboxStatic(url, 20000);
 }
 
-async function renderGapFrame(view, baseMap, gap, stops = [], opts = {}) {
-  const stopElements = [];
-  for (const s of stops) {
-    const p = project(s.lat, s.lon, view.centerLat, view.centerLon, view.zoom, WIDTH, HEIGHT);
-    if (p.x < 0 || p.x > WIDTH || p.y < 0 || p.y > HEIGHT) continue;
-    stopElements.push(buildStopDot(p.x, p.y, STOP_DOT_RADIUS));
-  }
+async function renderGapFrame(view, baseMap, gap, _stops = [], opts = {}) {
+  const gapPixels = (view.gapPath || []).map((p) =>
+    project(p.lat, p.lon, view.centerLat, view.centerLon, view.zoom, WIDTH, HEIGHT),
+  );
+  const gapDash = buildDashedGapSvg(gapPixels, ROUTE_CORE_COLOR, {
+    coreStroke: ROUTE_CORE_STROKE,
+  });
 
   const vehicles = gapVehicles(gap);
   const raw = vehicles.map((v) =>
@@ -138,7 +166,7 @@ async function renderGapFrame(view, baseMap, gap, stops = [], opts = {}) {
     );
   }
 
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${WIDTH}" height="${HEIGHT}">${stopElements.join('\n')}${terminalElements.join('\n')}${vehicleLayer.join('\n')}${chipLayer.join('\n')}${buildDirectionArrow(WIDTH - 220, 180, view.bearingDeg)}${titleElements.join('\n')}</svg>`;
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${WIDTH}" height="${HEIGHT}">${gapDash}${terminalElements.join('\n')}${vehicleLayer.join('\n')}${chipLayer.join('\n')}${buildDirectionArrow(WIDTH - 220, 180, view.bearingDeg)}${titleElements.join('\n')}</svg>`;
   return sharp(baseMap)
     .resize(WIDTH, HEIGHT)
     .composite([{ input: Buffer.from(svg), top: 0, left: 0 }])

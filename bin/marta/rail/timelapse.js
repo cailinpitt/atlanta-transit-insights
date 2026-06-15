@@ -14,7 +14,7 @@ const { setup, writeDryRunAsset, runBin } = require('../../../src/marta/shared/r
 const { buildTimelapsePostText, buildTimelapseAltText } = require('../../../src/marta/rail/post');
 
 const GTFS_DIR = Path.join(__dirname, '..', '..', '..', 'data', 'marta', 'gtfs');
-const DEFAULT_WINDOW_MIN = 15;
+const DEFAULT_WINDOW_MIN = 60;
 
 async function main() {
   setup();

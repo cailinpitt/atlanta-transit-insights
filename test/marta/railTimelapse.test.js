@@ -44,8 +44,8 @@ test('buildSmoothFrames adds interpolated in-between frames gliding along the ro
 
 test('timelapse post + alt text summarize the system by line', () => {
   const meta = {
-    elapsedSec: 900,
-    startTs: Date.parse('2026-06-14T18:00:00Z'),
+    elapsedSec: 3600,
+    startTs: Date.parse('2026-06-14T17:15:00Z'),
     endTs: Date.parse('2026-06-14T18:15:00Z'),
     allTrains: [
       { line: 'RED' },
@@ -56,7 +56,7 @@ test('timelapse post + alt text summarize the system by line', () => {
     ],
   };
   const text = buildTimelapsePostText(meta);
-  assert.match(text, /^🚆 MARTA Rail · 15-min timelapse/);
+  assert.match(text, /^🚆 MARTA Rail · 60-min timelapse/);
   assert.match(text, /5 trains/);
   assert.match(text, /Red 2 · Gold 1 · Blue 1 · Green 1/);
   assert.match(buildTimelapseAltText(meta), /5 trains appeared during the window/);

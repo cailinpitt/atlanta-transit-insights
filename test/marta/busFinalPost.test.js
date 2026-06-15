@@ -36,7 +36,8 @@ test('formatGhostLine summarizes missing buses and effective headway', () => {
     },
     'Route 20 (Peachtree St)',
   );
-  assert.match(line, /Route 20 \(Peachtree St\) dir 0/);
+  assert.match(line, /Route 20 \(Peachtree St\)/);
+  assert.doesNotMatch(line, /dir 0/);
   assert.match(line, /6 of 10 missing \(60%\)/);
   assert.match(line, /every ~20 min instead of ~8/);
 });

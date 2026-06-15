@@ -28,8 +28,17 @@ function hasColumn(db, table, column) {
 }
 
 function addColumnIfMissing(db, table, column, definition) {
-  if (!hasColumn(db, table, column))
+  if (hasColumn(db, table, column)) return;
+  try {
     db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+  } catch (e) {
+    // Multiple short-lived cron processes can race through this lazy migration
+    // on first deploy. If another process added the column after our PRAGMA
+    // check, the desired schema is already present.
+    if (!/duplicate column name/i.test(e.message || '') || !hasColumn(db, table, column)) {
+      throw e;
+    }
+  }
 }
 
 // Return the shared MARTA DB handle with the incident tables ensured. The guard

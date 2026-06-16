@@ -374,18 +374,44 @@ function gapCapAllows({ kind, route, candidate, cap }, now = Date.now()) {
   return events.every((ev) => candidate.ratio > ev.ratio);
 }
 
+// Cooldown-override gate for gaps, ported from cta-insights src/shared/history.js
+// so MARTA matches CTA. A within-cooldown gap re-posts only if it dominates
+// every prior posted gap on the route by a margin that DECAYS over the cooldown
+// window (1.25× when the prior post is fresh → 1.1× as it ages), OR if it's a
+// sustained severe gap (≥20 min after the prior post AND still ≥3.0× headway).
+// The flat 1.25× version this replaced suppressed sustained/aged escalations
+// that CTA re-posts.
+const GAP_COOLDOWN_OVERRIDE_MARGIN_FRESH = 1.25;
+const GAP_COOLDOWN_OVERRIDE_MARGIN_FLOOR = 1.1;
+const GAP_COOLDOWN_OVERRIDE_SUSTAINED_MIN_ELAPSED_MS = 20 * 60 * 1000;
+const GAP_COOLDOWN_OVERRIDE_SUSTAINED_RATIO = 3.0;
+
 function gapCooldownAllows(
   { kind, route, candidate, withinMs = 60 * 60 * 1000 },
   now = Date.now(),
 ) {
   const events = getDb()
     .prepare(`
-      SELECT ratio FROM gap_events
+      SELECT ratio, ts FROM gap_events
       WHERE kind = ? AND route = ? AND posted = 1 AND ts >= ?
     `)
     .all(kind, route, now - withinMs);
   if (events.length === 0) return true;
-  return events.every((ev) => candidate.ratio >= ev.ratio * 1.25);
+  return events.every((ev) => {
+    const elapsed = Math.max(0, now - ev.ts);
+    const t = Math.min(1, elapsed / withinMs);
+    const margin =
+      GAP_COOLDOWN_OVERRIDE_MARGIN_FRESH -
+      (GAP_COOLDOWN_OVERRIDE_MARGIN_FRESH - GAP_COOLDOWN_OVERRIDE_MARGIN_FLOOR) * t;
+    if (candidate.ratio > ev.ratio * margin) return true;
+    if (
+      elapsed >= GAP_COOLDOWN_OVERRIDE_SUSTAINED_MIN_ELAPSED_MS &&
+      candidate.ratio >= GAP_COOLDOWN_OVERRIDE_SUSTAINED_RATIO
+    ) {
+      return true;
+    }
+    return false;
+  });
 }
 
 function recordGhostEvent({

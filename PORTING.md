@@ -292,6 +292,41 @@ CTA tree keeps working as a reference until each analog is proven. Done so far
   alt text, cooldown/cap/callout/history, and import-smoke coverage for the
   posting bins.
 
+### Low-frequency / blackout detectors + CTA alignment (2026-06-16)
+
+Ported the two detectors CTA built to cover the high-frequency detectors' blind
+spots — both biased MARTA toward false negatives until now (see the suppression
+audit).
+
+- `src/marta/bus/thinGaps.js` + `bin/marta/bus/thin-gaps.js` — `thinGaps.js` is a
+  verbatim port of CTA's pure core. The bin wires it to the MARTA schedule index
+  (`headwayForLine`/`activeForLine`) and storage; eligible = bus routes with
+  current headway ≥20 min (the set the mainline gap/ghost detectors can't fire on).
+  Fires when no bus is observed in `max(2× headway, 60 min)`; one post/route/day
+  via a 24h cooldown; threads a "buses observed again" clear reply.
+- `src/marta/bus/pulse.js` + `bin/marta/bus/pulse.js` — `pulse.js` is a verbatim
+  port of CTA's `detectBusBlackouts` (blackout path; CTA's `heldClusters` sub-
+  detector is **deferred**). The bin owns the complementary higher-frequency set
+  (headway <20 min): fires when a route expecting ≥2 active buses shows zero
+  vehicles while the fleet reports normally, with the feed-stale / pipeline-quiet
+  / cold-start / ramp / wind-down guards intact. 2h re-post cooldown + clear reply.
+- `src/marta/shared/incidents.js` — added the `disruption_events` table +
+  `recordDisruption` / `findUnresolvedDisruptions` (CTA `disruption_events` analog).
+  `bin/marta/export-web.js` surfaces posted `observed-thin` (→ `thin-gap`) and
+  `observed` (→ `pulse-cold`) firings as **standalone** `['bot']` incidents, each
+  paired with the next `observed-clear` — the deliberate exception to "lone single
+  detectors don't make a website event," since a silent route has no signal to
+  fold into a roundup.
+- `src/marta/storage.js` — added `getLastBusObservationTs`,
+  `countDistinctBusObservationTs`, `getDistinctBusRoutesSince`.
+- **Gap cooldown aligned with CTA**: `incidents.gapCooldownAllows` now uses the
+  decaying-margin (1.25×→1.1× over the hour) + sustained-severity escape
+  (≥20 min & ≥3.0×) override instead of the flat 1.25×, so sustained/aged gap
+  escalations re-post the way CTA's do.
+- Tests: `test/marta/{thinGaps,pulse,gapCooldownAllows}.test.js`. Cron:
+  `bus-thin-gaps` (15 min) + `bus-pulse` (5 min) added to `cron/marta-crontab.txt`.
+  Still deferred: `heldClusters`, rail pulse/thin-gaps.
+
 **Bus detection (Phase 4) is feature-complete: speedmap, gaps, bunching, ghosts**,
 all on the shapes.js `pdist` analog + the schedule index, and the live observe
 loop now feeds `state/marta.sqlite`. **Rail detection (Phase 5) is feature-complete**

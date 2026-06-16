@@ -38,6 +38,9 @@
 # (headway >=20 min) the mainline gap/ghost detectors are structurally blind to.
 # One post/route/day; threads a clear reply when buses reappear.
 13-58/15 * * * * cd __REPO__ && __NODE__ bin/marta/bus/thin-gaps.js >> __REPO__/state/logs/bus-thin-gaps.log 2>&1
+# Bus pulse / route blackouts (martainsights). Every 5 min; higher-frequency
+# routes (headway <20 min) showing zero vehicles while the fleet reports normally.
+14-59/5 * * * * cd __REPO__ && __NODE__ bin/marta/bus/pulse.js >> __REPO__/state/logs/bus-pulse.log 2>&1
 # Rail gap and bunching detect→post (martainsights). Offset from bus jobs.
 6-59/5 * * * * cd __REPO__ && __NODE__ bin/marta/rail/gaps.js >> __REPO__/state/logs/rail-gaps.log 2>&1
 8-59/5 * * * * cd __REPO__ && __NODE__ bin/marta/rail/bunching.js >> __REPO__/state/logs/rail-bunching.log 2>&1

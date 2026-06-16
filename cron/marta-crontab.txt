@@ -34,6 +34,10 @@
 7-59/15 * * * * cd __REPO__ && __NODE__ bin/marta/bus/ghosts.js >> __REPO__/state/logs/bus-ghosts.log 2>&1
 # Bus speedmap (martainsights). Hourly route rotation from the last hour of observed speeds.
 12 * * * * cd __REPO__ && __NODE__ bin/marta/bus/speedmap.js >> __REPO__/state/logs/bus-speedmap.log 2>&1
+# Bus thin-service gaps (martainsights). Every 15 min; low-frequency routes
+# (headway >=20 min) the mainline gap/ghost detectors are structurally blind to.
+# One post/route/day; threads a clear reply when buses reappear.
+13-58/15 * * * * cd __REPO__ && __NODE__ bin/marta/bus/thin-gaps.js >> __REPO__/state/logs/bus-thin-gaps.log 2>&1
 # Rail gap and bunching detect→post (martainsights). Offset from bus jobs.
 6-59/5 * * * * cd __REPO__ && __NODE__ bin/marta/rail/gaps.js >> __REPO__/state/logs/rail-gaps.log 2>&1
 8-59/5 * * * * cd __REPO__ && __NODE__ bin/marta/rail/bunching.js >> __REPO__/state/logs/rail-bunching.log 2>&1

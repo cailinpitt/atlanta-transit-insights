@@ -474,11 +474,87 @@ function readRoundups(db) {
   return rows.map(roundupDetection);
 }
 
-function dataStart(alerts, detections, roundups = []) {
+// Route-silence disruptions (thin-gap firings + pulse blackouts). Unlike a lone
+// gap/bunch/ghost, these DO surface standalone — a fully-silent route produces
+// no co-occurring signal to fold into a roundup, so they'd otherwise never reach
+// the site. Each posted firing is paired with the earliest 'observed-clear' on
+// the same line after it; absence of one means still-active. Mirrors CTA's
+// export disruption_events('observed','observed-held','observed-thin') union.
+const DISRUPTION_WEB_SOURCE = { 'observed-thin': 'thin-gap', observed: 'pulse-cold' };
+
+function readDisruptions(db) {
+  if (!tableExists(db, 'disruption_events')) return [];
+  const rows = db
+    .prepare(
+      `SELECT d.id, d.kind, d.line, d.direction, d.source, d.ts, d.post_uri, d.evidence,
+              (SELECT MIN(c.ts) FROM disruption_events c
+                 WHERE c.kind = d.kind AND c.source = 'observed-clear'
+                   AND c.line = d.line AND c.ts >= d.ts) AS resolved_ts
+       FROM disruption_events d
+       WHERE d.source IN ('observed-thin', 'observed')
+         AND d.posted = 1 AND d.post_uri IS NOT NULL
+       ORDER BY d.ts DESC, d.id DESC`,
+    )
+    .all();
+  return rows.map(disruptionDetection);
+}
+
+function disruptionDetection(row) {
+  const route = String(row.line);
+  const outRoute = canonicalRoute(route);
+  const mode = canonicalMode(modeForKind(row.kind), outRoute);
+  const webSource = DISRUPTION_WEB_SOURCE[row.source] || 'thin-gap';
+  let evidence = null;
+  try {
+    evidence = row.evidence ? JSON.parse(row.evidence) : null;
+  } catch (_) {
+    evidence = null;
+  }
+  const description =
+    webSource === 'thin-gap'
+      ? `Route ${route} thin-service gap`
+      : `Route ${route} no buses running`;
+  return {
+    id: `marta-${webSource}-${row.id}`,
+    source: webSource,
+    kind: row.kind,
+    mode,
+    route: outRoute,
+    direction: row.direction ?? null,
+    near_stop: null,
+    ts: row.ts,
+    resolved_ts: row.resolved_ts ?? null,
+    post_url: atUriToUrl(row.post_uri),
+    resolved_post_url: null,
+    description,
+    evidence,
+    bullets: [],
+  };
+}
+
+function buildIncidentFromDisruption(det) {
+  return {
+    id: postUrlRkey(det.post_url) ?? det.id,
+    agency: 'marta',
+    mode: det.mode,
+    routes: [canonicalRoute(det.route)],
+    sources: ['bot'],
+    lifecycle: lifecycleBlock({
+      firstSeenTs: det.ts,
+      resolvedTs: det.resolved_ts ?? null,
+      active: det.resolved_ts == null,
+    }),
+    official_alert: null,
+    detections: [detectionBlock(det)],
+  };
+}
+
+function dataStart(alerts, detections, roundups = [], disruptions = []) {
   const times = [
     ...alerts.map((a) => a.first_seen_ts),
     ...detections.map((d) => d.ts),
     ...roundups.map((r) => r.ts),
+    ...disruptions.map((d) => d.ts),
   ].filter((ts) => ts != null);
   return times.length > 0 ? Math.min(...times) : null;
 }
@@ -521,7 +597,7 @@ function buildIncidentFromRoundup(roundup, matches) {
   };
 }
 
-function buildIncidents(alerts, detections, roundups = []) {
+function buildIncidents(alerts, detections, roundups = [], disruptions = []) {
   const usedDetections = new Set();
   const incidents = [];
   for (const alert of alerts) {
@@ -535,6 +611,11 @@ function buildIncidents(alerts, detections, roundups = []) {
       .sort((a, b) => Math.abs(a.ts - roundup.ts) - Math.abs(b.ts - roundup.ts));
     for (const det of matches) usedDetections.add(det.id);
     incidents.push(buildIncidentFromRoundup(roundup, matches));
+  }
+  // Route-silence disruptions stand alone (see readDisruptions) — they have no
+  // co-occurring signal to pair into a roundup or alert.
+  for (const det of disruptions) {
+    incidents.push(buildIncidentFromDisruption(det));
   }
   // Unpaired single detectors do NOT become their own incidents — matching CTA,
   // where website events come only from official alerts and multi-signal
@@ -554,11 +635,12 @@ function buildExport(db, now = Date.now()) {
   const alerts = readAlerts(db);
   const detections = readDetections(db);
   const roundups = readRoundups(db);
+  const disruptions = readDisruptions(db);
   return {
     schema_version: 2,
     generated_at: now,
-    data_start_ts: dataStart(alerts, detections, roundups),
-    incidents: buildIncidents(alerts, detections, roundups),
+    data_start_ts: dataStart(alerts, detections, roundups, disruptions),
+    incidents: buildIncidents(alerts, detections, roundups, disruptions),
   };
 }
 

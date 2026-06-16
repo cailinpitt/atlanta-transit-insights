@@ -163,6 +163,20 @@ function getDb() {
       );
       CREATE INDEX IF NOT EXISTS idx_roundup_anchors_kind_expires
         ON roundup_anchors(kind, expires_ts);
+
+      CREATE TABLE IF NOT EXISTS disruption_events (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        ts INTEGER NOT NULL,
+        kind TEXT NOT NULL,
+        line TEXT NOT NULL,
+        direction TEXT,
+        source TEXT NOT NULL,
+        posted INTEGER NOT NULL DEFAULT 0,
+        post_uri TEXT,
+        evidence TEXT
+      );
+      CREATE INDEX IF NOT EXISTS idx_disruption_events_kind_line_ts
+        ON disruption_events(kind, line, ts);
     `);
     for (const table of ['bunching_events', 'gap_events', 'ghost_events']) {
       addColumnIfMissing(db, table, 'last_seen_ts', 'INTEGER');
@@ -758,6 +772,64 @@ function markRoundupResolved(id, resolutionPostUri, ts = Date.now()) {
   markWebPushPending();
 }
 
+// Route-silence disruptions (thin-gap firings + pulse blackouts and their
+// `observed-clear` resolutions). Ported from cta-insights recordDisruption so
+// the MARTA web export can surface these standalone, the way CTA's dashboard
+// does — they can't reliably reach the roundup, since a fully-silent route has
+// no co-occurring gap/bunch signal to correlate with.
+function recordDisruption(
+  { kind, line, direction, source, posted, postUri, evidence = null },
+  now = Date.now(),
+) {
+  let evidenceJson = null;
+  if (evidence && typeof evidence === 'object' && Object.keys(evidence).length > 0) {
+    try {
+      evidenceJson = JSON.stringify(evidence);
+    } catch (_e) {
+      evidenceJson = null;
+    }
+  }
+  getDb()
+    .prepare(`
+      INSERT INTO disruption_events
+        (ts, kind, line, direction, source, posted, post_uri, evidence)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `)
+    .run(
+      now,
+      kind,
+      String(line),
+      direction || null,
+      source,
+      posted ? 1 : 0,
+      postUri || null,
+      evidenceJson,
+    );
+  // A posted disruption (or its clear) is a standalone website incident.
+  if (postUri || source === 'observed-clear') markWebPushPending();
+}
+
+// Posted disruptions of `source` (e.g. 'observed-thin', 'observed') with no
+// 'observed-clear' on the same line at/after them — i.e. still-open firings.
+// Window is [now - sinceMs, now - untilMs).
+function findUnresolvedDisruptions({ kind, source, sinceMs, untilMs = 0 }, now = Date.now()) {
+  return getDb()
+    .prepare(`
+      SELECT d.id, d.ts, d.line, d.post_uri AS postUri
+      FROM disruption_events d
+      WHERE d.kind = ? AND d.source = ?
+        AND d.posted = 1 AND d.post_uri IS NOT NULL
+        AND d.ts >= ? AND d.ts < ?
+        AND NOT EXISTS (
+          SELECT 1 FROM disruption_events c
+          WHERE c.kind = d.kind AND c.source = 'observed-clear'
+            AND c.line = d.line AND c.ts >= d.ts
+        )
+      ORDER BY d.ts ASC
+    `)
+    .all(kind, source, now - sinceMs, now - untilMs);
+}
+
 // Drop expired cooldowns (+ ancient legacy null-ttl rows) and stale meta_signals.
 // Event tables are an archive — kept forever.
 function rolloffOld(now = Date.now()) {
@@ -790,6 +862,8 @@ module.exports = {
   bunchingCooldownAllows,
   recordMetaSignal,
   getRecentMetaSignals,
+  recordDisruption,
+  findUnresolvedDisruptions,
   recordRoundupAnchor,
   listUnresolvedRoundupAnchors,
   updateRoundupClearTicks,

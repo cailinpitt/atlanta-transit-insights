@@ -388,6 +388,39 @@ function getRecentBusObservations(route, sinceTs) {
     .all(String(route), sinceTs);
 }
 
+// Most recent observation ts for a route (epoch ms), or null if never seen.
+// Thin-gap firings backdate their disruption ts to the last moment a bus was
+// actually observed, not the cron tick that noticed.
+function getLastBusObservationTs(route) {
+  const row = getDb()
+    .prepare('SELECT MAX(ts) AS ts FROM bus_observations WHERE route = ?')
+    .get(String(route));
+  return row?.ts ?? null;
+}
+
+// Distinct bus routes with at least one observation since `sinceTs`. Powers
+// pulse's cold-start grace: a route with zero observations across the whole
+// grace window is service-not-yet-started, not a blackout.
+function getDistinctBusRoutesSince(sinceTs) {
+  return new Set(
+    getDb()
+      .prepare('SELECT DISTINCT route FROM bus_observations WHERE ts >= ?')
+      .all(sinceTs)
+      .map((r) => String(r.route)),
+  );
+}
+
+// Count of distinct observation snapshots (distinct ts) across all routes since
+// `sinceTs`. A near-zero count means the observe loop has stalled — the thin-gap
+// / pulse health gate bails out rather than fanning one upstream outage into a
+// flood of false-positive per-route posts.
+function countDistinctBusObservationTs(sinceTs) {
+  const row = getDb()
+    .prepare('SELECT COUNT(DISTINCT ts) AS n FROM bus_observations WHERE ts >= ?')
+    .get(sinceTs);
+  return row?.n ?? 0;
+}
+
 // All routes, newest-window-first by ts. Feeds the detect→post bins, which
 // reduce to the latest fix per vehicle for detection and keep the full window
 // for parked-bus detection — no extra feed fetch (the observe loop keeps this
@@ -514,6 +547,9 @@ module.exports = {
   recordStreetcarObservations,
   getRecentBusObservations,
   getRecentBusObservationsAll,
+  getLastBusObservationTs,
+  countDistinctBusObservationTs,
+  getDistinctBusRoutesSince,
   getRecentBusTripStatuses,
   getRecentRailObservations,
   getRecentRailObservationsAll,

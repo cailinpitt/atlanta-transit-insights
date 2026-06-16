@@ -15,7 +15,9 @@ const {
   thinPolylinePoints,
 } = require('./common');
 
-async function renderRailSpeedmap(line, binSpeeds) {
+// `colorFn` maps a bin's mph to a hex color; the streetcar passes its own so the
+// slower bands paint correctly (same 5-color scheme, lower thresholds).
+async function renderRailSpeedmap(line, binSpeeds, { colorFn = colorForRailSpeed } = {}) {
   const points = line.points;
   const cumDist = cumulativeDistances(points);
   const slices = sliceIntoSegments(points, cumDist, binSpeeds.length);
@@ -29,7 +31,7 @@ async function renderRailSpeedmap(line, binSpeeds) {
     const encoded = encodeURIComponent(
       encode(thinPolylinePoints(slices[i], 30).map((p) => [p.lat, p.lon])),
     );
-    overlays.push(`path-${SPEEDMAP_SEGMENT_STROKE}+${colorForRailSpeed(binSpeeds[i])}(${encoded})`);
+    overlays.push(`path-${SPEEDMAP_SEGMENT_STROKE}+${colorFn(binSpeeds[i])}(${encoded})`);
   }
 
   const token = requireMapboxToken();

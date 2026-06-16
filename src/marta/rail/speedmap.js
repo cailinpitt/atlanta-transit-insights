@@ -26,14 +26,16 @@ function colorForRailSpeed(mph) {
 }
 
 // Build per-(line, direction) speed samples from rail observations. `obs` rows:
-// { ts, train_id, line, direction, lat, lon }. Returns
-// Map<"line/direction", [{ distFt, mph }]>.
-function buildSpeedSamples(observations, { lineGeom } = {}) {
+// { ts, train_id, line, direction, lat, lon } (streetcar rows carry vehicleId
+// instead of train_id). Returns Map<"line/direction", [{ distFt, mph }]>.
+// `maxMph` caps GPS jumps / loop wraparound and is tighter for the streetcar.
+function buildSpeedSamples(observations, { lineGeom, maxMph = MAX_MPH } = {}) {
   const byTrain = new Map();
   for (const o of observations || []) {
     const proj = projectTrain(lineGeom, o);
     if (!proj) continue;
-    const key = `${o.line}/${o.direction}/${o.train_id ?? o.trainId}`;
+    const id = o.train_id ?? o.trainId ?? o.vehicle_id ?? o.vehicleId;
+    const key = `${o.line}/${o.direction}/${id}`;
     if (!byTrain.has(key)) byTrain.set(key, []);
     byTrain.get(key).push({ ts: o.ts, distFt: proj.distFt, line: o.line, direction: o.direction });
   }
@@ -48,7 +50,7 @@ function buildSpeedSamples(observations, { lineGeom } = {}) {
       // one direction decreases distFt. Speed is unsigned.
       const dft = Math.abs(pts[i].distFt - pts[i - 1].distFt);
       const mph = (dft / (dt / 1000)) * FT_PER_S_TO_MPH;
-      if (mph > MAX_MPH) continue;
+      if (mph > maxMph) continue;
       const midDist = (pts[i].distFt + pts[i - 1].distFt) / 2;
       const key = `${pts[i].line}/${pts[i].direction}`;
       if (!byLineDir.has(key)) byLineDir.set(key, []);
@@ -83,9 +85,13 @@ function summarize(bins, thresholds = RAIL_THRESHOLDS) {
 }
 
 // End-to-end: rail observations → per-(line, direction) speedmap
-// { line, direction, lengthFt, bins, summary, sampleCount }.
-function buildLineSpeedmaps(observations, { lineGeom, numBins = 30 } = {}) {
-  const samples = buildSpeedSamples(observations, { lineGeom });
+// { line, direction, lengthFt, bins, summary, sampleCount }. `maxMph` and
+// `thresholds` let the streetcar reuse this with its slower speed profile.
+function buildLineSpeedmaps(
+  observations,
+  { lineGeom, numBins = 30, maxMph = MAX_MPH, thresholds = RAIL_THRESHOLDS } = {},
+) {
+  const samples = buildSpeedSamples(observations, { lineGeom, maxMph });
   const out = new Map();
   for (const [key, list] of samples) {
     const [line, direction] = key.split('/');
@@ -96,7 +102,7 @@ function buildLineSpeedmaps(observations, { lineGeom, numBins = 30 } = {}) {
       direction,
       lengthFt,
       bins,
-      summary: summarize(bins),
+      summary: summarize(bins, thresholds),
       sampleCount: list.length,
     });
   }

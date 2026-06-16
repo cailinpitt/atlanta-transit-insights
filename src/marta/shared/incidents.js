@@ -12,6 +12,7 @@
 // fresh DB (or a test reopen after closeDb()) gets them without a migration
 // step.
 const storage = require('../storage');
+const { markWebPushPending } = require('../../shared/webPushTrigger');
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 // Event tables are kept for historical archiving; only cooldowns + meta_signals
@@ -234,6 +235,9 @@ function recordBunching(
       postUri || null,
       posted ? now : null,
     );
+  // A posted detection is the only kind the web export reads; it may fold into
+  // an active alert/roundup incident, so refresh the published data.
+  if (posted && postUri) markWebPushPending();
 }
 
 // Must be called BEFORE recordBunching writes the current event, otherwise the
@@ -326,6 +330,7 @@ function recordGap(
       postUri || null,
       posted ? now : null,
     );
+  if (posted && postUri) markWebPushPending();
 }
 
 function gapCallouts({ kind, route, routeLabel, ratio }, now = Date.now()) {
@@ -416,6 +421,7 @@ function recordGhostEvent({
       postUri,
       now,
     );
+  if (postUri) markWebPushPending();
 }
 
 function eventKey({ route, direction }) {
@@ -470,7 +476,10 @@ function reconcileDetectorEvents({ table, kind, current, now = Date.now() }) {
     }
     return closed;
   });
-  return tx();
+  const closed = tx();
+  // Resolving a detection flips its lifecycle in any incident it's part of.
+  if (closed.length > 0) markWebPushPending();
+  return closed;
 }
 
 function reconcileGapEvents({ kind, current, now }) {
@@ -677,6 +686,8 @@ function recordRoundupAnchor({
       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `)
     .run(kind, String(line), postUri, postCid || null, ts, ts + ttlMs, signalsStr, bulletsStr);
+  // A roundup anchor is a website incident; publish it.
+  if (postUri) markWebPushPending();
 }
 
 function listUnresolvedRoundupAnchors(kind) {
@@ -718,6 +729,7 @@ function markRoundupResolved(id, resolutionPostUri, ts = Date.now()) {
       WHERE id = ?
     `)
     .run(ts, resolutionPostUri, id);
+  markWebPushPending();
 }
 
 // Drop expired cooldowns (+ ancient legacy null-ttl rows) and stale meta_signals.

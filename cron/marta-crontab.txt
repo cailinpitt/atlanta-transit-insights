@@ -53,6 +53,12 @@
 # reads detector meta_signals and posts correlated degraded-service issues from
 # the alerts account, with resolution replies only from that same account.
 3-59/5 * * * * cd __REPO__ && __NODE__ bin/marta/incident-roundup.js >> __REPO__/state/logs/incident-roundup.log 2>&1
+# Publish web data to R2 + trigger a site rebuild. Incident/detector posts kick
+# this immediately via the webPushTrigger flush; this every-15-min run is the
+# backstop that catches any change that didn't ride a post (and re-publishes if
+# an upload was missed). Exits early when the exported data is unchanged.
+# NODE is passed explicitly because cron's PATH usually lacks node.
+14-59/15 * * * * cd __REPO__ && NODE=__NODE__ /bin/sh __REPO__/bin/marta/push-web-data.sh >> __REPO__/state/logs/push-web-data.log 2>&1
 # Off-box backup of state/marta.sqlite to Cloudflare R2. Uses SQLite .backup,
 # integrity-checks the snapshot, gzips it, then uploads to the private backup
 # bucket. See docs/MARTA_BACKUPS.md.

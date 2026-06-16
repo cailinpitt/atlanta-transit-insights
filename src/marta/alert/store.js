@@ -18,6 +18,7 @@
 // alerts account, so — unlike CTA's per-account `kind` filter — the lifecycle
 // queries span every mode.
 const storage = require('../storage');
+const { markWebPushPending } = require('../../shared/webPushTrigger');
 
 // Feed-drop resolution threshold: how many consecutive ticks an alert must be
 // absent from the feed before we post a "resolved" reply. Flicker-safe; the
@@ -189,6 +190,12 @@ function recordAlertSeen(
         activeEndTs ?? null,
         alertId,
       );
+    // Republish only when the export actually changes: new text version, a
+    // resolution reset (new chapter / flicker reopen), or the post URI first
+    // landing. A plain last_seen_ts bump every poll must NOT kick the push.
+    if (isVersionChange || newChapter || flickerReopen || (postUri && !existing.post_uri)) {
+      markWebPushPending();
+    }
     return;
   }
 
@@ -214,6 +221,7 @@ function recordAlertSeen(
       now,
       postUri || null,
     );
+  markWebPushPending(); // a newly tracked alert is a new website incident
 }
 
 // Mark an alert resolved. resolved_ts prefers pending_resolved_ts (the first
@@ -229,6 +237,7 @@ function recordAlertResolved({ alertId, replyUri }, now = Date.now()) {
       WHERE alert_id = ?
     `)
     .run(now, replyUri || null, alertId);
+  markWebPushPending();
 }
 
 // Advance the absent-from-feed counter; returns the new tick count. Stamps

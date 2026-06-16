@@ -29,9 +29,12 @@ LAST="$WORK/.last"
 cd "$REPO"
 mkdir -p "$WORK" "$LAST"
 
-node "$REPO/bin/marta/export-web.js" "$WORK/alerts.json"
-node "$REPO/bin/marta/export-daily.js" "$WORK/alerts.json" "$WORK/daily-counts.json"
-node "$REPO/bin/export-csv.js" "$WORK/alerts.json" "$WORK/alerts.csv"
+# Honor an explicit NODE (the crontab passes the absolute path, since cron's
+# PATH usually lacks node); fall back to PATH lookup for manual runs.
+NODE="${NODE:-node}"
+"$NODE" "$REPO/bin/marta/export-web.js" "$WORK/alerts.json"
+"$NODE" "$REPO/bin/marta/export-daily.js" "$WORK/alerts.json" "$WORK/daily-counts.json"
+"$NODE" "$REPO/bin/export-csv.js" "$WORK/alerts.json" "$WORK/alerts.csv"
 
 changed=0
 for f in alerts.json daily-counts.json alerts.csv; do

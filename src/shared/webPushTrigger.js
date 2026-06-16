@@ -1,12 +1,21 @@
-// Cross-module signal: "this run posted something new to Bluesky, kick the
-// cta-alert-history pages-repo push so the public dashboard isn't waiting on
-// the 7-minute cron." Tracked as a single process-local flag — every post
-// helper in shared/bluesky sets it after a successful Bluesky API call.
+// Cross-module signal: "this run changed the public web data, kick the
+// pages-repo push so the dashboard isn't waiting on the periodic cron."
+// Tracked as a single process-local flag; a caller sets it via
+// markWebPushPending() when it writes something the web export reads.
 //
-// runBin (src/shared/runBin.js) calls `flushPendingWebPush()` after the
-// script's main() resolves; if the flag was set the trigger spawns
-// bin/push-web-data.sh detached and lets it run in the background. The
-// detached process keeps running after the bin script exits.
+// WHO arms it differs by agency:
+//   - CTA: every post helper in src/shared/bluesky.js arms after a successful
+//     post (the website data closely tracks what gets posted).
+//   - MARTA: the incident-data writes arm it — the alert store and the
+//     detector/roundup records in src/marta/shared/incidents.js — NOT the
+//     Bluesky post helpers. So analytics posts (speedmaps, timelapses), which
+//     never change the incident export, don't spawn a pointless publish.
+//
+// runBin calls `flushPendingWebPush()` after the script's main() resolves; if
+// the flag was set the trigger spawns push-web-data.sh detached and lets it run
+// in the background. The detached process keeps running after the bin exits.
+// push-web-data.sh re-exports + diffs, so an arm that didn't actually change the
+// data is a cheap no-op; a periodic cron run is the backstop for missed arms.
 //
 // We don't add a lock here: cron may invoke push-web-data.sh at the same
 // minute boundary, and git's own .git/index.lock serializes concurrent

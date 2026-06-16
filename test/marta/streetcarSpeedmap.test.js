@@ -81,12 +81,23 @@ test('merges both feed directions onto the one loop so the whole loop is covered
   assert.ok(m.summary.covered >= 4, `merged covers ${m.summary.covered}/6 bins`);
 });
 
-test('builds a single SC geometry from the real streetcar GTFS shape', () => {
+test('stitches the directional half-shapes into one full SC loop', () => {
   const gtfs = loadGtfs(GTFS_DIR);
   const shapes = loadShapes(GTFS_DIR);
   const geom = buildStreetcarGeometry(gtfs, shapes);
   const sc = geom.get(STREETCAR_LINE);
   assert.ok(sc, 'geometry keyed by the feed line "SC"');
-  assert.ok(sc.lengthFt > 5000, `loop length ${sc.lengthFt} ft is plausible`);
-  assert.ok(sc.points.length > 2);
+  // Two half-shapes stitched → ~2.7 mi loop, far longer than either half alone
+  // (the longest single shape is only ~8600 ft).
+  assert.ok(sc.lengthFt > 12000, `stitched loop length ${sc.lengthFt} ft spans the whole route`);
+  assert.match(sc.shapeId, /\+/, 'shapeId records both stitched halves');
+  // distFt is monotonic across the seam (recomputed, not the per-shape GTFS reset).
+  for (let i = 1; i < sc.points.length; i++) {
+    assert.ok(sc.points[i].distFt >= sc.points[i - 1].distFt, 'distFt is monotonic');
+  }
+  // Closes back near the start (the loop's two free ends nearly meet).
+  const a = sc.points[0];
+  const b = sc.points[sc.points.length - 1];
+  const gapFt = Math.hypot((b.lat - a.lat) * 364000, (b.lon - a.lon) * 305000);
+  assert.ok(gapFt < 600, `loop closes (ends ${Math.round(gapFt)} ft apart)`);
 });

@@ -41,6 +41,18 @@ const HOUR_MS = 60 * 60 * 1000;
 // the mainline gap floor (ABSOLUTE_MIN_MIN=15).
 const THIN_GAP_MIN_HEADWAY_MIN = 20;
 
+// Recency gate: the route must have been observed in realtime recently. This
+// excludes two false-positive classes at once:
+//   1. scheduled-but-untracked routes that NEVER appear in the vehicle feed
+//      (MARTA's static GTFS carries express routes with no live tracking), and
+//   2. stale multi-hour silences — a route last seen 13h ago isn't a "gap, past
+//      hour," and the disruption ts is backdated to last-seen, so it would render
+//      as an absurd 13h-old gap.
+// 3h comfortably exceeds the detection window (max(2× headway, 60 min) ≈ 60–90
+// min for eligible routes), so a genuinely fresh gap still fires. (pulse gets the
+// equivalent for free via its 6h cold-start grace; thin-gaps needs it explicitly.)
+const TRACKED_RECENT_MS = 3 * 60 * 60 * 1000;
+
 // observe-buses runs every minute, so 30 min should show ~20+ distinct
 // snapshots. Below this the ingestion pipeline is broken — bail rather than
 // fan one upstream outage into a flood of per-route false positives.
@@ -181,9 +193,12 @@ async function main() {
   await handleClears(names, now, getAgent, dryRun);
   await handleStaleClears(now, dryRun);
 
-  // Eligible = bus routes that are low-frequency right now.
+  // Eligible = low-frequency routes that were observed in realtime recently.
+  // Untracked GTFS-only routes and stale multi-hour silences are skipped.
   const nowDate = new Date(now);
+  const recentlyTracked = storage.getDistinctBusRoutesSince(now - TRACKED_RECENT_MS);
   const eligible = busRoutes.filter((r) => {
+    if (!recentlyTracked.has(String(r))) return false;
     const h = headwayForLine(idx, r, nowDate);
     return h != null && h >= THIN_GAP_MIN_HEADWAY_MIN;
   });

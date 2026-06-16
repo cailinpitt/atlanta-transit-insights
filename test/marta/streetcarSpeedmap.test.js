@@ -44,8 +44,8 @@ test('derives streetcar speed from position deltas keyed on vehicleId', () => {
     [scObs(geom, 0, 0), scObs(geom, 30_000, 3), scObs(geom, 60_000, 6)],
     { geom, numBins: 6 },
   );
-  const m = maps.get(`${STREETCAR_LINE}/0`);
-  assert.ok(m, 'a SC/0 speedmap exists');
+  const m = maps.get(`${STREETCAR_LINE}/`);
+  assert.ok(m, 'a single merged SC speedmap exists');
   assert.equal(m.sampleCount, 2);
   assert.ok(m.summary.avg > 4 && m.summary.avg < 8, `avg ${m.summary.avg} in orange band`);
 });
@@ -55,7 +55,30 @@ test('the tighter streetcar cap rejects the once-per-lap loop wraparound', () =>
   const geom = scGeom(600, 12);
   assert.ok(40.9 > STREETCAR_MAX_MPH);
   const maps = buildStreetcarSpeedmaps([scObs(geom, 0, 0), scObs(geom, 30_000, 3)], { geom });
-  assert.ok(!maps.has(`${STREETCAR_LINE}/0`), 'wraparound-speed pair dropped');
+  assert.ok(!maps.has(`${STREETCAR_LINE}/`), 'wraparound-speed pair dropped');
+});
+
+test('merges both feed directions onto the one loop so the whole loop is covered', () => {
+  // One geometry; two cars the feed labels with different directionIds, each
+  // riding only one arc. Split per-direction, each map would cover ~half; merged
+  // they fill the whole loop in a single SC map.
+  const geom = scGeom(100, 12);
+  const obs = [
+    // direction "0" car crawls the first half (vertices 0..5)
+    scObs(geom, 0, 0, { direction: '0', vehicleId: 'A' }),
+    scObs(geom, 30_000, 2, { direction: '0', vehicleId: 'A' }),
+    scObs(geom, 60_000, 4, { direction: '0', vehicleId: 'A' }),
+    // direction "1" car crawls the second half (vertices 6..11)
+    scObs(geom, 0, 6, { direction: '1', vehicleId: 'B' }),
+    scObs(geom, 30_000, 8, { direction: '1', vehicleId: 'B' }),
+    scObs(geom, 60_000, 10, { direction: '1', vehicleId: 'B' }),
+  ];
+  const maps = buildStreetcarSpeedmaps(obs, { geom, numBins: 6 });
+  assert.equal(maps.size, 1, 'a single merged SC map, not one per direction');
+  const m = maps.get(`${STREETCAR_LINE}/`);
+  assert.ok(m, 'merged map keyed SC/ with no direction');
+  // Both arcs contribute: coverage spans more bins than either direction alone.
+  assert.ok(m.summary.covered >= 4, `merged covers ${m.summary.covered}/6 bins`);
 });
 
 test('builds a single SC geometry from the real streetcar GTFS shape', () => {

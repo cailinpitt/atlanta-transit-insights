@@ -29,15 +29,26 @@ function colorForRailSpeed(mph) {
 // { ts, train_id, line, direction, lat, lon } (streetcar rows carry vehicleId
 // instead of train_id). Returns Map<"line/direction", [{ distFt, mph }]>.
 // `maxMph` caps GPS jumps / loop wraparound and is tighter for the streetcar.
-function buildSpeedSamples(observations, { lineGeom, maxMph = MAX_MPH } = {}) {
+//
+// `mergeDirections` collapses the per-direction split (used by the streetcar):
+// it rides ONE closed loop, so both feed directions trace the same single
+// geometry. Splitting them would leave each direction covering only the arc its
+// vehicles happened to ride — half the loop grey. Merging bins every car onto
+// the one geometry (and keeps a car's pings in one series across the directionId
+// flip at the loop ends, yielding more clean deltas).
+function buildSpeedSamples(
+  observations,
+  { lineGeom, maxMph = MAX_MPH, mergeDirections = false } = {},
+) {
   const byTrain = new Map();
   for (const o of observations || []) {
     const proj = projectTrain(lineGeom, o);
     if (!proj) continue;
     const id = o.train_id ?? o.trainId ?? o.vehicle_id ?? o.vehicleId;
-    const key = `${o.line}/${o.direction}/${id}`;
+    const direction = mergeDirections ? '' : o.direction;
+    const key = `${o.line}/${direction}/${id}`;
     if (!byTrain.has(key)) byTrain.set(key, []);
-    byTrain.get(key).push({ ts: o.ts, distFt: proj.distFt, line: o.line, direction: o.direction });
+    byTrain.get(key).push({ ts: o.ts, distFt: proj.distFt, line: o.line, direction });
   }
 
   const byLineDir = new Map();
@@ -89,9 +100,15 @@ function summarize(bins, thresholds = RAIL_THRESHOLDS) {
 // `thresholds` let the streetcar reuse this with its slower speed profile.
 function buildLineSpeedmaps(
   observations,
-  { lineGeom, numBins = 30, maxMph = MAX_MPH, thresholds = RAIL_THRESHOLDS } = {},
+  {
+    lineGeom,
+    numBins = 30,
+    maxMph = MAX_MPH,
+    thresholds = RAIL_THRESHOLDS,
+    mergeDirections = false,
+  } = {},
 ) {
-  const samples = buildSpeedSamples(observations, { lineGeom, maxMph });
+  const samples = buildSpeedSamples(observations, { lineGeom, maxMph, mergeDirections });
   const out = new Map();
   for (const [key, list] of samples) {
     const [line, direction] = key.split('/');

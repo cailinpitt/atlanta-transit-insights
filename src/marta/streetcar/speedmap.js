@@ -57,14 +57,18 @@ function buildStreetcarGeometry(gtfs, shapes) {
   return byLine;
 }
 
-// streetcar_observations rows → per-(line, direction) speedmap, with the
-// streetcar's slower cap + buckets.
+// streetcar_observations rows → a single SC loop speedmap, with the streetcar's
+// slower cap + buckets. Directions are merged (`mergeDirections`): the streetcar
+// is one closed loop on one geometry, so the feed's two directionIds would each
+// fill only the arc their vehicles rode, leaving half the loop grey — the union
+// covers the whole loop. Result keys "SC/" (no direction).
 function buildStreetcarSpeedmaps(observations, { geom, numBins = 30 } = {}) {
   return buildLineSpeedmaps(observations, {
     lineGeom: geom,
     numBins,
     maxMph: STREETCAR_MAX_MPH,
     thresholds: STREETCAR_THRESHOLDS,
+    mergeDirections: true,
   });
 }
 

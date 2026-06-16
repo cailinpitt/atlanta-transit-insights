@@ -81,7 +81,7 @@ function makeStyles({ lineGeom, termini, scGeomByLine, startTime, endTime }) {
       build: (m, callouts) => ({
         text: buildStreetcarSpeedmapPostText(m.summary, startTime, endTime, callouts),
         alt: buildStreetcarSpeedmapAltText(m.summary),
-        dryName: `streetcar-speedmap-${m.direction}-${Date.now()}.jpg`,
+        dryName: `streetcar-speedmap-${Date.now()}.jpg`,
       }),
     },
   };

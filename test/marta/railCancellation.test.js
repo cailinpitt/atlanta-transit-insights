@@ -61,6 +61,23 @@ test('keeps a leading article in the origin ("the Airport")', () => {
   assert.equal(c.title, '12:30 PM Gold Line departure from the Airport cancelled');
 });
 
+test('does not let initials in a station name ("H. E. Holmes") fragment the sentence', () => {
+  // Regression: the sentence splitter broke on the periods in "H. E. Holmes",
+  // stranding the clock time and the "cancelled" keyword in separate fragments,
+  // so the alert never classified as a cancellation.
+  const c = classifyRailCancellation({
+    headline: 'Rail Service Alert for Blue Line',
+    description:
+      'Update: Due staffing shortages, the 2:10 p.m. Blue line departure from H. E. Holmes is cancelled. Delay continuing on the Blue line.',
+    line: 'blue',
+    anchorTs: ANCHOR,
+  });
+  assert.ok(c, 'should classify');
+  assert.equal(c.depLabel, '2:10 PM');
+  assert.equal(c.origin, 'H. E. Holmes');
+  assert.equal(c.title, '2:10 PM Blue Line departure from H. E. Holmes cancelled');
+});
+
 test('classifies a pure cancellation with no origin', () => {
   const c = classifyRailCancellation({
     headline: 'Rail Service Alert for Red Line',

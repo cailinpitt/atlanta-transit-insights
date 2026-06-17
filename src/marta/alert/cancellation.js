@@ -51,9 +51,15 @@ function normalizeMeridiem(text) {
 // Split prose into sentence-ish clauses so a trailing aside ("Delays continuing
 // on the Blue line.") can't pull a time into the cancellation sentence. Run on
 // meridiem-normalized text so clock times stay intact.
+//
+// Don't break after a single-letter initial like "H." or "E.": MARTA names
+// stations such as "H. E. Holmes", and splitting there would strand the clock
+// time ("the 2:10 p.m. … departure from H.") in one fragment and the
+// "cancelled" keyword ("Holmes is cancelled.") in another — so the sentence
+// that needs BOTH never forms and the cancellation silently fails to classify.
 function sentences(text) {
   return normalizeMeridiem(text)
-    .split(/(?<=[.!?])\s+/)
+    .split(/(?<=[.!?])(?<!\b[A-Z]\.)\s+/)
     .map((s) => s.trim())
     .filter(Boolean);
 }

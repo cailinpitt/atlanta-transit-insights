@@ -20,8 +20,7 @@
 // Defaults to a dry run. Pass --apply to write.
 require('../../src/shared/env');
 const { getDb, closeDb } = require('../../src/marta/storage');
-// Requiring the store ensures the station columns exist (its getDb() migrates).
-require('../../src/marta/alert/store');
+const { ensureSchema } = require('../../src/marta/alert/store');
 const { extractAlertStations } = require('../../src/marta/alert/stations');
 
 const APPLY = process.argv.includes('--apply');
@@ -37,21 +36,11 @@ function parseStored(json) {
 }
 
 function main() {
+  // Add the station columns if missing (idempotent + additive — safe to run on a
+  // dry run too, so the preview SELECT below can reference them). No rows are
+  // written unless --apply is passed.
+  ensureSchema();
   const db = getDb();
-  // Trigger the store's column migration by reading the table schema; if the
-  // columns are still missing here we add them ourselves (apply only).
-  const cols = new Set(
-    db
-      .prepare('PRAGMA table_info(alert_posts)')
-      .all()
-      .map((c) => c.name),
-  );
-  for (const col of ['affected_from_station', 'affected_to_station', 'mentioned_stations']) {
-    if (!cols.has(col)) {
-      if (APPLY) db.exec(`ALTER TABLE alert_posts ADD COLUMN ${col} TEXT`);
-      else console.log(`(dry run) column ${col} is missing — --apply would ALTER TABLE to add it`);
-    }
-  }
 
   const rows = db
     .prepare(

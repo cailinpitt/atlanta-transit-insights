@@ -78,6 +78,7 @@ async function captureRailSystemTimelapse(rows, lineGeom, opts = {}) {
   const videoEndTs = snapshots[snapshots.length - 1].ts;
 
   const trainFrames = [];
+  const frameTimes = [];
   const pushFrame = (frameTs) => {
     const frame = [];
     for (const [trainId, s] of series) {
@@ -92,6 +93,7 @@ async function captureRailSystemTimelapse(rows, lineGeom, opts = {}) {
       if (st) frame.push(st);
     }
     trainFrames.push(frame);
+    frameTimes.push(frameTs);
   };
   for (let i = 0; i < snapshots.length - 1; i++) {
     const span = snapshots[i + 1].ts - snapshots[i].ts;
@@ -99,9 +101,15 @@ async function captureRailSystemTimelapse(rows, lineGeom, opts = {}) {
   }
   pushFrame(videoEndTs);
 
+  const startTs = snapshots[0].ts;
+  const totalSec = Math.max(1, (videoEndTs - startTs) / 1000);
   const images = [];
-  for (const trains of trainFrames) {
-    images.push(await renderSystemFrame(view, baseMap, trains));
+  for (let i = 0; i < trainFrames.length; i++) {
+    images.push(
+      await renderSystemFrame(view, baseMap, trainFrames[i], {
+        clock: { elapsedSec: (frameTimes[i] - startTs) / 1000, totalSec },
+      }),
+    );
   }
   const buffer = await encodeFrames(images, { prefix: 'marta-rail-system', framerate });
   if (!buffer) return null;

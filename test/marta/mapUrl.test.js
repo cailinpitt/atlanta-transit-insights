@@ -6,6 +6,44 @@ const { computeGapView } = require('../../src/marta/map/busGap');
 const { computeBunchingView } = require('../../src/marta/map/busBunching');
 const { viewFor, gapViewFor } = require('../../src/marta/map/railIncidents');
 
+// Minimal Google-polyline decoder (precision 5) so tests can read back the
+// coordinates baked into an overlay path string.
+function decodePolyline(str) {
+  const points = [];
+  let i = 0;
+  let lat = 0;
+  let lon = 0;
+  while (i < str.length) {
+    let result = 0;
+    let shift = 0;
+    let b;
+    do {
+      b = str.charCodeAt(i++) - 63;
+      result |= (b & 0x1f) << shift;
+      shift += 5;
+    } while (b >= 0x20);
+    lat += result & 1 ? ~(result >> 1) : result >> 1;
+    result = 0;
+    shift = 0;
+    do {
+      b = str.charCodeAt(i++) - 63;
+      result |= (b & 0x1f) << shift;
+      shift += 5;
+    } while (b >= 0x20);
+    lon += result & 1 ? ~(result >> 1) : result >> 1;
+    points.push([lat / 1e5, lon / 1e5]);
+  }
+  return points;
+}
+
+// Pull the decoded coordinate list out of a `path-…+color(<encoded>)` overlay.
+function overlayCoords(overlay) {
+  const encoded = decodeURIComponent(
+    overlay.slice(overlay.indexOf('(') + 1, overlay.lastIndexOf(')')),
+  );
+  return decodePolyline(encoded);
+}
+
 function denseShape(pointCount = 1600) {
   const points = [];
   for (let i = 0; i < pointCount; i++) {
@@ -127,4 +165,51 @@ test('MARTA rail bunching view draws the full line but frames tight on the bunch
   assert.deepEqual(view.overlays, wholeLine.overlays);
   // ...yet the bunch view zooms in much tighter than fitting all 95k ft of line.
   assert.ok(view.zoom > wholeLine.zoom + 1);
+});
+
+test('rail bunching arrow follows travel direction, reversing for opposite motion', () => {
+  const line = { line: 'BLUE', ...denseShape() };
+  const bounds = { loFt: 51_000, hiFt: 57_000 };
+  const at = (i, motionSign) => ({
+    lat: line.points[i].lat,
+    lon: line.points[i].lon,
+    distFt: line.points[i].distFt,
+    motionSign,
+  });
+  const fwd = viewFor(line, [at(900, 1), at(940, 1)], bounds);
+  const rev = viewFor(line, [at(900, -1), at(940, -1)], bounds);
+  // Same stretch, opposite travel → arrows point ~180° apart (within the small
+  // great-circle convergence over the slice).
+  const diff = (((fwd.bearingDeg - rev.bearingDeg) % 360) + 360) % 360;
+  assert.ok(Math.abs(diff - 180) < 1);
+});
+
+test('MARTA gap overlays run the full route so they connect to the terminals', () => {
+  // Bus gap: before-segment should start at the route origin, after-segment
+  // should end at the route terminus (not clip to the framing window).
+  const shape = denseShape();
+  const gap = {
+    trailing: { lat: shape.points[760].lat, lon: shape.points[760].lon, distFt: 45_000 },
+    leading: { lat: shape.points[920].lat, lon: shape.points[920].lon, distFt: 55_000 },
+  };
+  const busView = computeGapView(gap, shape);
+  const beforeStart = overlayCoords(busView.overlays[0])[0];
+  const afterCoords = overlayCoords(busView.overlays.at(-1));
+  const afterEnd = afterCoords.at(-1);
+  assert.ok(Math.abs(beforeStart[0] - shape.points[0].lat) < 1e-4);
+  assert.ok(Math.abs(beforeStart[1] - shape.points[0].lon) < 1e-4);
+  assert.ok(Math.abs(afterEnd[0] - shape.points.at(-1).lat) < 1e-4);
+  assert.ok(Math.abs(afterEnd[1] - shape.points.at(-1).lon) < 1e-4);
+
+  // Rail gap: same guarantee on the line geometry.
+  const line = { line: 'BLUE', ...denseShape() };
+  const railGap = {
+    trailing: { lat: line.points[760].lat, lon: line.points[760].lon, distFt: 45_000 },
+    leading: { lat: line.points[920].lat, lon: line.points[920].lon, distFt: 55_000 },
+  };
+  const railView = gapViewFor(line, railGap);
+  const rBeforeStart = overlayCoords(railView.overlays[0])[0];
+  const rAfterEnd = overlayCoords(railView.overlays.at(-1)).at(-1);
+  assert.ok(Math.abs(rBeforeStart[0] - line.points[0].lat) < 1e-4);
+  assert.ok(Math.abs(rAfterEnd[0] - line.points.at(-1).lat) < 1e-4);
 });

@@ -8,14 +8,27 @@ const { latestTrainPositions } = require('./trains');
 const RAIL_BUNCH_THRESHOLD_FT = 2640; // ~0.5 mi
 const GEO_SLACK_FT = 1000; // straight-line vs along-line slack (curves, parallel track)
 
-function sameDirectionMemberCount(cluster) {
+// The (line, direction) feed label is sometimes shared by trains physically
+// moving opposite ways (e.g. one reversing at a pocket track, or a mislabeled
+// run). motionSign — derived from each train's recent along-line movement —
+// is the ground truth. Return the sign the most members share; null if no
+// member has moved enough to have a sign.
+function dominantMotionSign(cluster) {
   const counts = new Map();
   for (const t of cluster) {
     if (t.motionSign == null) continue;
     counts.set(t.motionSign, (counts.get(t.motionSign) || 0) + 1);
   }
   if (counts.size === 0) return null;
-  return Math.max(...counts.values());
+  let best = null;
+  let bestCount = -1;
+  for (const [sign, n] of counts) {
+    if (n > bestCount) {
+      bestCount = n;
+      best = sign;
+    }
+  }
+  return best;
 }
 
 // `trains` are latestTrainPositions() entries. Returns clusters best-first
@@ -53,9 +66,17 @@ function detectRailBunching(trains, { thresholdFt = RAIL_BUNCH_THRESHOLD_FT } = 
         maxGap = Math.max(maxGap, sorted[j + 1].distFt - sorted[j].distFt);
         j++;
       }
-      const cluster = sorted.slice(i, j + 1);
-      const sameDirectionCount = sameDirectionMemberCount(cluster);
-      if (sameDirectionCount != null && sameDirectionCount < 2) {
+      const rawCluster = sorted.slice(i, j + 1);
+      // Drop members moving against the cluster's dominant direction so a train
+      // passing the other way (opposite motionSign) isn't counted in the bunch.
+      // Trains with no sign yet (barely moved) stay — they're ambiguous, not
+      // contradictory.
+      const dom = dominantMotionSign(rawCluster);
+      const cluster =
+        dom == null
+          ? rawCluster
+          : rawCluster.filter((t) => t.motionSign == null || t.motionSign === dom);
+      if (cluster.length < 2) {
         i = j + 1;
         continue;
       }

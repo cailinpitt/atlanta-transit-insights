@@ -27,7 +27,7 @@ test('buildSmoothFrames adds interpolated in-between frames gliding along the ro
     { ts: 31000, id: 'A', distFt: 3000 },
   ];
   const snapshots = snapshotsByTimestamp(rows);
-  const frames = buildSmoothFrames(snapshots, {
+  const { frames, times, startTs, videoEndTs } = buildSmoothFrames(snapshots, {
     idOf: (t) => t.id,
     trackOf: (t) => t.distFt,
     pointAlong: (track) => pointAlongShape(shape, track),
@@ -40,6 +40,12 @@ test('buildSmoothFrames adds interpolated in-between frames gliding along the ro
   for (let i = 1; i < lats.length; i++) assert.ok(lats[i] > lats[i - 1]);
   assert.ok(Math.abs(lats[0] - 33.01) < 1e-6);
   assert.ok(Math.abs(lats.at(-1) - 33.03) < 1e-6);
+  // Per-frame timestamps accompany the frames for the clip-progress scrubber.
+  assert.equal(times.length, frames.length);
+  assert.equal(startTs, 1000);
+  assert.equal(videoEndTs, 31000);
+  assert.equal(times[0], 1000);
+  assert.equal(times.at(-1), 31000);
 });
 
 test('timelapse post + alt text summarize the system by line', () => {

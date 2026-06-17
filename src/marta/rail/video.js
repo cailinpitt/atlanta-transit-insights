@@ -38,18 +38,26 @@ async function captureRailBunchingHistoryVideo(bunch, line, rows, opts = {}) {
   if (snapshots.length < 2) return null;
 
   // Frame to the bunch's stretch over the whole clip (all enriched positions,
-  // ±context) so the viewport stays tight on the event yet stable as trains move.
-  const view = viewFor(line, enriched, bunchBounds(line, enriched));
+  // ±context) so the viewport stays tight on the event yet stable as trains
+  // move. Pass bunch.trains (which carry motionSign) so the arrow points the way
+  // the cluster travels; the framing window comes from the full enriched span.
+  const view = viewFor(line, bunch.trains, bunchBounds(line, enriched));
   const baseMap = await fetchBaseMap(view);
 
-  const frames = buildSmoothFrames(snapshots, {
+  const { frames, times, startTs, videoEndTs } = buildSmoothFrames(snapshots, {
     idOf: (t) => t.trainId,
     trackOf: (t) => t.distFt,
     pointAlong: (track) => pointAlongShape(line, track),
   });
+  const totalSec = Math.max(1, (videoEndTs - startTs) / 1000);
   const images = [];
-  for (const trains of frames) {
-    images.push(await renderRailFrame(view, baseMap, trains, { labels: opts.labels }));
+  for (let i = 0; i < frames.length; i++) {
+    images.push(
+      await renderRailFrame(view, baseMap, frames[i], {
+        labels: opts.labels,
+        clock: { elapsedSec: (times[i] - startTs) / 1000, totalSec },
+      }),
+    );
   }
   const buffer = await encodeFrames(images, { prefix: 'marta-rail-bunching' });
   if (!buffer) return null;
@@ -78,19 +86,25 @@ async function captureRailGapHistoryVideo(gap, line, rows, opts = {}) {
   const view = gapViewFor(line, gap);
   const baseMap = await fetchBaseMap(view);
 
-  const frames = buildSmoothFrames(snapshots, {
+  const { frames, times, startTs, videoEndTs } = buildSmoothFrames(snapshots, {
     idOf: (t) => t.trainId,
     trackOf: (t) => t.distFt,
     pointAlong: (track) => pointAlongShape(line, track),
   });
+  const totalSec = Math.max(1, (videoEndTs - startTs) / 1000);
   const images = [];
-  for (const trains of frames) {
-    const byId = new Map(trains.map((t) => [String(t.trainId), t]));
+  for (let i = 0; i < frames.length; i++) {
+    const byId = new Map(frames[i].map((t) => [String(t.trainId), t]));
     images.push(
-      await renderRailFrame(view, baseMap, [
-        { ...(byId.get(String(trailingId)) || gap.trailing), role: 'N' },
-        { ...(byId.get(String(leadingId)) || gap.leading), role: 'L' },
-      ]),
+      await renderRailFrame(
+        view,
+        baseMap,
+        [
+          { ...(byId.get(String(trailingId)) || gap.trailing), role: 'N' },
+          { ...(byId.get(String(leadingId)) || gap.leading), role: 'L' },
+        ],
+        { clock: { elapsedSec: (times[i] - startTs) / 1000, totalSec } },
+      ),
     );
   }
   const buffer = await encodeFrames(images, { prefix: 'marta-rail-gap' });

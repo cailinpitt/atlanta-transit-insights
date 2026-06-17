@@ -22,6 +22,7 @@ const {
   buildTerminalMarker,
   buildStopMarker,
   buildDirectionArrow,
+  buildClipProgress,
   fitTitlePill,
   xmlEscape,
   requireMapboxToken,
@@ -209,7 +210,12 @@ async function renderBunchingFrame(view, baseMap, vehicles, stops = [], opts = {
     );
   }
 
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${WIDTH}" height="${HEIGHT}">${stopElements.join('\n')}${terminalElements.join('\n')}${vehicleLayer.join('\n')}${chipLayer.join('\n')}${arrowElements.join('\n')}${titleElements.join('\n')}</svg>`;
+  // Clip-progress scrubber along the bottom edge (video frames pass opts.clock).
+  const progress = opts.clock
+    ? buildClipProgress({ ...opts.clock, width: WIDTH, height: HEIGHT })
+    : '';
+
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${WIDTH}" height="${HEIGHT}">${stopElements.join('\n')}${terminalElements.join('\n')}${vehicleLayer.join('\n')}${chipLayer.join('\n')}${arrowElements.join('\n')}${titleElements.join('\n')}${progress}</svg>`;
   return sharp(baseMap)
     .resize(WIDTH, HEIGHT)
     .composite([{ input: Buffer.from(svg), top: 0, left: 0 }])

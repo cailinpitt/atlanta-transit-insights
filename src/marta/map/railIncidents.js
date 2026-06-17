@@ -12,6 +12,7 @@ const {
   buildTrainMarker,
   buildDashedGapSvg,
   buildDirectionArrow,
+  buildClipProgress,
   markerLabelChip,
   fitTitlePill,
   xmlEscape,
@@ -36,6 +37,35 @@ function lineColor(line) {
   return LINE_COLORS[line] || '00d8ff';
 }
 
+// Line geometry runs in one fixed order (ascending distFt); a train's
+// motionSign says whether it travels with that order (+1) or against it (-1).
+// Return the sign the most trains share so the direction arrow can point the
+// way the cluster is actually moving, not just along the geometry.
+function dominantTravelSign(trains) {
+  const counts = new Map();
+  for (const t of trains || []) {
+    if (t?.motionSign == null) continue;
+    counts.set(t.motionSign, (counts.get(t.motionSign) || 0) + 1);
+  }
+  let best = null;
+  let bestCount = -1;
+  for (const [sign, n] of counts) {
+    if (n > bestCount) {
+      bestCount = n;
+      best = sign;
+    }
+  }
+  return best;
+}
+
+// Bearing along `pts` in travel order: reversed when the trains move against
+// the geometry's ascending-distFt order (travelSign === -1).
+function travelBearing(pts, travelSign) {
+  if (!pts || pts.length < 2) return 0;
+  const [a, b] = travelSign === -1 ? [pts[pts.length - 1], pts[0]] : [pts[0], pts[pts.length - 1]];
+  return bearing(a, b);
+}
+
 function sliceLine(line, loFt, hiFt) {
   const cum = cumulativeDistances(line.points);
   const lo = Math.max(0, loFt);
@@ -46,7 +76,7 @@ function sliceLine(line, loFt, hiFt) {
   return slice.length >= 2 ? slice : line.points;
 }
 
-function viewFor(line, _trains, { loFt = 0, hiFt = line.lengthFt } = {}) {
+function viewFor(line, trains, { loFt = 0, hiFt = line.lengthFt, travelSign } = {}) {
   const slice = loFt === 0 && hiFt === line.lengthFt ? line.points : sliceLine(line, loFt, hiFt);
   const color = lineColor(line.line);
   // Draw the FULL line as the overlay so it runs off the frame edges (bus
@@ -73,7 +103,8 @@ function viewFor(line, _trains, { loFt = 0, hiFt = line.lengthFt } = {}) {
   // here threw away up to a full zoom level (a 2x scale loss), which on a near-
   // straight rail line shrank the route to a small band in the middle of the frame.
   const zoom = Math.max(9, Math.min(17, fitZoom(bbox, WIDTH, HEIGHT, 110)));
-  const bearingDeg = slice.length >= 2 ? bearing(slice[0], slice[slice.length - 1]) : 0;
+  const sign = travelSign ?? dominantTravelSign(trains);
+  const bearingDeg = travelBearing(slice, sign);
   return { overlays, centerLat, centerLon, zoom, bearingDeg, color };
 }
 
@@ -81,7 +112,7 @@ function viewFor(line, _trains, { loFt = 0, hiFt = line.lengthFt } = {}) {
 // and the gap stretch (between the two flanking trains) is handed back as
 // `gapPath` so renderRailFrame can dash it in the line color over bare basemap.
 // This makes a gap read as a break in service, not just two markers on a line.
-function gapViewFor(line, gap, { contextFt = GAP_CONTEXT_FT } = {}) {
+function gapViewFor(line, gap, { contextFt = GAP_CONTEXT_FT, travelSign } = {}) {
   const color = lineColor(line.line);
   const cum = cumulativeDistances(line.points);
   const distAt = (p, i) => p.distFt ?? cum[i];
@@ -90,8 +121,11 @@ function gapViewFor(line, gap, { contextFt = GAP_CONTEXT_FT } = {}) {
 
   const frameLo = lo - contextFt;
   const frameHi = hi + contextFt;
-  const before = line.points.filter((p, i) => distAt(p, i) >= frameLo && distAt(p, i) <= lo);
-  const after = line.points.filter((p, i) => distAt(p, i) >= hi && distAt(p, i) <= frameHi);
+  // Draw the line solid its full length OUTSIDE the gap (start→gap, gap→end) so
+  // it runs off the frame edges instead of ending mid-frame; the bbox/zoom below
+  // still frame tight to the gap ±context.
+  const before = line.points.filter((p, i) => distAt(p, i) <= lo);
+  const after = line.points.filter((p, i) => distAt(p, i) >= hi);
   const inner = line.points.filter((p, i) => distAt(p, i) >= lo && distAt(p, i) <= hi);
   const framing = line.points.filter((p, i) => distAt(p, i) >= frameLo && distAt(p, i) <= frameHi);
 
@@ -120,7 +154,8 @@ function gapViewFor(line, gap, { contextFt = GAP_CONTEXT_FT } = {}) {
   const centerLat = (bbox.minLat + bbox.maxLat) / 2;
   const centerLon = (bbox.minLon + bbox.maxLon) / 2;
   const zoom = Math.max(10, Math.min(17, fitZoom(bbox, WIDTH, HEIGHT, 90)));
-  const bearingDeg = framePts.length >= 2 ? bearing(framePts[0], framePts[framePts.length - 1]) : 0;
+  const sign = travelSign ?? dominantTravelSign([gap.trailing, gap.leading]);
+  const bearingDeg = travelBearing(framePts, sign);
   const gapPath = inner.map((p) => ({ lat: p.lat, lon: p.lon }));
   return { overlays, centerLat, centerLon, zoom, bearingDeg, color, gapPath };
 }
@@ -174,7 +209,12 @@ async function renderRailFrame(view, baseMap, trains, opts = {}) {
     );
   }
 
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${WIDTH}" height="${HEIGHT}">${gapDash}${trainLayer.join('\n')}${chipLayer.join('\n')}${buildDirectionArrow(WIDTH - 220, 180, view.bearingDeg)}${titleElements.join('\n')}</svg>`;
+  // Clip-progress scrubber along the bottom edge (video frames pass opts.clock).
+  const progress = opts.clock
+    ? buildClipProgress({ ...opts.clock, width: WIDTH, height: HEIGHT })
+    : '';
+
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${WIDTH}" height="${HEIGHT}">${gapDash}${trainLayer.join('\n')}${chipLayer.join('\n')}${buildDirectionArrow(WIDTH - 220, 180, view.bearingDeg)}${titleElements.join('\n')}${progress}</svg>`;
   return sharp(baseMap)
     .resize(WIDTH, HEIGHT)
     .composite([{ input: Buffer.from(svg), top: 0, left: 0 }])

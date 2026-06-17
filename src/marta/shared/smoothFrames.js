@@ -34,6 +34,7 @@ function buildSmoothFrames(snapshots, opts = {}) {
   const videoEndTs = snapshots[snapshots.length - 1].ts;
 
   const frames = [];
+  const times = [];
   const pushFrame = (frameTs) => {
     const frame = [];
     for (const s of series.values()) {
@@ -46,6 +47,7 @@ function buildSmoothFrames(snapshots, opts = {}) {
       if (st) frame.push(st);
     }
     frames.push(frame);
+    times.push(frameTs);
   };
 
   for (let i = 0; i < snapshots.length - 1; i++) {
@@ -53,7 +55,9 @@ function buildSmoothFrames(snapshots, opts = {}) {
     for (let k = 0; k < steps; k++) pushFrame(snapshots[i].ts + (span * k) / steps);
   }
   pushFrame(videoEndTs);
-  return frames;
+  // `frames`: render objects per frame. `times`: each frame's wall-clock ts,
+  // for the clip-progress scrubber. `startTs`/`videoEndTs` bound the clip.
+  return { frames, times, startTs: snapshots[0].ts, videoEndTs };
 }
 
 // Group enriched observation rows (each with a `ts`) into snapshots sorted by ts.

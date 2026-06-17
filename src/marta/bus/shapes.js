@@ -78,7 +78,7 @@ function projectToShape(shape, lat, lon) {
     const offsetFt = Math.hypot(px - (ax + t * dx), py - (ay + t * dy));
     if (!best || offsetFt < best.offsetFt) {
       const distFt = pts[i].distFt + t * (pts[i + 1].distFt - pts[i].distFt);
-      best = { distFt, offsetFt };
+      best = { distFt, offsetFt, segIndex: i };
     }
   }
   return best;

@@ -31,6 +31,17 @@ test('opposite-moving trains passing each other are not bunched', () => {
   assert.equal(b.length, 0);
 });
 
+test('an opposite-moving train mixed into a same-direction cluster is excluded, not counted', () => {
+  // Two northbound trains genuinely bunched, plus one passing the other way.
+  const b = detectRailBunching([
+    train(10_000, 'a', { motionSign: 1 }),
+    train(10_800, 'b', { motionSign: -1 }), // passing southbound — must be dropped
+    train(11_500, 'c', { motionSign: 1 }),
+  ]);
+  assert.equal(b.length, 1);
+  assert.deepEqual(b[0].trains.map((t) => t.trainId).sort(), ['a', 'c']);
+});
+
 test('rail trains beyond the threshold are not bunched', () => {
   assert.deepEqual(detectRailBunching([train(10_000, 'a'), train(15_000, 'b')]), []);
 });

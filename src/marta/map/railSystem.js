@@ -13,6 +13,7 @@ const {
   requireMapboxToken,
   fetchMapboxStatic,
   thinPolylinePoints,
+  buildClipProgress,
 } = require('./common');
 const { lineColor } = require('./railIncidents');
 
@@ -43,9 +44,10 @@ function computeSystemView(lineGeom) {
   return { centerLat, centerLon, zoom, width: WIDTH, height: HEIGHT };
 }
 
-// Base layer: each line as a colored polyline, plus a baked title pill. Fetched
-// once; the per-frame train dots composite on top of the returned buffer.
-async function fetchSystemBase(view, lineGeom, { title = 'MARTA Rail' } = {}) {
+// Base layer: each line as a colored polyline. Fetched once; the per-frame
+// train dots composite on top of the returned buffer. No title pill — the
+// timelapse reads as the system map on its own (CTA snapshot parity).
+async function fetchSystemBase(view, lineGeom) {
   const overlays = [];
   for (const geom of lineGeom.values()) {
     const pts = thinPolylinePoints(geom.points, 100).map((p) => [p.lat, p.lon]);
@@ -57,16 +59,7 @@ async function fetchSystemBase(view, lineGeom, { title = 'MARTA Rail' } = {}) {
   const token = requireMapboxToken();
   const url = `https://api.mapbox.com/styles/v1/${STYLE}/static/${overlays.join(',')}/${view.centerLon.toFixed(5)},${view.centerLat.toFixed(5)},${view.zoom.toFixed(2)}/${view.width}x${view.height}@2x?access_token=${token}`;
   const data = await fetchMapboxStatic(url);
-
-  const titleSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="${view.width}" height="${view.height}">
-    <rect x="20" y="20" width="260" height="64" rx="10" fill="#000" fill-opacity="0.66"/>
-    <text x="44" y="62" font-family="Inter, Helvetica, Arial, sans-serif" font-size="40" font-weight="700" fill="#fff">${title}</text>
-  </svg>`;
-  return sharp(data)
-    .resize(view.width, view.height)
-    .composite([{ input: Buffer.from(titleSvg), top: 0, left: 0 }])
-    .png()
-    .toBuffer();
+  return sharp(data).resize(view.width, view.height).png().toBuffer();
 }
 
 function buildTrainDots(view, trains) {
@@ -91,8 +84,12 @@ function buildTrainDots(view, trains) {
   return dots.join('');
 }
 
-async function renderSystemFrame(view, baseMap, trains) {
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${WIDTH}" height="${HEIGHT}">${buildTrainDots(view, trains)}</svg>`;
+async function renderSystemFrame(view, baseMap, trains, opts = {}) {
+  // Clip-progress scrubber along the bottom edge (video frames pass opts.clock).
+  const progress = opts.clock
+    ? buildClipProgress({ ...opts.clock, width: WIDTH, height: HEIGHT })
+    : '';
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${WIDTH}" height="${HEIGHT}">${buildTrainDots(view, trains)}${progress}</svg>`;
   return sharp(baseMap)
     .resize(WIDTH, HEIGHT)
     .composite([{ input: Buffer.from(svg), top: 0, left: 0 }])

@@ -48,14 +48,20 @@ async function captureBusBunchingHistoryVideo(bunch, shape, rows, opts = {}) {
   const view = computeBunchingView(bunch, shape, extra);
   const baseMap = await fetchBunchingBaseMap(view);
   const labels = assignBusNumbers(bunch.vehicles);
-  const frames = buildSmoothFrames(snapshots, {
+  const { frames, times, startTs, videoEndTs } = buildSmoothFrames(snapshots, {
     idOf: (v) => v.vehicleId,
     trackOf: (v) => v.distFt,
     pointAlong: (track) => pointAlongShape(shape, track),
   });
+  const totalSec = Math.max(1, (videoEndTs - startTs) / 1000);
   const images = [];
-  for (const vehicles of frames) {
-    images.push(await renderBunchingFrame(view, baseMap, vehicles, opts.stops || [], { labels }));
+  for (let i = 0; i < frames.length; i++) {
+    images.push(
+      await renderBunchingFrame(view, baseMap, frames[i], opts.stops || [], {
+        labels,
+        clock: { elapsedSec: (times[i] - startTs) / 1000, totalSec },
+      }),
+    );
   }
   const buffer = await encodeFrames(images, { prefix: 'marta-bus-bunching' });
   if (!buffer) return null;
@@ -82,14 +88,15 @@ async function captureBusGapHistoryVideo(gap, shape, rows, opts = {}) {
   const extra = enriched.map((v) => ({ lat: v.lat, lon: v.lon, distFt: v.distFt }));
   const view = computeGapView(gap, shape, extra);
   const baseMap = await fetchGapBaseMap(view);
-  const frames = buildSmoothFrames(snapshots, {
+  const { frames, times, startTs, videoEndTs } = buildSmoothFrames(snapshots, {
     idOf: (v) => v.vehicleId,
     trackOf: (v) => v.distFt,
     pointAlong: (track) => pointAlongShape(shape, track),
   });
+  const totalSec = Math.max(1, (videoEndTs - startTs) / 1000);
   const images = [];
-  for (const vehicles of frames) {
-    const byId = new Map(vehicles.map((v) => [String(v.vehicleId), v]));
+  for (let i = 0; i < frames.length; i++) {
+    const byId = new Map(frames[i].map((v) => [String(v.vehicleId), v]));
     images.push(
       await renderGapFrame(
         view,
@@ -100,6 +107,7 @@ async function captureBusGapHistoryVideo(gap, shape, rows, opts = {}) {
           trailing: byId.get(String(trailingId)) || gap.trailing,
         },
         opts.stops || [],
+        { clock: { elapsedSec: (times[i] - startTs) / 1000, totalSec } },
       ),
     );
   }

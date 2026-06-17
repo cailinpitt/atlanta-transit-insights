@@ -359,6 +359,30 @@ function sliceIntoSegments(points, cumDist, numBins) {
   return slices;
 }
 
+// Bottom-edge elapsed-time readout + progress bar for video clips. `elapsedSec`
+// of `totalSec` of real time; the bar fills left→right and a small M:SS label
+// sits above its left end. Static images omit this (no time dimension). Ported
+// from cta-insights src/map/common.js for timelapse parity.
+function buildClipProgress({ elapsedSec, totalSec, width, height }) {
+  const frac = totalSec > 0 ? Math.max(0, Math.min(1, elapsedSec / totalSec)) : 0;
+  const m = Math.floor(elapsedSec / 60);
+  const s = Math.floor(elapsedSec % 60);
+  const label = `${m}:${String(s).padStart(2, '0')}`;
+  const barH = 8;
+  const barY = height - barH;
+  const pillW = 132;
+  const pillH = 44;
+  const pillX = 20;
+  const pillY = barY - 12 - pillH;
+  const fontSize = 28;
+  return [
+    `<rect x="0" y="${barY}" width="${width}" height="${barH}" fill="#000" fill-opacity="0.45"/>`,
+    `<rect x="0" y="${barY}" width="${(width * frac).toFixed(1)}" height="${barH}" fill="#fff" fill-opacity="0.9"/>`,
+    `<rect x="${pillX}" y="${pillY}" width="${pillW}" height="${pillH}" rx="8" fill="#000" fill-opacity="0.6"/>`,
+    `<text x="${pillX + pillW / 2}" y="${pillY + pillH / 2 + fontSize * 0.35}" text-anchor="middle" font-family="Inter, Helvetica, Arial, sans-serif" font-size="${fontSize}" font-weight="600" fill="#fff">${label}</text>`,
+  ].join('');
+}
+
 module.exports = {
   STYLE,
   WIDTH,
@@ -384,6 +408,7 @@ module.exports = {
   buildTerminalMarker,
   buildStopMarker,
   buildStopDot,
+  buildClipProgress,
   xmlEscape,
   requireMapboxToken,
   fetchMapboxStatic,

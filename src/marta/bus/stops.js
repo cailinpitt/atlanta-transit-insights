@@ -3,8 +3,20 @@
 // (for the "near {stop}" post label) and the stops lying along a shape within a
 // distance window (for the map's stop signs). Avoids loading stop_times.txt —
 // proximity to the shape geometry is enough to place a sign.
-const { haversineFt } = require('../../shared/geo');
+const { haversineFt, bearing } = require('../../shared/geo');
 const { projectToShape, MAX_OFFROUTE_FT } = require('./shapes');
+
+// Local heading of the shape at segment `segIndex`, sampled over a short window
+// of surrounding points so the renderer can offset a stop perpendicular to its
+// own stretch of route. A single global bearing skews stops on curves to the
+// wrong side of (or onto) the line — the cause of stops rendering unevenly.
+const BEARING_WINDOW = 2;
+function localBearing(points, segIndex) {
+  if (!Array.isArray(points) || points.length < 2 || segIndex == null) return null;
+  const before = points[Math.max(0, segIndex - BEARING_WINDOW)];
+  const after = points[Math.min(points.length - 1, segIndex + 1 + BEARING_WINDOW)];
+  return before === after ? null : bearing(before, after);
+}
 
 const SMALL_WORDS = new Set(['at', 'and', 'of', 'the']);
 
@@ -83,6 +95,7 @@ function stopsNearShape(gtfs, shape, loFt, hiFt, { maxOffrouteFt = MAX_OFFROUTE_
       distFt: proj.distFt,
       lat: c.lat,
       lon: c.lon,
+      bearing: localBearing(shape.points, proj.segIndex),
     });
   }
   out.sort((a, b) => a.distFt - b.distFt);

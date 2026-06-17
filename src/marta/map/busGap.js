@@ -17,6 +17,7 @@ const {
   buildTerminalMarker,
   buildDashedGapSvg,
   buildDirectionArrow,
+  buildClipProgress,
   fitTitlePill,
   xmlEscape,
   requireMapboxToken,
@@ -58,10 +59,14 @@ function splitShapeForGap(shape, gap) {
   const cum = cumulativeDistances(shape.points);
   const { lo, hi, gapLo, gapHi } = gapDistanceWindow(shape, gap);
   const distAt = (p, i) => p.distFt ?? cum[i];
+  // `framing` is the tight window (bbox/bearing); the drawn route segments run
+  // the FULL length outside the gap (start→gap, gap→end) so the route connects
+  // to the home/flag terminals and runs off the frame edges instead of being
+  // clipped to the window. Matches CTA src/map/bus/gaps.js.
   const framing = shape.points.filter((p, i) => distAt(p, i) >= lo && distAt(p, i) <= hi);
-  const before = shape.points.filter((p, i) => distAt(p, i) >= lo && distAt(p, i) <= gapLo);
+  const before = shape.points.filter((p, i) => distAt(p, i) <= gapLo);
   const inner = shape.points.filter((p, i) => distAt(p, i) >= gapLo && distAt(p, i) <= gapHi);
-  const after = shape.points.filter((p, i) => distAt(p, i) >= gapHi && distAt(p, i) <= hi);
+  const after = shape.points.filter((p, i) => distAt(p, i) >= gapHi);
   return {
     framing: framing.length >= 2 ? framing : shape.points,
     before,
@@ -166,7 +171,12 @@ async function renderGapFrame(view, baseMap, gap, _stops = [], opts = {}) {
     );
   }
 
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${WIDTH}" height="${HEIGHT}">${gapDash}${terminalElements.join('\n')}${vehicleLayer.join('\n')}${chipLayer.join('\n')}${buildDirectionArrow(WIDTH - 220, 180, view.bearingDeg)}${titleElements.join('\n')}</svg>`;
+  // Clip-progress scrubber along the bottom edge (video frames pass opts.clock).
+  const progress = opts.clock
+    ? buildClipProgress({ ...opts.clock, width: WIDTH, height: HEIGHT })
+    : '';
+
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${WIDTH}" height="${HEIGHT}">${gapDash}${terminalElements.join('\n')}${vehicleLayer.join('\n')}${chipLayer.join('\n')}${buildDirectionArrow(WIDTH - 220, 180, view.bearingDeg)}${titleElements.join('\n')}${progress}</svg>`;
   return sharp(baseMap)
     .resize(WIDTH, HEIGHT)
     .composite([{ input: Buffer.from(svg), top: 0, left: 0 }])

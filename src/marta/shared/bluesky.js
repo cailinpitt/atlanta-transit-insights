@@ -294,6 +294,7 @@ async function resolveReplyRef(agent, parentUri) {
 }
 
 module.exports = {
+  login,
   loginBus,
   loginTrain,
   loginAlerts,

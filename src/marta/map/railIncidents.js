@@ -49,7 +49,13 @@ function sliceLine(line, loFt, hiFt) {
 function viewFor(line, _trains, { loFt = 0, hiFt = line.lengthFt } = {}) {
   const slice = loFt === 0 && hiFt === line.lengthFt ? line.points : sliceLine(line, loFt, hiFt);
   const color = lineColor(line.line);
-  const encoded = encodeURIComponent(encode(thinPolylinePoints(slice).map((p) => [p.lat, p.lon])));
+  // Draw the FULL line as the overlay so it runs off the frame edges (bus
+  // bunching parity); the bbox/zoom below still frame tightly to the bunch
+  // slice. Drawing only the slice left the line ending mid-frame as a clipped
+  // stub instead of reading as a continuous line passing through the cluster.
+  const encoded = encodeURIComponent(
+    encode(thinPolylinePoints(line.points).map((p) => [p.lat, p.lon])),
+  );
   const overlays = [
     `path-${ROUTE_HALO_STROKE}+${ROUTE_HALO_COLOR}(${encoded})`,
     `path-${ROUTE_CORE_STROKE}+${color}(${encoded})`,

@@ -109,3 +109,22 @@ test('MARTA rail bunching map overlays are short enough for dense long lines', (
 
   assert.ok(staticUrlLength(view) < 8000);
 });
+
+test('MARTA rail bunching view draws the full line but frames tight on the bunch', () => {
+  const line = { line: 'BLUE', ...denseShape() };
+  const trains = [
+    { lat: line.points[900].lat, lon: line.points[900].lon, distFt: 53_000 },
+    { lat: line.points[920].lat, lon: line.points[920].lon, distFt: 54_000 },
+    { lat: line.points[940].lat, lon: line.points[940].lon, distFt: 55_000 },
+  ];
+  const view = viewFor(line, trains, {
+    loFt: Math.min(...trains.map((t) => t.distFt)) - 3500,
+    hiFt: Math.max(...trains.map((t) => t.distFt)) + 3500,
+  });
+  // The line overlay is the WHOLE line (so it runs off the frame edges instead
+  // of ending mid-frame as a clipped stub), identical to the whole-line view...
+  const wholeLine = viewFor(line, trains);
+  assert.deepEqual(view.overlays, wholeLine.overlays);
+  // ...yet the bunch view zooms in much tighter than fitting all 95k ft of line.
+  assert.ok(view.zoom > wholeLine.zoom + 1);
+});

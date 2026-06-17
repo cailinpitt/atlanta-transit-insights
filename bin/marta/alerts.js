@@ -28,6 +28,7 @@ const {
   resolveReplyRef,
 } = require('../../src/marta/shared/bluesky');
 const { resolvedEventLink } = require('../../src/marta/shared/eventLink');
+const { classifyRailCancellation } = require('../../src/marta/alert/cancellation');
 const {
   getAlertPost,
   recordAlertSeen,
@@ -102,7 +103,37 @@ async function postNewAlert(alert, rel, agentGetter, now = Date.now()) {
   recordAlertSeen(seenFields(alert, rel, result.uri, period), now);
 }
 
+// A stored alert row that names a single cancelled rail departure. The website
+// models these as terminal cancellations, not ongoing→resolved disruptions — so
+// when one drops from the feed we close it SILENTLY (no "✅ resolved" reply): a
+// cancelled train doesn't get "resolved".
+function rowIsRailCancellation(row) {
+  if (row.mode !== 'rail') return false;
+  const line = (row.routes || '').split(',')[0]?.trim() || null;
+  return (
+    classifyRailCancellation({
+      headline: row.headline,
+      description: row.description,
+      line,
+      anchorTs: row.first_seen_ts,
+    }) != null
+  );
+}
+
 async function postResolution(alertRow, agentGetter) {
+  // Cancellation events are terminal; don't post a misleading resolution reply.
+  if (rowIsRailCancellation(alertRow)) {
+    if (DRY_RUN) {
+      console.log(
+        `--- DRY RUN would silently close cancellation alert ${alertRow.alert_id} (no resolution reply) ---`,
+      );
+      return;
+    }
+    recordAlertResolved({ alertId: alertRow.alert_id, replyUri: null });
+    console.log(`Marta cancellation alert ${alertRow.alert_id} silently closed (no reply)`);
+    return;
+  }
+
   const link = resolvedEventLink(alertRow.post_uri, alertRow.headline || 'MARTA alert resolved');
   const baseText = buildResolutionText(alertRow.headline);
   const text = link ? `${baseText}\n\n${link.url}` : baseText;

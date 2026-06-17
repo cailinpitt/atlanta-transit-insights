@@ -9,6 +9,7 @@ const Path = require('node:path');
 const Database = require('better-sqlite3');
 const { canonicalMode, canonicalRoute, routeMatchKey } = require('../../src/marta/routeKeys');
 const { describeBotEvidenceBullets } = require('../../src/shared/observationDescribe');
+const { classifyRailCancellation } = require('../../src/marta/alert/cancellation');
 
 const DB_PATH =
   process.env.MARTA_HISTORY_DB_PATH || Path.join(__dirname, '..', '..', 'state', 'marta.sqlite');
@@ -301,6 +302,32 @@ function ghostDetection(row) {
   };
 }
 
+// Incident-level cancellation status for a rail alert whose prose names a
+// specific cancelled departure, else null. The MARTA analog of the CTA export's
+// `statusBlock` — it carries the rider-facing label + the (server-computed)
+// upcoming→cancelled state so the frontend stays a dumb renderer. `state` is
+// derived here from `now` vs the parsed departure (no client-side clock math).
+function cancellationStatus(alert, now) {
+  const routes = canonicalRoutes(alert.routes);
+  if (canonicalMode(alert.mode, routes) !== 'rail') return null;
+  const c = classifyRailCancellation({
+    headline: alert.headline,
+    description: alert.description,
+    line: routes[0] ?? null,
+    anchorTs: alert.first_seen_ts,
+  });
+  if (!c) return null;
+  const state = c.scheduledDepMs != null && c.scheduledDepMs > now ? 'upcoming' : 'cancelled';
+  return {
+    type: 'cancellation',
+    state,
+    scheduled_departure_ts: c.scheduledDepMs ?? null,
+    origin: c.origin ?? null,
+    line: c.line ?? null,
+    title: c.title,
+  };
+}
+
 function routeMatches(alert, det) {
   if (!alert.routes || alert.routes.length === 0) return true;
   const detRoute = normalizeRoute(det.route);
@@ -331,7 +358,7 @@ function findMatches(alert, detections, usedIds) {
     .sort((a, b) => Math.abs(a.ts - alert.first_seen_ts) - Math.abs(b.ts - alert.first_seen_ts));
 }
 
-function buildIncidentFromAlert(alert, matches) {
+function buildIncidentFromAlert(alert, matches, status = null) {
   const active = alert.resolved_ts == null || matches.some((det) => det.resolved_ts == null);
   const routeSet = new Set(canonicalRoutes(alert.routes));
   for (const det of matches) routeSet.add(det.route);
@@ -341,7 +368,7 @@ function buildIncidentFromAlert(alert, matches) {
     ...matches.map((det) => det.ts).filter((ts) => ts != null),
   );
   const primaryPost = alert.post_url || matches[0]?.post_url || null;
-  return {
+  const incident = {
     id: postUrlRkey(primaryPost) ?? alert.alert_id,
     agency: 'marta',
     mode: canonicalMode(alert.mode, routes),
@@ -355,6 +382,8 @@ function buildIncidentFromAlert(alert, matches) {
     official_alert: officialAlertBlock(alert),
     detections: matches.map(detectionBlock),
   };
+  if (status) incident.status = status;
+  return incident;
 }
 
 function rowsByAlertId(rows) {
@@ -597,13 +626,19 @@ function buildIncidentFromRoundup(roundup, matches) {
   };
 }
 
-function buildIncidents(alerts, detections, roundups = [], disruptions = []) {
+function buildIncidents(alerts, detections, roundups = [], disruptions = [], now = Date.now()) {
   const usedDetections = new Set();
   const incidents = [];
   for (const alert of alerts) {
-    const matches = findMatches(alert, detections, usedDetections);
+    const status = cancellationStatus(alert, now);
+    // A single-departure cancellation is a point-in-time fact, not an open
+    // disruption — it must NOT absorb unrelated same-line gap/bunch/ghost
+    // detections that merely fall in the time window (mirrors the CTA export's
+    // planned-Metra merge guard). Leave it a marta-only incident.
+    const matches =
+      status?.type === 'cancellation' ? [] : findMatches(alert, detections, usedDetections);
     for (const det of matches) usedDetections.add(det.id);
-    incidents.push(buildIncidentFromAlert(alert, matches));
+    incidents.push(buildIncidentFromAlert(alert, matches, status));
   }
   for (const roundup of roundups) {
     const matches = detections
@@ -640,7 +675,7 @@ function buildExport(db, now = Date.now()) {
     schema_version: 2,
     generated_at: now,
     data_start_ts: dataStart(alerts, detections, roundups, disruptions),
-    incidents: buildIncidents(alerts, detections, roundups, disruptions),
+    incidents: buildIncidents(alerts, detections, roundups, disruptions, now),
   };
 }
 

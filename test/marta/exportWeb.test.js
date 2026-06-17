@@ -314,6 +314,59 @@ test('pairs rail bunching and ghosts with matching rail alerts', () => {
   assert.deepEqual(rail.detections.map((det) => det.source).sort(), ['bunching', 'ghost']);
 });
 
+test('a rail single-departure cancellation gets a status block and does NOT merge a same-line bunch', () => {
+  const seenTs = NOW + 60 * 60_000;
+  seedAlert(
+    {
+      alertId: 'rail-blue-cancel',
+      mode: 'rail',
+      routes: 'BLUE',
+      headline: 'Rail Service Alert for Blue Line',
+      description:
+        'Update: Due to a previous issue on a Blue line train, the 3:59 p.m. Blue line departure from Indian Creek is cancelled. Delays continuing on the Blue line.',
+      postUri: 'at://did:plc:alerts/app.bsky.feed.post/railcancel',
+    },
+    seenTs,
+  );
+  // A contemporaneous same-line bunch that WOULD merge into an ordinary alert —
+  // a cancellation must not absorb it.
+  incidents.recordBunching(
+    {
+      kind: 'rail',
+      route: 'BLUE',
+      direction: 'E',
+      vehicleCount: 3,
+      severityFt: 2089,
+      nearStop: null,
+      posted: true,
+      postUri: 'at://did:plc:rail/app.bsky.feed.post/cancelbunch',
+    },
+    seenTs + 60_000,
+  );
+
+  // Export AFTER the 3:59 PM departure on the seen day → terminal 'cancelled'.
+  const afterDep = require('../../src/marta/alert/cancellation').classifyRailCancellation({
+    headline: 'x',
+    description: 'The 3:59 p.m. departure is cancelled.',
+    line: 'blue',
+    anchorTs: seenTs,
+  }).scheduledDepMs;
+  const out = buildExport(storage.getDb(), afterDep + 60_000);
+  const inc = out.incidents.find((i) => i.official_alert?.id === 'rail-blue-cancel');
+  assert.ok(inc);
+  assert.equal(inc.status?.type, 'cancellation');
+  assert.equal(inc.status.state, 'cancelled');
+  assert.equal(inc.status.origin, 'Indian Creek');
+  assert.equal(inc.status.title, '3:59 PM Blue Line departure from Indian Creek cancelled');
+  assert.deepEqual(inc.sources, ['marta']);
+  assert.equal(inc.detections.length, 0, 'cancellation must not absorb the bunch');
+
+  // Before the departure → 'upcoming'.
+  const before = buildExport(storage.getDb(), afterDep - 60 * 60_000);
+  const incBefore = before.incidents.find((i) => i.official_alert?.id === 'rail-blue-cancel');
+  assert.equal(incBefore.status.state, 'upcoming');
+});
+
 test('exports an ATLSC alert as streetcar; route A bunching is bus, not streetcar', () => {
   seedAlert(
     {

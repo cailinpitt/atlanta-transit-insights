@@ -161,6 +161,13 @@ CTA tree keeps working as a reference until each analog is proven. Done so far
 - `bin/marta/alerts.js` — republish bin (posts to `martaalertinsights`).
   **Analog of `bin/metra/alerts.js`**, streamlined: text-only posts + text-only
   resolution replies (archive-page link cards wait for Phase 8). io-injected.
+  Rail single-departure cancellations are closed silently (no resolution reply).
+- `src/marta/alert/cancellation.js` — pure rail single-departure cancellation
+  classifier. **Analog of `src/metra/cancellationAlert.js`**, but parses MARTA's
+  alert prose (clock time + origin) instead of resolving a GTFS timetable.
+  Consumed by `bin/marta/alerts.js` (terminal/silent-close) and
+  `bin/marta/export-web.js` (incident `status` block + merge exclusion). Frontend
+  display analog: `atlanta-transit-alerts/src/lib/cancellation.js`.
 - `scripts/marta/{capture-alerts,build-alert-fixtures}.js` — alert fixture tooling.
 - `test/marta/` + `test/marta/fixtures/` — decode + join validation against real
   captured feeds (bus + rail + alerts). See `docs/MARTA_FEEDS.md` for the

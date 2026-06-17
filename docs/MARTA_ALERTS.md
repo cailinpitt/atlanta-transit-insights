@@ -119,6 +119,43 @@ fire-and-forget (no thread/clear lifecycle). Silent when nothing's new.
   `(trip_id, service_date)`) so each canceled trip is reported exactly once across
   overlapping hourly windows. Dry run: `MARTA_ALERTS_DRY_RUN=1 node bin/marta/bus/cancellations.js`.
 
+## Rail single-departure cancellations — `src/marta/alert/cancellation.js`
+
+MARTA announces individual cancelled rail trains in the prose of an otherwise
+generic OTP alert (header `"Rail Service Alert for Blue Line"`, body e.g. *"...the
+3:59 p.m. Blue line departure from Indian Creek is cancelled. Delays continuing
+on the Blue line."*). These are a **point-in-time fact**, not an open
+disruption, so they're modeled like the CTA Metra single-train cancellation
+instead of the ordinary ongoing→resolved lifecycle.
+
+`classifyRailCancellation({ headline, description, line, anchorTs })` is a pure
+parser (no feed/DB) — the MARTA analog of `src/metra/cancellationAlert.js`, but
+it reads prose rather than resolving a GTFS schedule. It classifies an alert as a
+cancellation **only when a specific cancelled departure is named** — a clock time
+in the same sentence as cancellation language. It returns the line, the parsed
+scheduled-departure ms (the clock time anchored to the alert's service day in
+America/New_York), the origin (optional), and a structured `title` like
+`"3:59 PM Blue Line departure from Indian Creek cancelled"`. Vague
+reduced-service / single-tracking / suspension alerts that name no specific
+departure return `null` and keep the ordinary ongoing→resolved model.
+
+Two consumers:
+
+- **`bin/marta/export-web.js`** attaches an incident-level
+  `status: { type:'cancellation', state, scheduled_departure_ts, origin, line,
+  title }` block. `state` is computed server-side from `now` vs the parsed
+  departure: `upcoming` before it, `cancelled` after (terminal). A cancellation
+  incident is **excluded from the alert↔bot merge** (mirrors the CTA export's
+  planned-Metra guard) so it never absorbs an unrelated same-line gap/bunch/ghost
+  on time proximity.
+- **`bin/marta/alerts.js`** treats a cancellation as terminal: when it drops from
+  the feed it's closed **silently** (no "✅ resolved" reply) — a cancelled train
+  doesn't get "resolved."
+
+The website (`atlanta-transit-alerts`) renders the `status` block as a
+cancellation pill + structured title instead of an ongoing/resolved pill and
+duration timer (`src/lib/cancellation.js`).
+
 ## Known limitations / follow-ups
 
 - **`routeId` form: RESOLVED (2026-06-17).** OTP supplies both the public

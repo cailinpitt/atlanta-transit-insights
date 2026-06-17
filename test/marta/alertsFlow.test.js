@@ -160,6 +160,42 @@ test('feed-drop posts a threaded resolution after the clear-tick threshold', asy
   }
 });
 
+test('a rail cancellation is silently closed on feed-drop (no "resolved" reply)', async () => {
+  const { bin, store, posts, setFeed, cleanup } = loadBinWithTempDb();
+  try {
+    const cancel = railAlert({
+      id: 'c1',
+      effect: 'REDUCED_SERVICE',
+      header: 'Rail Service Alert for Blue Line',
+      description:
+        'Update: Due to a previous issue on a Blue line train, the 3:59 p.m. Blue line departure from Indian Creek is cancelled. Delays continuing on the Blue line.',
+    });
+    cancel.informedEntities = [{ routeType: 1, routeId: 'BLUE' }];
+    setFeed([cancel]);
+    await bin.main({ now: 1000 });
+    assert.equal(posts.length, 1, 'cancellation posts once');
+
+    // Drops from feed; another alert keeps the feed non-empty so the sweep runs.
+    const other = railAlert({ id: 'x', header: 'Gold Line single-tracking' });
+    other.informedEntities = [{ routeType: 1, routeId: 'GOLD' }];
+    setFeed([other]);
+    await bin.main({ now: 2000 });
+    await bin.main({ now: 3000 });
+    await bin.main({ now: 4000 }); // threshold tick → would resolve, but it's a cancellation
+
+    assert.equal(
+      posts.filter((p) => p.replyRef).length,
+      0,
+      'no resolution reply for a cancellation',
+    );
+    const row = store.getAlertPost('c1');
+    assert.ok(row.resolved_ts != null, 'silently closed');
+    assert.equal(row.resolved_reply_uri, null);
+  } finally {
+    cleanup();
+  }
+});
+
 test('empty feed skips the resolution sweep (flicker guard)', async () => {
   const { bin, store, posts, setFeed, cleanup } = loadBinWithTempDb();
   try {

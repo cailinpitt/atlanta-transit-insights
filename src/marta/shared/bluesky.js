@@ -92,19 +92,36 @@ function postUrl(result) {
   return `https://bsky.app/profile/${did}/post/${rkey}`;
 }
 
+// Build Bluesky richtext link facets. Two link shapes appear in our posts:
+//   - full archive URLs, e.g. https://atlantatransitalerts.app/event/123
+//   - the bare MARTA domain "itsmarta.com" in alert/cancellation provenance
+//     lines ("Check itsmarta.com for updates."), which has no scheme — we point
+//     its facet at https://itsmarta.com so it's still tappable.
+// Facet byte offsets are over UTF-8, and emoji in the post (🚆⚠️) make byte and
+// char positions diverge, so every offset is computed with Buffer.byteLength.
+const FACET_PATTERNS = [
+  { re: /https:\/\/atlantatransitalerts\.app\/[^\s)]+/g, uri: (m) => m },
+  { re: /\bitsmarta\.com(?:\/[^\s)]*)?/g, uri: (m) => `https://${m}` },
+];
+
 function linkFacets(text) {
-  const re = /https:\/\/atlantatransitalerts\.app\/[^\s)]+/g;
   const enc = (s) => Buffer.byteLength(s, 'utf8');
-  const facets = [];
-  for (const m of text.matchAll(re)) {
-    facets.push({
-      index: {
-        byteStart: enc(text.slice(0, m.index)),
-        byteEnd: enc(text.slice(0, m.index + m[0].length)),
-      },
-      features: [{ $type: 'app.bsky.richtext.facet#link', uri: m[0] }],
-    });
+  const matches = [];
+  for (const { re, uri } of FACET_PATTERNS) {
+    for (const m of text.matchAll(re)) {
+      const start = m.index;
+      const end = m.index + m[0].length;
+      // Skip a match that overlaps one already claimed (e.g. a bare domain
+      // sitting inside a full URL) so facet ranges never collide.
+      if (matches.some((x) => start < x.end && end > x.start)) continue;
+      matches.push({ start, end, uri: uri(m[0]) });
+    }
   }
+  matches.sort((a, b) => a.start - b.start);
+  const facets = matches.map(({ start, end, uri }) => ({
+    index: { byteStart: enc(text.slice(0, start)), byteEnd: enc(text.slice(0, end)) },
+    features: [{ $type: 'app.bsky.richtext.facet#link', uri }],
+  }));
   return facets.length > 0 ? facets : undefined;
 }
 

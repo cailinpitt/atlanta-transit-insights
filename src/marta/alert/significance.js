@@ -93,7 +93,7 @@ function alertText(alert) {
 // route_type 0 (tram/streetcar) is deliberately NOT trusted: protobuf decodes
 // an *absent* int field as 0, so 0 is ambiguous between "Atlanta Streetcar" and
 // "route_type omitted". We classify streetcar only by an explicit routeId match
-// (none known yet — a follow-up once a live alert confirms the routeId form), so
+// (the OTP shortName forms "ATLSC"/"SC" — see routeKeys.STREETCAR_ROUTES), so
 // an ambiguous 0 falls through to the routeId/rail check, then null. Real bus
 // alerts carry route_type 3; real heavy-rail carries 1 (or 2).
 function entityMode(e) {

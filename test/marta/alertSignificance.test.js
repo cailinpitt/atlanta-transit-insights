@@ -23,6 +23,8 @@ test('mode classification from route_type and rail line name', () => {
   assert.equal(entityMode({ routeType: 2 }), 'rail');
   assert.equal(entityMode({ routeType: 3 }), 'bus');
   assert.equal(entityMode({ routeId: 'ATLSC' }), 'streetcar');
+  // OTP service alerts report the streetcar's public shortName "SC".
+  assert.equal(entityMode({ routeId: 'SC' }), 'streetcar');
   // Route "A" is the Rapid A Line BRT (a bus), NOT the streetcar: with no
   // route_type it's unknown scope, and with route_type 3 it's a bus.
   assert.equal(entityMode({ routeId: 'A' }), null);

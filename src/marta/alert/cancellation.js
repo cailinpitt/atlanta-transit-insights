@@ -29,11 +29,17 @@ const CANCEL_RE = /\b(?:cancell?ed|cancellations?|will\s+not\s+operate|annull?ed
 const TIME_RE = /\b(\d{1,2}):(\d{2})\s*([ap])\.?\s*m\.?/i;
 
 // Origin station named in the cancelled-departure clause, e.g.
-// "...departure from Indian Creek is cancelled" → "Indian Creek". Capitalized
-// run of words after "from", stopping before "is cancelled"/"cancelled"/
-// "will not". Optional.
+// "...departure from Indian Creek is cancelled" → "Indian Creek". Run of words
+// after "from", stopping before the linking verb + cancellation keyword. The
+// linking-verb group is what halts the (lazy) name capture: MARTA writes both
+// "from Indian Creek IS cancelled" and "from Doraville WAS canceled", and
+// because this regex carries the /i flag, [A-Z] also matches lowercase — so
+// without an explicit verb stop the lazy run would happily swallow "was" into
+// the origin ("Doraville was"). Enumerate the verbs MARTA actually uses so the
+// capture ends at the station name while still allowing a leading article
+// ("from the Airport cancelled" → "the Airport"). Optional overall.
 const ORIGIN_RE =
-  /\bfrom\s+([A-Z][\w.'-]*(?:\s+[A-Z][\w.'-]*)*?)\s+(?:is\s+)?(?:cancel|will\s+not\s+operate|annull?ed)/i;
+  /\bfrom\s+([A-Z][\w.'-]*(?:\s+[A-Z][\w.'-]*)*?)\s+(?:(?:is|was|were|are|has\s+been|have\s+been|had\s+been|will\s+(?:not\s+)?be)\s+)?(?:cancel|will\s+not\s+operate|annull?ed)/i;
 
 // Collapse the dots in "a.m."/"p.m." so they don't masquerade as sentence
 // terminators when we split on periods ("the 3:59 p.m. Blue line departure"

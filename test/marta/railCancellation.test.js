@@ -32,6 +32,35 @@ test('classifies the linked Blue Line example (cancellation + trailing delay asi
   );
 });
 
+test('stops the origin at the linking verb ("was"), not after it', () => {
+  // Regression: the /i flag makes [A-Z] match lowercase too, so the lazy
+  // origin capture used to swallow the verb — "from Doraville was canceled"
+  // yielded origin "Doraville was".
+  const c = classifyRailCancellation({
+    headline: 'Rail Service Alert for Gold Line',
+    description:
+      'The 11:41 a.m. departure from Doraville was canceled, due to mechanical issue. Delay occurring with Gold line service.',
+    line: 'gold',
+    anchorTs: ANCHOR,
+  });
+  assert.ok(c);
+  assert.equal(c.origin, 'Doraville');
+  assert.equal(c.depLabel, '11:41 AM');
+  assert.equal(c.title, '11:41 AM Gold Line departure from Doraville cancelled');
+});
+
+test('keeps a leading article in the origin ("the Airport")', () => {
+  const c = classifyRailCancellation({
+    headline: 'Rail Service Alert for Gold Line',
+    description: 'The 12:30 p.m. Gold line departure from the Airport is cancelled.',
+    line: 'gold',
+    anchorTs: ANCHOR,
+  });
+  assert.ok(c);
+  assert.equal(c.origin, 'the Airport');
+  assert.equal(c.title, '12:30 PM Gold Line departure from the Airport cancelled');
+});
+
 test('classifies a pure cancellation with no origin', () => {
   const c = classifyRailCancellation({
     headline: 'Rail Service Alert for Red Line',

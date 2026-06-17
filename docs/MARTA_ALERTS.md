@@ -87,6 +87,24 @@ bot-detection incident store; both are read by the eventual `alerts.json` export
 - Flicker handling: a short drop-then-reappear reopens the same incident (keeps
   the resolution reply URI to avoid a duplicate clear); a reappearance after
   `ALERT_FLICKER_RESET_MS` (30 min) starts a fresh chapter under the same id.
+- Station fields: `affected_from_station`, `affected_to_station`, and
+  `mentioned_stations` (JSON array) are filled at ingest for **rail** alerts by
+  `src/marta/alert/stations.js`, which resolves the station names in the alert
+  prose ("from Bankhead to Ashby") to canonical roster names. The web export
+  surfaces them in the official-alert `scope` so an alert ties to its
+  `/station/:slug` pages. `ensureSchema()` migrates older DBs (the prod store
+  predates these columns); re-run `npm run marta:backfill-alert-stations`
+  (`--apply` to write) once after deploy to fill alerts ingested before the
+  change.
+
+## Rail station roster — `src/marta/rail-stations.json`
+
+The heavy-rail station roster (`{ name, lines }`) the alert extractor resolves
+against. Generated from the static GTFS by
+`npm run marta:build-rail-stations`; names match the website's bundled
+`trainStations.json` so they slugify to the same `/station/:slug` pages.
+Regenerate after a GTFS refresh that changes the rail station set or line
+assignments.
 
 ## Bin — `bin/marta/alerts.js`
 

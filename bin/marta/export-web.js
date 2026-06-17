@@ -10,6 +10,7 @@ const Database = require('better-sqlite3');
 const { canonicalMode, canonicalRoute, routeMatchKey } = require('../../src/marta/routeKeys');
 const { describeBotEvidenceBullets } = require('../../src/shared/observationDescribe');
 const { classifyRailCancellation } = require('../../src/marta/alert/cancellation');
+const { ensureSchema: ensureAlertSchema } = require('../../src/marta/alert/store');
 
 const DB_PATH =
   process.env.MARTA_HISTORY_DB_PATH || Path.join(__dirname, '..', '..', 'state', 'marta.sqlite');
@@ -69,10 +70,29 @@ function lifecycleBlock({ firstSeenTs, resolvedTs, active, durationMs }) {
   };
 }
 
+// Parse a JSON station array stored on the alert row; tolerant of null / bad
+// JSON (returns []).
+function parseStationList(json) {
+  if (!json) return [];
+  try {
+    const v = JSON.parse(json);
+    return Array.isArray(v) ? v : [];
+  } catch {
+    return [];
+  }
+}
+
 function officialScope(alert) {
   return {
     routes: canonicalRoutes(alert.routes),
     agency_wide: alert.routes.length === 0,
+    // Structured station fields extracted from rail-alert prose at ingest
+    // (src/marta/alert/stations.js). The website ties the alert to its
+    // /station/:slug pages from these. Omitted (null/[]) for bus, streetcar,
+    // and rail alerts whose text names no station.
+    from_station: alert.affected_from_station ?? null,
+    to_station: alert.affected_to_station ?? null,
+    mentioned_stations: parseStationList(alert.mentioned_stations),
   };
 }
 
@@ -420,11 +440,15 @@ function columnExists(db, tableName, columnName) {
 
 function readAlerts(db) {
   if (!tableExists(db, 'alert_posts')) return [];
+  // The station columns may be newer than the prod DB; ensure the migration has
+  // run before the SELECT references them (no-op once applied).
+  ensureAlertSchema();
   const rows = db
     .prepare(
       `SELECT alert_id, mode, routes, headline, description, cause, effect,
               active_start_ts, active_end_ts, first_seen_ts, last_seen_ts,
-              post_uri, resolved_ts, resolved_reply_uri
+              post_uri, resolved_ts, resolved_reply_uri,
+              affected_from_station, affected_to_station, mentioned_stations
        FROM alert_posts
        ORDER BY first_seen_ts DESC, alert_id ASC`,
     )

@@ -1,0 +1,154 @@
+[
+  {
+    "name": "AIRPORT Station",
+    "lines": ["gold", "red"]
+  },
+  {
+    "name": "ARTS CENTER Station",
+    "lines": ["gold", "red"]
+  },
+  {
+    "name": "ASHBY Station",
+    "lines": ["blue", "green"]
+  },
+  {
+    "name": "AVONDALE Station",
+    "lines": ["blue"]
+  },
+  {
+    "name": "BANKHEAD Station",
+    "lines": ["green"]
+  },
+  {
+    "name": "BROOKHAVEN-OGLETHORPE Station",
+    "lines": ["gold"]
+  },
+  {
+    "name": "BUCKHEAD Station",
+    "lines": ["red"]
+  },
+  {
+    "name": "CHAMBLEE Station",
+    "lines": ["gold"]
+  },
+  {
+    "name": "CIVIC CENTER Station",
+    "lines": ["gold", "red"]
+  },
+  {
+    "name": "COLLEGE PARK Station",
+    "lines": ["gold", "red"]
+  },
+  {
+    "name": "DECATUR Station",
+    "lines": ["blue"]
+  },
+  {
+    "name": "DORAVILLE Station",
+    "lines": ["gold"]
+  },
+  {
+    "name": "DUNWOODY Station",
+    "lines": ["red"]
+  },
+  {
+    "name": "EAST LAKE Station",
+    "lines": ["blue"]
+  },
+  {
+    "name": "EAST POINT Station",
+    "lines": ["gold", "red"]
+  },
+  {
+    "name": "EDGEWOOD-CANDLER PARK Station",
+    "lines": ["blue", "green"]
+  },
+  {
+    "name": "FIVE POINTS Station",
+    "lines": ["blue", "gold", "green", "red"]
+  },
+  {
+    "name": "GARNETT Station",
+    "lines": ["gold", "red"]
+  },
+  {
+    "name": "GEORGIA STATE Station",
+    "lines": ["blue", "green"]
+  },
+  {
+    "name": "HAMILTON E HOLMES Station",
+    "lines": ["blue"]
+  },
+  {
+    "name": "INDIAN CREEK Station",
+    "lines": ["blue"]
+  },
+  {
+    "name": "INMAN PARK-REYNOLDSTOWN Station",
+    "lines": ["blue", "green"]
+  },
+  {
+    "name": "KENSINGTON Station",
+    "lines": ["blue"]
+  },
+  {
+    "name": "KING MEMORIAL Station",
+    "lines": ["blue", "green"]
+  },
+  {
+    "name": "LAKEWOOD-FT MCPHERSON Station",
+    "lines": ["gold", "red"]
+  },
+  {
+    "name": "LENOX Station",
+    "lines": ["gold"]
+  },
+  {
+    "name": "LINDBERGH CENTER Station",
+    "lines": ["gold", "red"]
+  },
+  {
+    "name": "MEDICAL CENTER Station",
+    "lines": ["red"]
+  },
+  {
+    "name": "MIDTOWN Station",
+    "lines": ["gold", "red"]
+  },
+  {
+    "name": "NORTH AVE Station",
+    "lines": ["gold", "red"]
+  },
+  {
+    "name": "NORTH SPRINGS Station",
+    "lines": ["red"]
+  },
+  {
+    "name": "OAKLAND CITY Station",
+    "lines": ["gold", "red"]
+  },
+  {
+    "name": "PEACHTREE CENTER Station",
+    "lines": ["gold", "red"]
+  },
+  {
+    "name": "SANDY SPRINGS Station",
+    "lines": ["red"]
+  },
+  {
+    "name": "SEC DISTRICT Station",
+    "lines": ["blue", "green"]
+  },
+  {
+    "name": "VINE CITY Station",
+    "lines": ["blue", "green"]
+  },
+  {
+    "name": "WEST END Station",
+    "lines": ["gold", "red"]
+  },
+  {
+    "name": "WEST LAKE Station",
+    "lines": ["blue"]
+  }
+]

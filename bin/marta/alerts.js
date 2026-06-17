@@ -29,6 +29,7 @@ const {
 } = require('../../src/marta/shared/bluesky');
 const { resolvedEventLink } = require('../../src/marta/shared/eventLink');
 const { classifyRailCancellation } = require('../../src/marta/alert/cancellation');
+const { extractAlertStations } = require('../../src/marta/alert/stations');
 const {
   getAlertPost,
   recordAlertSeen,
@@ -55,6 +56,18 @@ const io = {
 // The fields the store persists for an alert, derived from a feed entity + its
 // resolved relevance (mode + affected routes).
 function seenFields(alert, rel, postUri, period) {
+  // Pull the canonical station names out of rail-alert prose so the web export
+  // can tie the alert to its /station/:slug pages. Rail only — bus/streetcar
+  // alerts don't name heavy-rail stations, and the extractor is line-scoped to
+  // the rail roster.
+  const stations =
+    rel.mode === 'rail'
+      ? extractAlertStations({
+          headline: alert.header,
+          description: alert.description,
+          lines: rel.routes,
+        })
+      : { affectedFromStation: null, affectedToStation: null, mentionedStations: [] };
   return {
     alertId: alert.id,
     mode: rel.mode,
@@ -66,6 +79,9 @@ function seenFields(alert, rel, postUri, period) {
     activeStartTs: period?.start ?? null,
     activeEndTs: period?.end ?? null,
     postUri,
+    affectedFromStation: stations.affectedFromStation,
+    affectedToStation: stations.affectedToStation,
+    mentionedStations: stations.mentionedStations,
   };
 }
 

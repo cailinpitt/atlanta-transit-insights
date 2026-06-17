@@ -54,7 +54,15 @@ function getDb() {
         resolved_ts INTEGER,
         resolved_reply_uri TEXT,
         clear_ticks INTEGER NOT NULL DEFAULT 0,
-        pending_resolved_ts INTEGER
+        pending_resolved_ts INTEGER,
+        -- Structured station fields extracted from rail-alert prose
+        -- (src/marta/alert/stations.js). affected_from/to are the "between X
+        -- and Y" segment endpoints; mentioned_stations is the JSON array of
+        -- every station the text names. The web export surfaces these in the
+        -- alert scope so it ties to its /station/:slug pages.
+        affected_from_station TEXT,
+        affected_to_station TEXT,
+        mentioned_stations TEXT
       );
       CREATE INDEX IF NOT EXISTS idx_alert_posts_mode ON alert_posts(mode);
       CREATE INDEX IF NOT EXISTS idx_alert_posts_resolved ON alert_posts(resolved_ts);
@@ -70,6 +78,18 @@ function getDb() {
       CREATE INDEX IF NOT EXISTS idx_alert_versions_alert_ts
         ON alert_versions(alert_id, ts);
     `);
+    // Migrate DBs created before the station fields existed (the prod store
+    // predates them). CREATE TABLE IF NOT EXISTS won't add columns to an
+    // existing table, so add any that are missing.
+    const alertCols = new Set(
+      db
+        .prepare('PRAGMA table_info(alert_posts)')
+        .all()
+        .map((c) => c.name),
+    );
+    for (const col of ['affected_from_station', 'affected_to_station', 'mentioned_stations']) {
+      if (!alertCols.has(col)) db.exec(`ALTER TABLE alert_posts ADD COLUMN ${col} TEXT`);
+    }
     _initedDb = db;
   }
   return db;
@@ -115,12 +135,23 @@ function recordAlertSeen(
     activeStartTs,
     activeEndTs,
     postUri,
+    affectedFromStation,
+    affectedToStation,
+    mentionedStations,
   },
   now = Date.now(),
 ) {
   const rt = routes == null ? null : routes;
   const hd = headline == null ? null : headline;
   const ds = description == null ? null : description;
+  const afs = affectedFromStation == null ? null : affectedFromStation;
+  const ats = affectedToStation == null ? null : affectedToStation;
+  // Serialize the mentioned-stations array to JSON; a null/empty list writes
+  // null so COALESCE preserves any previously extracted value.
+  const ms =
+    Array.isArray(mentionedStations) && mentionedStations.length > 0
+      ? JSON.stringify(mentionedStations)
+      : null;
   const existing = getAlertPost(alertId);
 
   const isVersionChange =
@@ -174,7 +205,10 @@ function recordAlertSeen(
             description = COALESCE(?, description),
             cause = COALESCE(?, cause), effect = COALESCE(?, effect),
             active_start_ts = COALESCE(?, active_start_ts),
-            active_end_ts = COALESCE(?, active_end_ts)${resolutionReset}
+            active_end_ts = COALESCE(?, active_end_ts),
+            affected_from_station = COALESCE(?, affected_from_station),
+            affected_to_station = COALESCE(?, affected_to_station),
+            mentioned_stations = COALESCE(?, mentioned_stations)${resolutionReset}
         WHERE alert_id = ?
       `)
       .run(
@@ -188,6 +222,9 @@ function recordAlertSeen(
         effect ?? null,
         activeStartTs ?? null,
         activeEndTs ?? null,
+        afs,
+        ats,
+        ms,
         alertId,
       );
     // Republish only when the export actually changes: new text version, a
@@ -204,8 +241,9 @@ function recordAlertSeen(
     .prepare(`
       INSERT INTO alert_posts
         (alert_id, mode, routes, headline, description, cause, effect,
-         active_start_ts, active_end_ts, first_seen_ts, last_seen_ts, post_uri)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         active_start_ts, active_end_ts, first_seen_ts, last_seen_ts, post_uri,
+         affected_from_station, affected_to_station, mentioned_stations)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `)
     .run(
       alertId,
@@ -220,6 +258,9 @@ function recordAlertSeen(
       now,
       now,
       postUri || null,
+      afs,
+      ats,
+      ms,
     );
   markWebPushPending(); // a newly tracked alert is a new website incident
 }
@@ -266,7 +307,16 @@ function resetAlertClearTicks(alertId) {
     .run(alertId);
 }
 
+// Ensure the alert tables + station columns exist on the shared MARTA DB.
+// Exposed so readers that don't otherwise touch the store (the web export) can
+// run the migration before SELECTing the station columns — getDb() shares
+// storage's handle, so the migration applies to the DB they read.
+function ensureSchema() {
+  getDb();
+}
+
 module.exports = {
+  ensureSchema,
   getAlertPost,
   getAlertVersions,
   listUnresolvedAlerts,

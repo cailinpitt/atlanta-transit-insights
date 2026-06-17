@@ -74,7 +74,9 @@ function resolveStationOnLines(candidate, lines, stations = RAIL_STATIONS) {
   if (!candidate || !lines || lines.length === 0) return null;
   const target = normalizeStationKey(candidate);
   if (!target) return null;
-  const wanted = new Set(lines);
+  // Line keys come from the alert's `routes`, which are stored uppercase
+  // ("GREEN"); the roster keys lines lowercase. Fold so they compare.
+  const wanted = new Set(lines.map((l) => String(l).toLowerCase()));
   for (const s of stations) {
     if (!(s.lines || []).some((l) => wanted.has(l))) continue;
     if (normalizeStationKey(s.name) === target) return s.name;

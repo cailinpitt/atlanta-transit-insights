@@ -62,6 +62,18 @@ test('handles the "between X and Y stations" phrasing', () => {
   assert.equal(out.affectedToStation, 'KENSINGTON Station');
 });
 
+test('resolves against uppercase line keys (alert routes are stored SCREAMING)', () => {
+  // The feed stores routes uppercase ("GREEN"); the roster keys lines
+  // lowercase. Resolution must fold the case or every alert silently misses.
+  const out = extractAlertStations({
+    headline: 'Rail Service Alert for Green Line',
+    description: 'No service between Bankhead and Ashby.',
+    lines: ['GREEN'],
+  });
+  assert.equal(out.affectedFromStation, 'BANKHEAD Station');
+  assert.equal(out.affectedToStation, 'ASHBY Station');
+});
+
 test('resolution is line-scoped — a station not on the alert line does not resolve', () => {
   // Bankhead is Green only; an alert scoped to Red must not resolve it.
   assert.equal(resolveStationOnLines('Bankhead', ['red']), null);

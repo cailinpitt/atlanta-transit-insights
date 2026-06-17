@@ -133,8 +133,16 @@ function alertRelevance(alert) {
 }
 
 // True when the alert is a real service problem on MARTA (or system-wide). A
-// strong structured effect always admits; otherwise keyword-driven with a
-// minor-wins veto (a MAJOR hit overrides a MINOR hit).
+// strong structured effect always admits; otherwise the gate depends on the
+// source:
+//   - OTP alerts (alert.source === 'otp') are MARTA's editorially curated
+//     rider-facing alerts — the per-trip cancellation noise is already dropped
+//     upstream in src/marta/alert/otp.js. So we ADMIT them unless they're purely
+//     a benign notice (MINOR with no MAJOR hit). Requiring a MAJOR keyword would
+//     drop genuine reduced-service alerts whose prose doesn't happen to match
+//     (e.g. "Green line is only servicing from Bankhead to Ashby").
+//   - .pb / unsourced alerts use the original keyword gate (MAJOR required,
+//     MINOR-wins veto), since that feed isn't curated the same way.
 function isSignificantAlert(alert) {
   if (!alertRelevance(alert).relevant) return false;
   if (alert.effect && STRONG_EFFECTS.has(alert.effect)) return true;
@@ -143,6 +151,7 @@ function isSignificantAlert(alert) {
   const hasMajor = MAJOR_PATTERNS.some((re) => re.test(text));
   const hasMinor = MINOR_PATTERNS.some((re) => re.test(text));
   if (hasMinor && !hasMajor) return false;
+  if (alert.source === 'otp') return true;
   return hasMajor;
 }
 

@@ -60,6 +60,12 @@
 # reads detector meta_signals and posts correlated degraded-service issues from
 # the alerts account, with resolution replies only from that same account.
 3-59/5 * * * * cd __REPO__ && __NODE__ bin/marta/incident-roundup.js >> __REPO__/state/logs/incident-roundup.log 2>&1
+# Bus cancellation rollup (martaalertinsights). Hourly per-route digest of GTFS-rt
+# TripUpdates CANCELED trips (same source the ghost detector subtracts), deduped
+# in a ledger and posted once, fire-and-forget. NOT the per-route OTP cancellation
+# prose (a different measurement — see src/marta/bus/cancellations.js). Off the :00
+# minute and away from the other alert jobs.
+7 * * * * cd __REPO__ && __NODE__ bin/marta/bus/cancellations.js >> __REPO__/state/logs/bus-cancellations.log 2>&1
 # Publish web data to R2 + trigger a site rebuild. Incident/detector posts kick
 # this immediately via the webPushTrigger flush; this every-15-min run is the
 # backstop that catches any change that didn't ride a post (and re-publishes if

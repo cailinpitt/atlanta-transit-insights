@@ -8,18 +8,41 @@ Server-side pairing of official alerts with bot-detected issues into
 `alerts.json` (plan Phase 6) is **not built yet** — this doc covers the alert
 ingestion + republish lifecycle that feeds it.
 
-## Feed
+## Feeds — OTP primary, `.pb` secondary
 
-Official alerts are a standard **GTFS-rt v2.0 ServiceAlerts** protobuf — public,
-unauthenticated, same host as the bus feeds. No scraper, no API key.
+There are two sources, merged in `src/marta/alert/api.js#fetchAlerts` →
+`{ feedTimestamp, alerts[] }`. Each alert is tagged `source: 'otp' | 'gtfsrt'`.
 
-```
-https://gtfs-rt.itsmarta.com/TMGTFSRealTimeWebService/alert/alerts.pb
-```
+1. **OTP GraphQL (primary)** — `src/marta/alert/otp.js`. The documented GTFS-rt
+   ServiceAlerts protobuf below has been **empty at every capture**; the alerts
+   riders actually see on `itsmarta.com/ride/alerts` come from the same
+   undocumented OpenTripPlanner backend that carries the streetcar:
 
-`FULL_DATASET` every poll, so "gone from the feed" = "cleared." Adapter:
-`src/marta/alert/api.js` (`fetchAlerts` → `{ feedTimestamp, alerts[] }`), parsed
-like Metra's. Capture a live one with `scripts/marta/capture-alerts.js`.
+   ```
+   https://tracker.itsmarta.com/otp/routers/default/index/graphql   { alerts { … } }
+   ```
+
+   No auth. Gives both route forms — `shortName` (public "49"/"Green") and
+   `gtfsId` (internal "MARTA:26926"). OTP alerts come in two kinds, by decoded id:
+   - `cancellation-alert-<routeInternalId>` — MARTA's whole-day, forward-looking,
+     per-route **trip-cancellation prose**. **Dropped here** and handled instead
+     by the bus cancellation rollup (below), which counts the structured
+     TripUpdates CANCELED flags so it can't diverge from the ghost detector. The
+     drop is keyed strictly on the id, NOT on mode.
+   - `alert-<num>` — every other service alert, **any mode**: rail/general
+     disruptions AND bus detours, reroutes, suspensions, service changes. These
+     flow through the normal republish lifecycle.
+
+2. **GTFS-rt `.pb` (secondary)** — `src/marta/alert/api.js#fetchPbAlerts`,
+   `FULL_DATASET` protobuf, parsed like Metra's. Kept and merged in case MARTA
+   ever populates it (OTP wins id ties). Either source failing is tolerated.
+
+   ```
+   https://gtfs-rt.itsmarta.com/TMGTFSRealTimeWebService/alert/alerts.pb
+   ```
+
+"Gone from the (merged) feed" = "cleared." Capture a `.pb` sample with
+`scripts/marta/capture-alerts.js`.
 
 ## Significance gate — `src/marta/alert/significance.js`
 
@@ -32,10 +55,16 @@ ignore the feed.
   Relevance is deliberately **not** gated on a route roster — see the routeId
   caveat below.
 - **Admit/veto.** A strong structured `effect` (`NO_SERVICE`, `REDUCED_SERVICE`,
-  `SIGNIFICANT_DELAYS`, `DETOUR`, `MODIFIED_SERVICE`) always admits. Otherwise
-  keyword-driven over header + description, with a minor-wins veto: a MAJOR hit
-  (suspended, detour, single-tracking, shuttle, …) overrides a MINOR hit
-  (elevator, parking, construction, fare/ticketing, …).
+  `SIGNIFICANT_DELAYS`, `DETOUR`, `MODIFIED_SERVICE`) always admits. Otherwise the
+  gate depends on the source:
+  - **OTP** alerts are MARTA's editorially curated rider-facing alerts (the
+    cancellation noise is already dropped upstream), so they **admit unless purely
+    a MINOR notice** — requiring a MAJOR keyword would drop genuine reduced-service
+    alerts whose prose doesn't match (e.g. *"Green line is only servicing from
+    Bankhead to Ashby"*).
+  - **`.pb`** alerts use the original keyword gate: a MAJOR hit (suspended,
+    detour, single-tracking, shuttle, …) required, overriding a MINOR hit
+    (elevator, parking, construction, fare/ticketing, …).
 - **Mode.** Each alert is tagged `bus | rail | streetcar | general` from
   `informedEntity.routeType` (1/2 → rail, 3 → bus) or a rail-line-name match on
   `routeId`. Rail wins when an alert spans modes. This `mode` is the agency/mode
@@ -70,13 +99,31 @@ significant is closed **silently** (no misleading "resolved" reply).
 Boundaries (feed + Bluesky) are injected via `bin.io` for testing — see
 `test/marta/alertsFlow.test.js`. Dry run: `MARTA_ALERTS_DRY_RUN=1 node bin/marta/alerts.js`.
 
+## Bus cancellation rollup — `bin/marta/bus/cancellations.js`
+
+MARTA cancels individual bus trips constantly; republishing each one would flood
+the alerts feed. Instead — mirroring the Metra cancellation rollup — cancellations
+are posted as **one hourly per-route digest** to `martaalertinsights`,
+fire-and-forget (no thread/clear lifecycle). Silent when nothing's new.
+
+- **Source is the structured GTFS-rt TripUpdates `CANCELED` flag**, the *same*
+  source the bus ghost detector subtracts (`src/marta/bus/ghosts.js`:
+  `unexplainedMissing = missing − canceledTrips`). Using one cancellation dataset
+  for both surfaces means the alerts-account total and the insights-account ghost
+  context can't contradict each other. We deliberately do **not** count OTP's
+  `cancellation-alert` prose — it's a different measurement (whole-day *announced*
+  vs. live *annulled*) and verified non-overlapping (2026-06-17).
+- Pure helpers in `src/marta/bus/cancellations.js` (extract distinct trips,
+  per-route summary, 300-grapheme digest with "+N more routes" overflow). Dedup
+  ledger in `src/marta/bus/cancellationStore.js` (`bus_cancellations`, keyed on
+  `(trip_id, service_date)`) so each canceled trip is reported exactly once across
+  overlapping hourly windows. Dry run: `MARTA_ALERTS_DRY_RUN=1 node bin/marta/bus/cancellations.js`.
+
 ## Known limitations / follow-ups
 
-- **`informedEntity.routeId` form is unconfirmed.** The live feed was empty at
-  discovery, so we haven't verified whether `routeId` is the public bus number /
-  rail line name or the internal GTFS `route_id`. Mode tagging tolerates either;
-  resolving routes against static GTFS for display is deferred until a live alert
-  is captured.
+- **`routeId` form: RESOLVED (2026-06-17).** OTP supplies both the public
+  `shortName` and the internal `gtfsId`; the adapter surfaces the public form as
+  `routeId`. (The long-empty `.pb` feed is what left this open.)
 - **Streetcar mode is best-effort.** GTFS `route_type 0` is the streetcar, but
   protobuf decodes an *absent* int field as 0 too, so a bare `0` is ambiguous and
   not trusted. Streetcar alerts currently fall through to `general` unless a rail

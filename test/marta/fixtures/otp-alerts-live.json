@@ -1,0 +1,279 @@
+{
+  "data": {
+    "alerts": [
+      {
+        "id": "QWxlcnQ6TUFSVEE6Y2FuY2VsbGF0aW9uLWFsZXJ0LTI2OTI2",
+        "alertHeaderText": "Cancellations on Route 49",
+        "alertDescriptionText": "Northbound from Metro Transitional Center canceled at 12:10pm and 1:50pm. Southbound from North Ave Station canceled at 1:06pm.",
+        "alertEffect": "REDUCED_SERVICE",
+        "alertCause": "UNKNOWN_CAUSE",
+        "alertUrl": null,
+        "effectiveStartDate": null,
+        "effectiveEndDate": null,
+        "route": { "gtfsId": "MARTA:26926", "shortName": "49", "mode": "BUS" },
+        "entities": [
+          { "__typename": "Route", "gtfsId": "MARTA:26926", "shortName": "49", "mode": "BUS" }
+        ]
+      },
+      {
+        "id": "QWxlcnQ6TUFSVEE6Y2FuY2VsbGF0aW9uLWFsZXJ0LTI2OTc5",
+        "alertHeaderText": "Cancellations on Route 198",
+        "alertDescriptionText": "Westbound from Southlake Mall canceled at 12:38pm and 1:38pm. Eastbound from Church St at Town Center Dr canceled at 12:55pm.",
+        "alertEffect": "REDUCED_SERVICE",
+        "alertCause": "UNKNOWN_CAUSE",
+        "alertUrl": null,
+        "effectiveStartDate": null,
+        "effectiveEndDate": null,
+        "route": { "gtfsId": "MARTA:26979", "shortName": "198", "mode": "BUS" },
+        "entities": [
+          { "__typename": "Route", "gtfsId": "MARTA:26979", "shortName": "198", "mode": "BUS" }
+        ]
+      },
+      {
+        "id": "QWxlcnQ6TUFSVEE6Y2FuY2VsbGF0aW9uLWFsZXJ0LTI2OTY4",
+        "alertHeaderText": "Cancellations on Route 184",
+        "alertDescriptionText": "Northbound from Shannon Pkwy at Lancaster Ln canceled at 11:30am.",
+        "alertEffect": "REDUCED_SERVICE",
+        "alertCause": "UNKNOWN_CAUSE",
+        "alertUrl": null,
+        "effectiveStartDate": null,
+        "effectiveEndDate": null,
+        "route": { "gtfsId": "MARTA:26968", "shortName": "184", "mode": "BUS" },
+        "entities": [
+          { "__typename": "Route", "gtfsId": "MARTA:26968", "shortName": "184", "mode": "BUS" }
+        ]
+      },
+      {
+        "id": "QWxlcnQ6TUFSVEE6Y2FuY2VsbGF0aW9uLWFsZXJ0LTI2OTM1",
+        "alertHeaderText": "Cancellations on Route 79",
+        "alertDescriptionText": "Northbound from King Arnold St at Claire Dr canceled at 11:48am.",
+        "alertEffect": "REDUCED_SERVICE",
+        "alertCause": "UNKNOWN_CAUSE",
+        "alertUrl": null,
+        "effectiveStartDate": null,
+        "effectiveEndDate": null,
+        "route": { "gtfsId": "MARTA:26935", "shortName": "79", "mode": "BUS" },
+        "entities": [
+          { "__typename": "Route", "gtfsId": "MARTA:26935", "shortName": "79", "mode": "BUS" }
+        ]
+      },
+      {
+        "id": "QWxlcnQ6TUFSVEE6Y2FuY2VsbGF0aW9uLWFsZXJ0LTI2OTM2",
+        "alertHeaderText": "Cancellations on Route 80",
+        "alertDescriptionText": "Westbound from East Point Station canceled at 2:21pm. Eastbound from Boat Rock Blvd SW at Fulton Industrial Blvd SW canceled at 3:30pm.",
+        "alertEffect": "REDUCED_SERVICE",
+        "alertCause": "UNKNOWN_CAUSE",
+        "alertUrl": null,
+        "effectiveStartDate": null,
+        "effectiveEndDate": null,
+        "route": { "gtfsId": "MARTA:26936", "shortName": "80", "mode": "BUS" },
+        "entities": [
+          { "__typename": "Route", "gtfsId": "MARTA:26936", "shortName": "80", "mode": "BUS" }
+        ]
+      },
+      {
+        "id": "QWxlcnQ6TUFSVEE6Y2FuY2VsbGF0aW9uLWFsZXJ0LTI2OTEx",
+        "alertHeaderText": "Cancellations on Route 12",
+        "alertDescriptionText": "Southbound from Cumberland Transfer Center canceled at 11:47am. Northbound from Midtown Station canceled at 12:45pm.",
+        "alertEffect": "REDUCED_SERVICE",
+        "alertCause": "UNKNOWN_CAUSE",
+        "alertUrl": null,
+        "effectiveStartDate": null,
+        "effectiveEndDate": null,
+        "route": { "gtfsId": "MARTA:26911", "shortName": "12", "mode": "BUS" },
+        "entities": [
+          { "__typename": "Route", "gtfsId": "MARTA:26911", "shortName": "12", "mode": "BUS" }
+        ]
+      },
+      {
+        "id": "QWxlcnQ6TUFSVEE6Y2FuY2VsbGF0aW9uLWFsZXJ0LTI2OTc4",
+        "alertHeaderText": "Cancellations on Route 197",
+        "alertDescriptionText": "Eastbound from Church St at Town Center Dr canceled at 1:15pm and 2:15pm. Westbound from Davidson Pkwy at Davidson Cir E canceled at 2:08pm and 3:04pm.",
+        "alertEffect": "REDUCED_SERVICE",
+        "alertCause": "UNKNOWN_CAUSE",
+        "alertUrl": null,
+        "effectiveStartDate": null,
+        "effectiveEndDate": null,
+        "route": { "gtfsId": "MARTA:26978", "shortName": "197", "mode": "BUS" },
+        "entities": [
+          { "__typename": "Route", "gtfsId": "MARTA:26978", "shortName": "197", "mode": "BUS" }
+        ]
+      },
+      {
+        "id": "QWxlcnQ6TUFSVEE6Y2FuY2VsbGF0aW9uLWFsZXJ0LTI2OTY3",
+        "alertHeaderText": "Cancellations on Route 182",
+        "alertDescriptionText": "Southbound from College Park Station canceled at 11:03am and 1:00pm. Northbound from Shannon Pkwy at Lancaster Ln canceled at 12:00pm.",
+        "alertEffect": "REDUCED_SERVICE",
+        "alertCause": "UNKNOWN_CAUSE",
+        "alertUrl": null,
+        "effectiveStartDate": null,
+        "effectiveEndDate": null,
+        "route": { "gtfsId": "MARTA:26967", "shortName": "182", "mode": "BUS" },
+        "entities": [
+          { "__typename": "Route", "gtfsId": "MARTA:26967", "shortName": "182", "mode": "BUS" }
+        ]
+      },
+      {
+        "id": "QWxlcnQ6TUFSVEE6Y2FuY2VsbGF0aW9uLWFsZXJ0LTI2OTQ1",
+        "alertHeaderText": "Cancellations on Route 96",
+        "alertDescriptionText": "Southbound from Lakewood-ft McPherson Station canceled at 1:05pm and 2:25pm. Northbound from College Park Station canceled at 1:50pm.",
+        "alertEffect": "REDUCED_SERVICE",
+        "alertCause": "UNKNOWN_CAUSE",
+        "alertUrl": null,
+        "effectiveStartDate": null,
+        "effectiveEndDate": null,
+        "route": { "gtfsId": "MARTA:26945", "shortName": "96", "mode": "BUS" },
+        "entities": [
+          { "__typename": "Route", "gtfsId": "MARTA:26945", "shortName": "96", "mode": "BUS" }
+        ]
+      },
+      {
+        "id": "QWxlcnQ6TUFSVEE6Y2FuY2VsbGF0aW9uLWFsZXJ0LTI2OTMx",
+        "alertHeaderText": "Cancellations on Route 71",
+        "alertDescriptionText": "Eastbound from Boat Rock Blvd SW at Greensboro Dr canceled at 11:30am. Westbound from West End Station canceled at 12:25pm.",
+        "alertEffect": "REDUCED_SERVICE",
+        "alertCause": "UNKNOWN_CAUSE",
+        "alertUrl": null,
+        "effectiveStartDate": null,
+        "effectiveEndDate": null,
+        "route": { "gtfsId": "MARTA:26931", "shortName": "71", "mode": "BUS" },
+        "entities": [
+          { "__typename": "Route", "gtfsId": "MARTA:26931", "shortName": "71", "mode": "BUS" }
+        ]
+      },
+      {
+        "id": "QWxlcnQ6TUFSVEE6Y2FuY2VsbGF0aW9uLWFsZXJ0LTI2OTIw",
+        "alertHeaderText": "Cancellations on Route 32",
+        "alertDescriptionText": "Southbound from Inman Park-reynoldstown Station canceled at 11:35am. Northbound from Linecrest Rd at 3800 canceled at 12:17pm.",
+        "alertEffect": "REDUCED_SERVICE",
+        "alertCause": "UNKNOWN_CAUSE",
+        "alertUrl": null,
+        "effectiveStartDate": null,
+        "effectiveEndDate": null,
+        "route": { "gtfsId": "MARTA:26920", "shortName": "32", "mode": "BUS" },
+        "entities": [
+          { "__typename": "Route", "gtfsId": "MARTA:26920", "shortName": "32", "mode": "BUS" }
+        ]
+      },
+      {
+        "id": "QWxlcnQ6TUFSVEE6Y2FuY2VsbGF0aW9uLWFsZXJ0LTI2OTQy",
+        "alertHeaderText": "Cancellations on Route 88",
+        "alertDescriptionText": "Westbound from Doraville Station canceled at 11:45am.",
+        "alertEffect": "REDUCED_SERVICE",
+        "alertCause": "UNKNOWN_CAUSE",
+        "alertUrl": null,
+        "effectiveStartDate": null,
+        "effectiveEndDate": null,
+        "route": { "gtfsId": "MARTA:26942", "shortName": "88", "mode": "BUS" },
+        "entities": [
+          { "__typename": "Route", "gtfsId": "MARTA:26942", "shortName": "88", "mode": "BUS" }
+        ]
+      },
+      {
+        "id": "QWxlcnQ6TUFSVEE6Y2FuY2VsbGF0aW9uLWFsZXJ0LTI2OTY0",
+        "alertHeaderText": "Cancellations on Route 165",
+        "alertDescriptionText": "Northbound from College Park Station canceled at 12:00pm. Southbound from Hamilton E. Holmes Station canceled at 1:13pm.",
+        "alertEffect": "REDUCED_SERVICE",
+        "alertCause": "UNKNOWN_CAUSE",
+        "alertUrl": null,
+        "effectiveStartDate": null,
+        "effectiveEndDate": null,
+        "route": { "gtfsId": "MARTA:26964", "shortName": "165", "mode": "BUS" },
+        "entities": [
+          { "__typename": "Route", "gtfsId": "MARTA:26964", "shortName": "165", "mode": "BUS" }
+        ]
+      },
+      {
+        "id": "QWxlcnQ6TUFSVEE6Y2FuY2VsbGF0aW9uLWFsZXJ0LTI2OTcz",
+        "alertHeaderText": "Cancellations on Route 192",
+        "alertDescriptionText": "Northbound from Justice Center Bus Transit Station canceled at 1:06pm.",
+        "alertEffect": "REDUCED_SERVICE",
+        "alertCause": "UNKNOWN_CAUSE",
+        "alertUrl": null,
+        "effectiveStartDate": null,
+        "effectiveEndDate": null,
+        "route": { "gtfsId": "MARTA:26973", "shortName": "192", "mode": "BUS" },
+        "entities": [
+          { "__typename": "Route", "gtfsId": "MARTA:26973", "shortName": "192", "mode": "BUS" }
+        ]
+      },
+      {
+        "id": "QWxlcnQ6TUFSVEE6Y2FuY2VsbGF0aW9uLWFsZXJ0LTI2OTc0",
+        "alertHeaderText": "Cancellations on Route 193",
+        "alertDescriptionText": "Northbound from Justice Center Bus Transit Station canceled at 11:39am and 2:15pm. Southbound from East Point Station canceled at 12:55pm.",
+        "alertEffect": "REDUCED_SERVICE",
+        "alertCause": "UNKNOWN_CAUSE",
+        "alertUrl": null,
+        "effectiveStartDate": null,
+        "effectiveEndDate": null,
+        "route": { "gtfsId": "MARTA:26974", "shortName": "193", "mode": "BUS" },
+        "entities": [
+          { "__typename": "Route", "gtfsId": "MARTA:26974", "shortName": "193", "mode": "BUS" }
+        ]
+      },
+      {
+        "id": "QWxlcnQ6TUFSVEE6Y2FuY2VsbGF0aW9uLWFsZXJ0LTI2OTcx",
+        "alertHeaderText": "Cancellations on Route 189",
+        "alertDescriptionText": "Southbound from College Park Station canceled at 11:11am. Northbound from Shannon Pkwy at Lancaster Ln canceled at 2:00pm.",
+        "alertEffect": "REDUCED_SERVICE",
+        "alertCause": "UNKNOWN_CAUSE",
+        "alertUrl": null,
+        "effectiveStartDate": null,
+        "effectiveEndDate": null,
+        "route": { "gtfsId": "MARTA:26971", "shortName": "189", "mode": "BUS" },
+        "entities": [
+          { "__typename": "Route", "gtfsId": "MARTA:26971", "shortName": "189", "mode": "BUS" }
+        ]
+      },
+      {
+        "id": "QWxlcnQ6TUFSVEE6YWxlcnQtMjU2MDY5NTQ3MjQ5MTcxMA",
+        "alertHeaderText": "Rail Service Alert for Green Line",
+        "alertDescriptionText": "Green line is only servicing from Bankhead to Ashby, on the EB platform. Customers must board on the EB platform at Ashby for service to Bankhead.",
+        "alertEffect": "UNKNOWN_EFFECT",
+        "alertCause": "UNKNOWN_CAUSE",
+        "alertUrl": null,
+        "effectiveStartDate": 1781668800,
+        "effectiveEndDate": null,
+        "route": { "gtfsId": "MARTA:26986", "shortName": "Green", "mode": "SUBWAY" },
+        "entities": [
+          {
+            "__typename": "Route",
+            "gtfsId": "MARTA:26986",
+            "shortName": "Green",
+            "mode": "SUBWAY"
+          },
+          { "__typename": "Stop", "gtfsId": "MARTA:510004", "name": "Bankhead" },
+          { "__typename": "Stop", "gtfsId": "MARTA:510002", "name": "Ashby" }
+        ]
+      },
+      {
+        "id": "QWxlcnQ6TUFSVEE6Y2FuY2VsbGF0aW9uLWFsZXJ0LTI2OTM5",
+        "alertHeaderText": "Cancellations on Route 84",
+        "alertDescriptionText": "Eastbound from Centre Pkwy at 1800 canceled at 11:34am, 12:49pm, 2:04pm, and 3:20pm. Westbound from East Point Station canceled at 12:15pm, 1:30pm, and 2:45pm.",
+        "alertEffect": "REDUCED_SERVICE",
+        "alertCause": "UNKNOWN_CAUSE",
+        "alertUrl": null,
+        "effectiveStartDate": null,
+        "effectiveEndDate": null,
+        "route": { "gtfsId": "MARTA:26939", "shortName": "84", "mode": "BUS" },
+        "entities": [
+          { "__typename": "Route", "gtfsId": "MARTA:26939", "shortName": "84", "mode": "BUS" }
+        ]
+      },
+      {
+        "id": "QWxlcnQ6TUFSVEE6Y2FuY2VsbGF0aW9uLWFsZXJ0LTI2OTE3",
+        "alertHeaderText": "Cancellations on Route 22",
+        "alertDescriptionText": "Westbound from Indian Creek Station Station canceled at 11:47am.",
+        "alertEffect": "REDUCED_SERVICE",
+        "alertCause": "UNKNOWN_CAUSE",
+        "alertUrl": null,
+        "effectiveStartDate": null,
+        "effectiveEndDate": null,
+        "route": { "gtfsId": "MARTA:26917", "shortName": "22", "mode": "BUS" },
+        "entities": [
+          { "__typename": "Route", "gtfsId": "MARTA:26917", "shortName": "22", "mode": "BUS" }
+        ]
+      }
+    ]
+  }
+}

@@ -21,6 +21,7 @@
 const axios = require('axios');
 const GtfsRt = require('gtfs-realtime-bindings');
 const { withRetry } = require('../../shared/retry');
+const { fetchOtpAlerts } = require('./otp');
 
 const ALERTS_URL = 'https://gtfs-rt.itsmarta.com/TMGTFSRealTimeWebService/alert/alerts.pb';
 
@@ -71,6 +72,7 @@ function parseAlert(entity) {
   return {
     // GTFS-rt provides a stable per-alert id; keep it as the incident key.
     id: entity.id ?? null,
+    source: 'gtfsrt',
     cause: relName(ALERT_CAUSE, a.cause),
     effect: relName(ALERT_EFFECT, a.effect),
     header: translatedText(a.headerText),
@@ -91,7 +93,10 @@ function parseAlert(entity) {
   };
 }
 
-async function fetchAlerts() {
+// The documented GTFS-rt ServiceAlerts protobuf. Kept as a SECONDARY source and
+// merged below in case MARTA ever starts populating it — in practice it's been
+// empty at every capture, with the real alerts living in OTP (see ./otp.js).
+async function fetchPbAlerts() {
   const { data } = await withRetry(
     () => axios.get(ALERTS_URL, { responseType: 'arraybuffer', timeout: 15000 }),
     { label: 'MARTA service alerts' },
@@ -101,6 +106,31 @@ async function fetchAlerts() {
     feedTimestamp: longToNum(feed.header?.timestamp),
     alerts: (feed.entity || []).map(parseAlert).filter(Boolean),
   };
+}
+
+// PRIMARY = OTP (./otp.js); SECONDARY = the .pb feed. Fetch both, prefer OTP on
+// id collision, and tolerate either source failing (OTP is normally the only one
+// that carries anything) so one dead endpoint can't blank the whole feed. The
+// returned alerts are already normalized to one shape, each tagged `source`.
+async function fetchAlerts() {
+  const [otpRes, pbRes] = await Promise.allSettled([fetchOtpAlerts(), fetchPbAlerts()]);
+  if (otpRes.status === 'rejected' && pbRes.status === 'rejected') {
+    throw otpRes.reason;
+  }
+  if (otpRes.status === 'rejected') {
+    console.warn(`OTP alerts fetch failed, using .pb only: ${otpRes.reason?.message}`);
+  }
+  if (pbRes.status === 'rejected') {
+    console.warn(`.pb alerts fetch failed, using OTP only: ${pbRes.reason?.message}`);
+  }
+  const otpAlerts = otpRes.status === 'fulfilled' ? otpRes.value.alerts : [];
+  const pb = pbRes.status === 'fulfilled' ? pbRes.value : { feedTimestamp: null, alerts: [] };
+
+  const byId = new Map();
+  for (const a of pb.alerts) byId.set(a.id, a); // OTP wins ties → set OTP last
+  for (const a of otpAlerts) byId.set(a.id, a);
+
+  return { feedTimestamp: pb.feedTimestamp, alerts: [...byId.values()] };
 }
 
 module.exports = {

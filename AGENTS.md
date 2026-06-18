@@ -5,227 +5,130 @@ Operating notes for AI agents editing this repo. Companion to `README.md`
 
 ## What this is
 
-Two Bluesky bots (`@ctabusinsights`, `@ctatraininsights`) + shared alerts
-account (`@ctaalertinsights`) that turn live CTA Bus/Train Tracker data into
-transit-quality posts. **Cron-driven, no daemon.** Each
-`bin/<mode>/<feature>.js` is a one-shot: detect → render → post → exit.
+Three Bluesky bots that turn live MARTA data into Atlanta-specific transit posts:
 
-- **Detectors** are pure functions in `src/{bus,train}/<feature>.js`; **bins**
-  in `bin/{bus,train}/<feature>.js` wire them to API/DB/post/render.
-- **Three Bluesky accounts**: `loginBus` / `loginTrain` / `loginAlerts` —
-  don't cross the streams. Pulse + CTA-republished alerts both go to alerts.
-- Persistent state in `state/history.sqlite` (WAL, 90-day rolloff). Schema +
-  migrations: `src/shared/history.js#db()`.
-- Train side: `getAllTrainPositions()` covers all 8 lines in one call, so any
-  train job can write to `observations`. No dedicated observer.
-- **Metra** (Chicago commuter rail) is being added as a third mode under
-  `src/metra/` + `scripts/observeMetra.js` + `scripts/fetch-metra-gtfs.js`.
-  Unlike CTA, Metra is timetabled and GTFS-realtime binds each scheduled
-  `trip_id` to live predictions — so its detectors (cancellation, delay) read
-  schedule adherence directly instead of reconstructing it statistically.
-  **Phase 0 (ingestion + schedule index + geometry) is built**; detection +
-  posting + frontend are phased in `plan-6-9-26.md` (repo root). See
-  `docs/METRA.md`.
+- **`@martabusinsights`** — bus bunching, gaps, ghosts, speedmaps, cross-route pileups.
+- **`@martatraininsights`** — rail (RED/GOLD/BLUE/GREEN) + the Atlanta Streetcar (SC): gaps, bunching, ghosts, speedmaps, cross-line pileups, system timelapse.
+- **`@martaalertinsights`** — republished official MARTA service alerts, the multi-signal incident roundup, and the hourly bus-cancellation rollup.
 
-**Read first**: `README.md`, `cron/crontab.txt` (what runs when, with stagger
-comments), `docs/{ALERTS,BUNCHING,GAPS,GHOSTING,SPEEDMAP,METRA}.md`.
+**Cron-driven, no daemon.** A live *observe loop* polls the feeds and records into
+`state/marta.sqlite`; each detector bin is a one-shot that reads the latest
+recorded snapshot (no extra feed fetch), detects → renders → posts → exits.
+
+## Architecture
+
+- **Feeds → adapters.** `src/marta/bus/api.js` (GTFS-rt VehiclePositions/TripUpdates),
+  `src/marta/rail/api.js` (rail `traindata` REST, true positions — "Path A"),
+  `src/marta/streetcar/api.js` (OTP GraphQL), `src/marta/alert/{api,otp}.js`
+  (GTFS-rt ServiceAlerts + OTP). See `docs/MARTA_FEEDS.md` for the validated reality.
+- **The `pdist` analog.** MARTA is GTFS-rt: vehicles report `trip_id` + lat/lon,
+  not distance-along-route. `src/marta/bus/shapes.js#projectToShape` reconstructs
+  `distFt` by projecting lat/lon onto the trip's GTFS shape. Rail uses one
+  representative geometry per line (`src/marta/rail/lines.js`). The detector
+  mapping is **CTA `pid` ↔ `shape_id`, CTA `pdist` ↔ projected `distFt`**.
+- **Schedule index.** `scripts/marta/build-schedule-index.js` → `data/marta/schedule-index.json`
+  (gitignored, rebuilt nightly): per-shape headways + per-(route+dir, hour)
+  `activeByHour`. Lookups in `src/marta/bus/schedule.js` (`headwayForShape`,
+  `headwayForRoute`, `headwayForLine`, `activeForLine`). Powers gaps + ghosts.
+- **Storage.** `src/marta/storage.js` owns `state/marta.sqlite`
+  (`bus_observations`, `bus_trip_updates`, `rail_observations`, `rail_arrivals`),
+  7-day rolloff. The observe loop writes; detectors read the latest snapshot.
+- **Detectors** are cores in `src/marta/{bus,rail,streetcar}/<feature>.js`; **bins**
+  in `bin/marta/{bus,rail}/<feature>.js` wire them to storage / posting / render.
+- **Posting + lifecycle.** `src/marta/shared/`: `bluesky.js` (login/post),
+  `incidents.js` (cooldown, cap, callouts, member-id suppression, `meta_signals`,
+  `disruption_events`), `state.js`, `postDetection.js`, `runBin.js` (bin
+  setup/`--check`/`--dry-run`), `format.js`, `video.js` / `smoothFrames.js`,
+  `geoClusters.js`, `eventLink.js`.
+- **Reused generic infra** lives in `src/shared/` (rebranded but agency-agnostic):
+  `env, geo, post, retry, polyline, projection, videoTracks, ghostFormat,
+  observationDescribe, cleanup, webPushTrigger`. **Nothing else remains in
+  `src/shared/`** — the CTA/Metra trees were deleted (see `PORTING.md`).
+
+**Read first**: `README.md`, `cron/marta-crontab.txt` (what runs when, with
+stagger comments), and the relevant `docs/{BUNCHING,GAPS,GHOSTING,SPEEDMAP,
+THIN_GAPS_AND_PULSE,MARTA_ALERTS,MARTA_FEEDS}.md`.
 
 ## Hard rules
 
-- `npm test` must pass with zero failures before any commit.
+- `npm test` (308+ tests) and `npm run lint` must both be clean before any commit —
+  the deploy gates on both; a red commit halts the live site.
+- **Don't add a `Co-Authored-By` trailer to commits.** Keep commit subjects short.
 - Don't auto-commit, push, or pull. Wait to be asked.
-- Deploy = commit + push from local + `git pull` on the server. Never scp.
+- **Cron runs on the server.** Build/adjust the block in `cron/marta-crontab.txt`
+  and the installer (`scripts/marta/install-crontab.sh`, marker-merge — never
+  clobbers other jobs); the operator applies it. Don't run `crontab -`.
 - Don't hardcode usernames/paths in committed configs — parameterize and
-  substitute at install time (`scripts/install-logrotate.sh`).
+  substitute at install time (`__REPO__` / `__NODE__`).
 - Husky pre-commit runs `biome check --write` on staged `*.{js,json}`. On
   failure, fix the cause and create a new commit (don't amend).
-- Update docs alongside code so they don't go stale.
-- When you make a change to bus logic, you should consider making the equivalent change to the train logic (or vice versa). Even though the train and bus logic is seperate, the implementation should be kept in parallel as much as possible.
-
-## Invariants that break things if violated
-
-Brief list; deeper rationale in the linked deep-dives.
-
-- **Compute callouts BEFORE `recordX(...)`** — else the new event is compared
-  against itself.
-- **Always call `recordX({..., posted: false})` on cooldown skips** — recap
-  and analytics need the row.
-- **Bus reads MUST use `getVehiclesCachedOrFresh`** outside `observeBuses.js`
-  and speedmap. Direct `getVehicles` blows the quota.
-- **Don't lower observe-buses below `*` (every minute)** without first
-  re-checking the 100k/day bus tracker cap. `MIN_SNAPSHOTS` in
-  `src/bus/ghosts.js` and `maxStaleMs` in `src/bus/api.js` are coupled to
-  this cadence — move them together if it changes.
-- **Stagger new `*-alerts` / `*-pulse` cron entries**. Same wall minute
-  breaks threading (each sees no parent and posts top-level).
-- **GTFS index throws past 7 days old**. After laptop sleep / cron outage,
-  run `npm run fetch-gtfs` before manual runs.
-- **`fetch-gtfs.js` also writes `data/gtfs/schedule.sqlite`** (~180 MB,
-  gitignored): per-trip scheduled stop curves keyed by `(route, start_sec)`,
-  the substrate for `scheduleDeviationMin` (bus late/early in bunching + gap
-  posts). Rebuilt from scratch each run; absent file → adherence silently omits,
-  it doesn't throw. See `docs/BUNCHING.md`.
-- **Don't merge the active vs. headway/duration loops in `fetch-gtfs.js`**.
-  `activeByHour` is keyed per direction and counts every revenue trip;
-  `headways`/`durations` are keyed **per pattern** (origin→dest, after the
-  dominant service_id filter). Merging suppresses bus ghost detection on
-  multi-terminal routes — see `docs/GHOSTING.md`.
-- **Headways are per-pattern, not per-direction.** Each `routes[r][dir]` carries
-  a `patterns[]` list (one entry per origin→dest terminal pair, with endpoint
-  coords + `tripCount`); `headways`/`durations`/`terminalLat`… at the direction
-  level are the *dominant* pattern's, kept as a fallback. Consumers resolve a
-  live pid to a group via `matchPattern` in `src/shared/gtfs.js` (endpoint
-  match). This is why mixing short-turns/branches into one bucket is wrong — it
-  read the 66 at ~6 min vs a true 30 overnight. Don't revert to a per-direction
-  median.
-- **Pids are stringified everywhere** (`parseVehicle`) so cache and
-  fresh-API rows compare strict-equal.
-- **Recovered (`approx`) train positions are visualization-only.** A train the
-  feed returns at 0,0 is recovered from its `nextStaNm` (`recoverUnpositionedTrain`)
-  and written to `observations` tagged `approx=1`, so the replay/videos stay
-  continuous. Detection reads (`getTrainObservations`, `getRecentTrainPositions`,
-  `getLineCorridorBbox`) **filter `approx` by default** — pass `includeApprox` to
-  opt in. `getAllTrainPositions` likewise returns only real positions unless
-  called with `{ includeApprox: true }` (the live video captures do). Don't drop
-  the filter without re-validating ghost/gap/pulse counts.
-- **`recordAlertSeen` is called twice per new alert** (pre-post `postUri:null`,
-  post-post with URI). The pre-post write is what `audit-alerts` uses to
-  detect crashed posts — don't refactor to one call.
-- **Pulse `active_post_uri` pinning** is what makes the eventual ✅ clear
-  target the right thread. Don't replace with time-window lookups.
-- **Pulse `from_station`/`to_station` are pinned once posted** — see
-  `bin/train/pulse.js#handleCandidate` and `docs/ALERTS.md`.
-- **Train pulse "winding down" leaves `pulse_state` intact** — don't advance
-  clear ticks when GTFS expects < 1 trip/hour, or you'll post bogus "running
-  again" replies at end of service nightly.
-- **Loop lines (Brown/Orange/Pink/Purple/Yellow)** ship one round-trip GTFS
-  direction. Train ghosts aggregate line-wide; pulse splits via
-  `LOOP_LINE_TRDR_OUTBOUND`; the disruption-map renderer uses
-  `truncateRoundTrip` (disruption-aware) — see `docs/ALERTS.md` for the
-  return-leg apex case.
-- **`hourlyLookup` after 4 AM uses today's bucket only** (no prior-day
-  weekday fallback). Before 4 AM, prior-day is preferred (CTA encodes
-  1:15 AM Sunday as "25:15:00" under Saturday's service_id). Background:
-  `docs/GHOSTING.md`.
-- **Cold-start grace** for both pulses: zero observations in past 6h ⇒
-  service-not-yet-started, not blackout. Train: `getLineCorridorBbox` null
-  suppresses the synthetic full-line candidate. Bus:
-  `getActiveBusRoutesSince(now-6h)` filters `detectBusBlackouts`.
-- **Service-corridor clip** — `detectDeadSegments` excludes bins outside
-  the past-6h obs bbox; synthesized candidates clip from/to to in-corridor
-  stations. Stops weekend Purple Express track from reading cold.
-- **Metra cancellations: feed-health guard + hourly rollup ≠ threaded
-  incident.** The inferred-cancellation layer (`src/metra/cancellations.js`) is
-  suppressed when `isFeedHealthy` fails — a fleet-wide feed stall makes every
-  trip look unobserved. Cancellations are recorded to `disruption_events`
-  (`posted=0`, website-data-first) and posted only as an hourly per-line rollup
-  (`bin/metra/cancellations.js`), with NO per-incident thread/clear machinery —
-  don't add one. Dedup is keyed on `trip_id` + `serviceDate`
-  (`getMetraRecordedTripIds`); the same `trip_id` repeats every weekday, so
-  dropping the date scope would suppress today's cancellation because last
-  week's was recorded.
-- **Metra trip_id suffix mismatch + delay field is always 0.** The realtime feed
-  and static index agree on route+run+version but DIFFER in the trailing service
-  suffix (`_A` static vs `_B` realtime) — any static↔realtime trip_id match MUST
-  go through `tripKey()` (`src/metra/schedule.js`), or every scheduled train reads
-  as unobserved (a 47-FP flood, 2026-06-09). And Metra sends `StopTimeEvent.delay
-  = 0` on every update, so delay is computed as `predicted_arr − scheduled`
-  (`src/metra/delays.js`), never read off the feed.
-
-### Held-train + multi-signal correlation (post-2026-05-03)
-
-Pulse can't see "held trains still pinging from a stopped state." Two
-complements:
-
-- **Held-cluster detection** (`src/train/heldClusters.js`) flags ≥ 2
-  stationary trains within 1 mi when no moving train is nearby in the same
-  direction. Flows through `handleCandidate` as `kind: 'held'`.
-- **Multi-signal roundup** (`bin/incident-roundup.js`) — sub-threshold
-  signals on the same line within 30 min get a single text-only ack. See
-  `docs/ALERTS.md` for scoring.
-
-### CTA alerts significance gate
-
-`src/shared/ctaAlerts.js`. Veto first on `MINOR_PATTERNS` against summary
-(headline + shortDescription); admit on `MAJOR_PATTERNS` regex hitting
-fullText, OR `alert.major === true` AND `severityScore >= MIN_SEVERITY = 3`.
-Bus relevance is "any route in `busRoutes.names`"; train is "any rail line".
-Full rules: `docs/ALERTS.md`.
-
-### Threading rules (alerts account)
-
-All posts about one disruption share one thread root. `resolveReplyRef`
-(`src/shared/bluesky.js`) inherits `root` from the parent's `reply.root`.
-Four cases (pulse-first/CTA-first/pulse-only/CTA-only) detailed in
-`docs/ALERTS.md`. `hasUnresolvedCtaAlert` picks bot-clear variant text;
-`hasObservedClearForPulse` is the idempotency check.
+- **Keep dead code out** (`PORTING.md`): when an analog exists, delete the old
+  code in the same change. `npm run knip` ("Unused files") is the backstop.
+- **The frontend (`atlanta-transit-alerts`) is a dumb client.** Data-quality bugs
+  get fixed in this producer and backfilled, not patched downstream.
+- **Present data, not commentary.** Neutral archive — descriptive surfaces are
+  fine; judgment/scores (e.g. A–F grades) are not.
+- When you change bus logic, consider the equivalent rail change (and vice versa).
+  The two stay separate but parallel.
+- Update docs alongside code so they don't go stale; record public data-shape
+  changes in the consumer-facing changelog.
 
 ## Where to look for X
 
 | Editing… | Start here |
 |---|---|
-| Cron schedule / cadence | `cron/crontab.txt` |
-| DB schema, cooldown helpers, callouts | `src/shared/history.js` |
-| Observation reads/writes | `src/shared/observations.js` |
-| Cooldown acquire / race | `src/shared/state.js`, `src/shared/postDetection.js` |
-| GTFS index lookups / build | `src/shared/gtfs.js`, `scripts/fetch-gtfs.js` |
-| Bus / Train API | `src/bus/api.js`, `src/train/api.js` |
-| Metra API / feed decode | `src/metra/api.js` (GTFS-rt protobuf), `scripts/observeMetra.js` |
-| Metra schedule index + line/station geometry | `scripts/fetch-metra-gtfs.js`, `src/metra/data/*` |
-| Metra line metadata | `src/metra/lines.js` |
-| Metra cancellations + delays (hourly rollup) | `src/metra/{cancellations,delays}.js`, `bin/metra/cancellations.js`, `src/metra/schedule.js` |
-| Metra alerts / speedmap | `src/metra/{metraAlerts,speedmap}.js`, `bin/metra/{alerts,speedmap}.js` |
-| Metra recap (weekly/monthly on-time %) | `src/metra/recap.js`, `bin/metra/recap.js`, `src/map/metra/recapChart.js` |
-| Bunching / Gap / Ghost detection | `src/{bus,train}/{bunching,gaps,ghosts}.js` |
-| Pulse | `src/{bus,train}/pulse.js` + `bin/{bus,train}/pulse.js` |
-| Speedmap | `src/{bus,train}/speedmap.js` |
-| CTA alert fetch + significance gate | `src/shared/ctaAlerts.js` |
-| Alert post text + truncation | `src/shared/alertPost.js` |
-| Disruption (pulse/manual) text | `src/shared/disruption.js` |
-| Threading + post helpers | `src/shared/bluesky.js` |
-| Map renderers | `src/map/index.js`, `src/map/common.js` |
-| Recap | `src/shared/recap.js`, `src/shared/recapPost.js` |
-| Bus route lists | `src/bus/routes.js` |
-| Train station/line data | `src/train/data/{trainStations,trainLines}.json` |
-| Audit invariants | `bin/audit-alerts.js` |
-| Event-replay track archiver | `bin/export-event-tracks.js`, `src/shared/eventTracks.js`, `docs/REPLAY.md` |
-| Video dropout/bridge/ghost model | `src/shared/videoTracks.js` (shared by bus + train bunching/gap/snapshot videos + frontend replay), `docs/REPLAY.md` |
-| Cron wrapper | `bin/cron-run.sh` |
+| Cron schedule / cadence | `cron/marta-crontab.txt` + `scripts/marta/install-crontab.sh` |
+| Observation storage (read/write/rolloff) | `src/marta/storage.js` |
+| Live capture loop | `scripts/marta/observe-{buses,rail,bus-tripupdates}.js`, `src/marta/observeUtil.js` |
+| Schedule index (headways + active counts) | `src/marta/bus/schedule.js`, `scripts/marta/build-schedule-index.js` |
+| Static GTFS load + realtime→static join | `src/marta/gtfs.js`, `scripts/marta/fetch-static-gtfs.js` |
+| Bus / rail / streetcar feed decode | `src/marta/{bus,rail,streetcar}/api.js` |
+| The `pdist` analog (projection) | `src/marta/bus/shapes.js`, `src/marta/rail/lines.js` |
+| Bunching / gaps / ghosts (bus) | `src/marta/bus/{bunching,gaps,ghosts}.js` |
+| Bunching / gaps / ghosts (rail) | `src/marta/rail/{bunching,gaps,ghosts}.js` |
+| Cross-route / cross-line pileups | `src/marta/{bus,rail}/crossBunching.js`, `src/marta/shared/geoClusters.js` |
+| Thin-gaps / pulse (low-freq + blackout) | `src/marta/bus/{thinGaps,pulse}.js`, `docs/THIN_GAPS_AND_PULSE.md` |
+| Speedmaps | `src/marta/bus/speedmap.js`, `src/marta/rail/speedmap.js`, `src/marta/streetcar/speedmap.js` |
+| Official alerts (fetch + significance + store) | `src/marta/alert/{api,otp,significance,store,cancellation}.js`, `docs/MARTA_ALERTS.md` |
+| Incident roundup (multi-signal correlation) | `bin/marta/incident-roundup.js` |
+| Cooldown / cap / callouts / meta-signals | `src/marta/shared/incidents.js` |
+| Post text + alt text | `src/marta/{bus,rail}/{bunchingPost,gapPost,ghostPost,speedmapPost,post}.js` |
+| Map renderers | `src/marta/map/*.js` |
+| Timelapse + dropout/bridge/ghost model | `src/marta/{bus,rail}/video.js`, `src/shared/videoTracks.js` |
+| Web export (R2 data) | `bin/marta/{export-web,export-daily}.js`, `bin/export-csv.js`, `bin/marta/push-web-data.sh`, `docs/DATA_ORIGIN.md` |
+| Ghost / effective-headway phrasing | `src/shared/ghostFormat.js` |
+| Bluesky login / threading / post | `src/marta/shared/bluesky.js` |
 
 ## Operational levers (coupled or quota-related only)
 
-Greppable; only the load-bearing ones are listed here. Most thresholds are
-single-file constants — search the relevant `src/{bus,train}/<feature>.js`.
+Most thresholds are single-file constants — search the relevant
+`src/marta/<mode>/<feature>.js`. The load-bearing ones:
 
 | Lever | File | Note |
 |---|---|---|
-| Bus cache window | `src/bus/api.js` | `maxStaleMs = 90s` — coupled to observe-buses cadence |
-| Ghost min snapshots | `src/bus/ghosts.js` | `MIN_SNAPSHOTS = 4` — coupled to observe-buses cadence |
-| Train pulse bin | `bin/train/pulse.js` | `MIN_HOUR = 5`, `POST_COOLDOWN_MS = 90 min` |
-| Train gap cap | `bin/train/gaps.js` | `TRAIN_GAP_DAILY_CAP = 2` per rush period; cap-exempt on recent pulse/ghost |
-| Roundup scoring | `bin/incident-roundup.js` | `WINDOW_MS = 30 min`, `SCORE_THRESHOLD = 1.75`, per-source persistence bonus capped at +0.5 |
-| Loop trunk override scope | `src/train/speedmap.js` | `LOOP_TRUNK_LINES = {brn, org, pink, p}` |
-| History rolloff | `src/shared/history.js` | `ROLLOFF_DAYS = 90` |
-| Observation rolloff | `src/shared/observations.js` | `ROLLOFF_MS = 7d` |
-| GTFS staleness | `src/shared/gtfs.js` | `STALE_FATAL_MS = 7d` |
+| Bunching distance | `src/marta/bus/bunching.js` | `BUNCHING_THRESHOLD_FT = 800` |
+| Gap ratio + floor | `src/marta/bus/gaps.js` | `RATIO_THRESHOLD = 2.5`, `ABSOLUTE_MIN_MIN = 15` (rail: 12) |
+| Ghost gates | `src/marta/bus/ghosts.js` | `MISSING_PCT 0.25`, `MISSING_ABS 3` (trailing 2), `MIN_SNAPSHOTS 4` |
+| Speedmap coverage gate | `bin/marta/bus/speedmap.js` | `MIN_COVERAGE = 0.3` |
+| Observation rolloff | `src/marta/storage.js` | 7-day window |
+| Alert clear window | `src/marta/alert/store.js` | `ALERT_CLEAR_TICKS = 3` ↔ 2-min alert cadence |
 
 ## Dev commands
 
-`npm test` (full suite), `npm run smoke` (`--check` import smoke for each
-bin), `npm run check`/`lint` (Biome), `npm run <feature>:dry` (run a bin
-without posting). Pulse-specific: `PULSE_DRY_RUN=1`. Alerts-specific:
-`ALERTS_DRY_RUN=1`. Replay harness: `scripts/replay-pulse.js` re-runs
-detection at synthetic `now` against historical observations
-(`--line=red --start=ISO --end=ISO`, `--all-lines --days-back=7`, `--step=2m`).
+- `npm test` — full suite (`node --test`).
+- `npm run smoke` — `--check` import smoke for every bus/rail bin.
+- `npm run lint` / `npm run check` — Biome.
+- `npm run knip` — unused files + dependencies (dead-code backstop).
+- `npm run marta:*` — convenience wrappers; the `*:dry` variants run a bin without
+  posting. Detector bins also accept `--dry-run` and `--check` directly.
 
 ## Required env vars
 
 `.env` at repo root (see `.env.example`):
 
-- `CTA_TRAIN_KEY`, `CTA_BUS_KEY`, `MAPBOX_TOKEN`
-- `METRA_API_KEY` — Metra GTFS-realtime token (`api_token` query param)
-- `BLUESKY_SERVICE` (optional, default `https://bsky.social`)
-- `BLUESKY_{BUS,TRAIN,ALERTS}_{IDENTIFIER,APP_PASSWORD}`
-- `BLUESKY_METRA_{IDENTIFIER,APP_PASSWORD}` (analytics: speedmap/recap) and
-  `BLUESKY_METRA_ALERTS_{IDENTIFIER,APP_PASSWORD}` (Metra disruptions/alerts)
-- `HISTORY_DB_PATH` overrides default `state/history.sqlite` (tests)
+- `MARTA_TRAIN_KEY` — MARTA rail API key.
+- `MAPBOX_TOKEN` — static map rendering.
+- `BLUESKY_SERVICE` (optional, default `https://bsky.social`).
+- `BLUESKY_{BUS,TRAIN,ALERTS}_{IDENTIFIER,APP_PASSWORD}` — the three bot accounts.
+- `TEST_ACCOUNT_{IDENTIFIER,PASSWORD}` — optional throwaway for post-output testing.
+- `GITHUB_DISPATCH_TOKEN` — optional; lets `push-web-data.sh` trigger a site rebuild.

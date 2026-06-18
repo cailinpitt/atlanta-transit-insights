@@ -1,8 +1,11 @@
 # MARTA official alerts
 
-The MARTA analog of [`ALERTS.md`](./ALERTS.md) (the CTA alerts pipeline), adapted
-for MARTA's native GTFS-realtime feed. Covers the official-alert republish path
-that posts to the **alerts** Bluesky account (`martaalertinsights`).
+How the bot republishes MARTA's official service alerts, built on MARTA's native
+GTFS-realtime / OTP feeds. Covers the official-alert republish path that posts to
+the **alerts** Bluesky account (`martaalertinsights`). For the bot-*detected*
+disruptions that also post from this account, see
+[`THIN_GAPS_AND_PULSE.md`](./THIN_GAPS_AND_PULSE.md) (route blackouts) and the
+detector docs ([`GAPS.md`](./GAPS.md), [`GHOSTING.md`](./GHOSTING.md)).
 
 Server-side pairing of official alerts with bot-detected issues into
 `alerts.json` (plan Phase 6) is **not built yet** — this doc covers the alert
@@ -46,9 +49,8 @@ There are two sources, merged in `src/marta/alert/api.js#fetchAlerts` →
 
 ## Significance gate — `src/marta/alert/significance.js`
 
-Pure functions; mirrors `src/metra/metraAlerts.js`. Errs toward silence: a missed
-alert is recoverable, but elevator/ADA/construction spam trains followers to
-ignore the feed.
+Pure functions. Errs toward silence: a missed alert is recoverable, but
+elevator/ADA/construction spam trains followers to ignore the feed.
 
 - **Relevance.** MARTA is a single agency, so any alert scoped to it (a
   route/stop/trip informed entity, or an agency-wide notice) is relevant.
@@ -143,12 +145,12 @@ MARTA announces individual cancelled rail trains in the prose of an otherwise
 generic OTP alert (header `"Rail Service Alert for Blue Line"`, body e.g. *"...the
 3:59 p.m. Blue line departure from Indian Creek is cancelled. Delays continuing
 on the Blue line."*). These are a **point-in-time fact**, not an open
-disruption, so they're modeled like the CTA Metra single-train cancellation
-instead of the ordinary ongoing→resolved lifecycle.
+disruption, so they're modeled as a single-departure cancellation instead of the
+ordinary ongoing→resolved lifecycle.
 
 `classifyRailCancellation({ headline, description, line, anchorTs })` is a pure
-parser (no feed/DB) — the MARTA analog of `src/metra/cancellationAlert.js`, but
-it reads prose rather than resolving a GTFS schedule. It classifies an alert as a
+parser (no feed/DB) that reads the alert prose rather than resolving a GTFS
+schedule. It classifies an alert as a
 cancellation **only when a specific cancelled departure is named** — a clock time
 in the same sentence as cancellation language. It returns the line, the parsed
 scheduled-departure ms (the clock time anchored to the alert's service day in

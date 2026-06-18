@@ -2,47 +2,70 @@
 
 The high-churn public data files (`alerts.json`, `daily-counts.json`, and
 `alerts.csv`) are served from **Cloudflare R2** at
-`https://data.chicagotransitalerts.app`, not committed into the Pages repo. This
-removes the every-~7-minutes data commit (and the deploy it triggered) from
-`cta-alert-history`.
+`https://data.atlantatransitalerts.app`, not committed into the frontend Pages
+repo. This keeps the every-few-minutes data churn (and the deploy it would
+trigger) out of the `atlanta-transit-alerts` site repo.
 
 ## Data flow
 
 ```
-cta-insights (server)                         cta-alert-history (GitHub Pages)
-─────────────────────                         ────────────────────────────────
-bin/push-web-data.sh                          runtime: client fetch()s
-  export-web.js   -> tmp/web-data/alerts.json     https://data.chicago…/alerts.json
-  export-daily.js -> tmp/web-data/daily-counts     (VITE_DATA_BASE_URL, always fresh)
-  export-csv.js   -> tmp/web-data/alerts.csv
+atlanta-transit-insights (server)             atlanta-transit-alerts (GitHub Pages)
+─────────────────────────────────             ─────────────────────────────────────
+bin/marta/push-web-data.sh                     runtime: client fetch()s
+  marta/export-web.js   -> tmp/web-data/alerts.json    https://data.atlanta…/alerts.json
+  marta/export-daily.js -> tmp/web-data/daily-counts   (always fresh)
+  export-csv.js         -> tmp/web-data/alerts.csv
   cmp vs .last  ── unchanged? stop
         │ changed
-        ├─ rclone copyto … r2web:cta-alert-history-data    build time: scripts/fetch-data.js
-        │   (Cache-Control: max-age=30)           pulls the same files from R2 into
-        └─ POST repository_dispatch ─────────►    public/data/, then vite + postbuild
-            {event_type: data-updated}            prerender OG cards / feed
+        ├─ rclone copyto … r2atlanta:atlanta-transit-alerts-data    build time: site fetches the
+        │   (Cache-Control: public, max-age=30)         same files from R2 into public/data/,
+        └─ POST repository_dispatch ─────────►          then prerenders OG cards / feed
+            {event_type: data-updated} to
+            cailinpitt/atlanta-transit-alerts
 ```
 
 - **Live app data** comes straight from R2 — fresh regardless of when the site
   was last built.
-- **Prerendered per-incident OG cards** (for social crawlers) still need a build.
-  That's triggered two ways, mirroring the old dual web-push model:
+- **Prerendered per-incident OG cards** (for social crawlers) still need a build,
+  triggered two ways:
   - **event-driven** — `push-web-data.sh` fires `repository_dispatch` on change,
-  - **catch-up** — `deploy.yml`'s `schedule` (every 30 min) for any missed dispatch.
+  - **catch-up** — the site's scheduled deploy as a backstop for any missed dispatch.
 
-`CHANGELOG.md` stays site-served (low-churn documentation).
+## The publisher — `bin/marta/push-web-data.sh`
+
+Runs from cron (`14-59/15` — the every-post `webPushTrigger` flush kicks it
+immediately on change; this run is the backstop). It:
+
+1. Regenerates `alerts.json` (`bin/marta/export-web.js`), `daily-counts.json`
+   (`bin/marta/export-daily.js`), and `alerts.csv` (`bin/export-csv.js`) into
+   `tmp/web-data/`.
+2. `cmp`s each against the previous run in `tmp/web-data/.last` — **exits early
+   if nothing changed** (no upload, no rebuild).
+3. `rclone copyto`s each changed file to the R2 bucket with
+   `Cache-Control: public, max-age=30`.
+4. POSTs a `repository_dispatch` (`event_type: data-updated`) to the site repo to
+   trigger a rebuild of the prerendered cards.
+
+Configurable via env (defaults in parens): `ATLANTA_INSIGHTS` (repo path),
+`RCLONE_REMOTE` (`r2atlanta:atlanta-transit-alerts-data`), `DISPATCH_REPO`
+(`cailinpitt/atlanta-transit-alerts`), `GITHUB_DISPATCH_TOKEN` (also read from
+`.env` if unset). The crontab passes `NODE` explicitly because cron's `PATH`
+usually lacks node.
 
 ## One-time setup
 
 ### R2 bucket + custom domain (Cloudflare dashboard)
 
-Requires the `chicagotransitalerts.app` zone on Cloudflare (see the DNS
-migration). Then:
+Requires the `atlantatransitalerts.app` zone on Cloudflare. Then:
 
-1. **R2 → Create bucket** → `cta-alert-history-data` (separate from `cta-insights-db-backups`).
-2. **Bucket → Settings → Custom Domains → Connect Domain** → `data.chicagotransitalerts.app`.
-   Cloudflare provisions the cert and auto-creates the proxied DNS record.
-3. **Bucket → Settings → CORS policy** → add:
+1. **R2 → Create bucket** → `atlanta-transit-alerts-data` (separate from the DB
+   backups bucket used by `scripts/marta/backup-db.sh` — see
+   [`MARTA_BACKUPS.md`](./MARTA_BACKUPS.md)).
+2. **Bucket → Settings → Custom Domains → Connect Domain** →
+   `data.atlantatransitalerts.app`. Cloudflare provisions the cert and creates the
+   proxied DNS record.
+3. **Bucket → Settings → CORS policy** → allow `GET`/`HEAD` from `*` (the data is
+   public):
 
    ```json
    [
@@ -55,98 +78,72 @@ migration). Then:
    ]
    ```
 
-   Use `["*"]` (the data is public — see the README "Data as an API"). A
-   specific-origin list also works for CORS, but `*` lets any consumer fetch it
-   cross-origin, which is the documented intent.
-
 ### Edge caching (REQUIRED — do not skip)
 
-   **Without this, every poll and every visitor is proxied to the R2 origin, and
-   R2's TTFB spikes badly under load (observed 4–37s on 2026-06-10) hit real
-   users.** With it, origin is touched only on the ~30s revalidation per edge
-   colo and everyone else gets a fast edge HIT (~70ms TTFB).
+**Without this, every poll and every visitor is proxied to the R2 origin, and
+R2's TTFB spikes badly under load.** With it, origin is touched only on the ~30s
+revalidation per edge colo and everyone else gets a fast edge HIT.
 
-   The blocker is that **R2 always emits `Vary: Origin` on any CORS-matched
-   response — even with `AllowedOrigins: ["*"]`** (confirmed 2026-06-10; the
-   CORS policy alone does NOT remove it). Cloudflare refuses to cache any
-   response whose `Vary` is anything other than `Accept-Encoding`, so the file
-   sits at `cf-cache-status: DYNAMIC` until the header is stripped at the edge.
-   Two rules on the `chicagotransitalerts.app` zone fix it:
+The blocker is that **R2 always emits `Vary: Origin` on any CORS-matched
+response — even with `AllowedOrigins: ["*"]`**. Cloudflare refuses to cache any
+response whose `Vary` is anything other than `Accept-Encoding`, so the file sits
+at `cf-cache-status: DYNAMIC` until the header is stripped at the edge. Two rules
+on the `atlantatransitalerts.app` zone fix it:
 
-   1. **Transform Rules → Modify Response Header → Create:** If _Hostname equals
-      `data.chicagotransitalerts.app`_ → **Remove** header `Vary`. (Runs before
-      the object is written to cache, so it makes the response cacheable. CORS
-      still works — `Access-Control-Allow-Origin: *` is origin-independent.)
-   2. **Caching → Cache Rules → Create:** If _Hostname equals
-      `data.chicagotransitalerts.app`_ → Cache eligibility **Eligible for cache**;
-      Edge TTL **"Use cache-control header if present"** (respects the upload's
-      `max-age=30`). Optionally set Browser TTL **"Respect origin"** too —
-      otherwise Cloudflare rewrites the client-facing `Cache-Control` to the zone
-      default Browser Cache TTL (4h); harmless to the SPA (it fetches `no-cache`)
-      but stale for direct API consumers.
+1. **Transform Rules → Modify Response Header → Create:** If _Hostname equals
+   `data.atlantatransitalerts.app`_ → **Remove** header `Vary`. (Runs before the
+   object is cached, so it makes the response cacheable. CORS still works —
+   `Access-Control-Allow-Origin: *` is origin-independent.)
+2. **Caching → Cache Rules → Create:** If _Hostname equals
+   `data.atlantatransitalerts.app`_ → Cache eligibility **Eligible for cache**;
+   Edge TTL **"Use cache-control header if present"** (respects the upload's
+   `max-age=30`).
 
-   Verify: `curl -sI -H 'Origin: https://chicagotransitalerts.app'
-   https://data.chicagotransitalerts.app/alerts.json | grep -i 'cf-cache-status\|vary'`
-   — expect **no** `Vary: Origin`, and `cf-cache-status` flips `MISS` → `HIT`
-   (with a climbing `age:`, resetting to `REVALIDATED` every ~30s) on repeat
-   requests.
+Verify:
+
+```sh
+curl -sI -H 'Origin: https://atlantatransitalerts.app' \
+  https://data.atlantatransitalerts.app/alerts.json | grep -i 'cf-cache-status\|vary'
+```
+
+Expect **no** `Vary: Origin`, and `cf-cache-status` flips `MISS` → `HIT` on
+repeat requests (resetting to `REVALIDATED` every ~30s).
 
 ### R2 write credentials (server)
 
-The backups token is scoped to `cta-insights-db-backups` only, so the data
-bucket needs its own token + rclone remote (leaving the backup setup untouched).
+The data bucket needs its own token + rclone remote, separate from the DB-backup
+token:
 
 1. **R2 → Manage R2 API Tokens → Create** → Object Read & Write, scoped to
-   **`cta-alert-history-data`** only. Save the Access Key ID, Secret, and the
-   account S3 endpoint.
-2. On the server, add a dedicated `r2web` remote (paste your own creds — stays
-   in `~/.config/rclone/rclone.conf`, never in git):
+   **`atlanta-transit-alerts-data`** only. Save the Access Key ID, Secret, and
+   the account S3 endpoint.
+2. On the server, add a dedicated `r2atlanta` remote (creds stay in
+   `~/.config/rclone/rclone.conf`, never in git):
+
    ```sh
-   rclone config create r2web s3 \
+   rclone config create r2atlanta s3 \
      provider=Cloudflare \
      access_key_id=<ACCESS_KEY_ID> \
      secret_access_key=<SECRET_ACCESS_KEY> \
      endpoint=https://<account-id>.r2.cloudflarestorage.com \
      acl=private
    ```
-   Verify: `rclone lsf r2web:cta-alert-history-data` returns cleanly (empty, no
-   AccessDenied).
+
+   Verify: `rclone lsf r2atlanta:atlanta-transit-alerts-data` returns cleanly.
 
 ### GitHub dispatch token (server)
 
 `push-web-data.sh` needs a token to fire the rebuild. Create a **fine-grained
-PAT** scoped to the `cailinpitt/chicago-transit-alerts` repo with **Contents:
+PAT** scoped to the `cailinpitt/atlanta-transit-alerts` repo with **Contents:
 Read and write** (sufficient to POST `repository_dispatch`). Put it in the
-server's cta-insights env (the same place other secrets live, e.g. `.env` /
-`debugging/config.sh`) as `GITHUB_DISPATCH_TOKEN`, so both cron and the
-event-driven spawn inherit it.
+server's `.env` as `GITHUB_DISPATCH_TOKEN`, so both cron and the event-driven
+spawn inherit it.
 
-## Cutover (flip the switch once the origin is verified)
+## Notes
 
-Do these together, then watch one deploy:
-
-1. **Verify the origin** is live: `curl -I https://data.chicagotransitalerts.app/alerts.json`
-   returns 200 (after `push-web-data.sh` has run once and uploaded).
-2. **Frontend repo** — stop tracking the data files so they leave git history
-   going forward:
-   ```sh
-   git rm --cached public/data/alerts.json public/data/daily-counts.json
-   printf 'public/data/alerts.json\npublic/data/daily-counts.json\n' >> .gitignore
-   ```
-   (`CHANGELOG.md` / `alerts.csv` stay tracked.)
-3. **Deploy** the frontend changes (R2-origin fetch, `prebuild` fetch, new
-   `deploy.yml` triggers). The client reads R2 by default — the origin is baked
-   into `src/lib/dataSource.js` (`VITE_DATA_BASE_URL` only overrides it, e.g.
-   for a staging bucket).
-4. **Server** — deploy the new `push-web-data.sh`, set `GITHUB_DISPATCH_TOKEN`,
-   and confirm a run logs `uploaded to r2web:cta-alert-history-data` + `repository_dispatch
-   … (http 204)`.
-
-## Rollback
-
-The client now reads R2 as its hardcoded default (`src/lib/dataSource.js`); there
-is no longer a site-local `data/` fallback. To revert to the old git-commit flow:
-point `DATA_ORIGIN` back at the site-local `data/` path (or set
-`VITE_DATA_BASE_URL` to it), restore the old `push-web-data.sh` git-commit flow,
-and re-commit the data files. The R2 objects are harmless to leave in place.
-```
+- `alerts.json` is produced by `bin/marta/export-web.js`; the public data shape
+  is documented in the consumer-facing changelog. Keep that changelog updated
+  when the shape changes.
+- The frontend cutover (point the site at the R2 origin, stop tracking the data
+  files in git) lives in the `atlanta-transit-alerts` repo — verify the data-base
+  URL and any fetch fallback there, not here.

@@ -2,60 +2,44 @@
 
 How the bot finds long stretches of route with no vehicles in service — the rider experience of "the schedule says every 10 minutes, but I've been waiting 30."
 
-> **Metra's analog of a gap is a delay.** Commuter rail runs a clockface timetable, not headways, so the rider-facing number isn't "X× the scheduled gap" — it's "my specific train is N minutes late." Metra binds each scheduled `trip_id` to a predicted arrival, so the bot computes `delay = predicted − scheduled` directly (Metra's feed delay field is always 0, so it's derived from predicted times). See `docs/METRA.md` (Phase 3 — delays); trains ≥ 15 min late surface in the hourly per-line rollup.
-
 ## What a "gap" means
 
-The CTA publishes scheduled headways: how often vehicles should arrive on each route. A **gap** is when the actual distance between two consecutive vehicles is large enough — relative to that schedule — that riders in between are waiting much longer than promised.
+MARTA's schedule implies headways: how often vehicles should arrive on each route. A **gap** is when the actual distance between two consecutive vehicles is large enough — relative to that schedule — that riders in between are waiting much longer than promised.
 
-Where bunching is "vehicles too close," gaps are the inverse: vehicles too far apart.
+Where [bunching](./BUNCHING.md) is "vehicles too close," gaps are the inverse: vehicles too far apart.
 
 ## The plain-English version
 
 Every few minutes, the bot:
 
-1. Pulls live positions of every bus/train.
+1. Reads the latest observed positions of every bus/train (recorded by the observe loop).
 2. Sorts vehicles by their position along the route.
 3. For each pair of consecutive vehicles, estimates how long it would take a vehicle to cover the empty stretch at typical service speed.
 4. Compares that estimate to the scheduled headway.
-5. If the gap is more than 2.5× scheduled — and at least 15 minutes for buses or 10 for trains — flags it.
+5. If the gap is more than 2.5× scheduled — and at least 15 minutes for buses or 12 for trains — flags it.
 
 A train post looks like this:
 
-> 🕳️ Red Line — to Howard
+> 🚇 Red Line — to North Springs
 >
-> No trains between Lawrence and Bryn Mawr — a ~24 min gap, scheduled every 7 min
->
-> Last seen: #711 · Next up: #718
+> No trains across ~2.1 mi — a ~24 min gap, scheduled around every 7 min this hour
 
-The post **names the empty stretch as a range** between the two stations flanking it, rather than collapsing it onto a single midpoint stop — a long gap can span several stations, so "near Wilson" both under-states the hole and disagrees with the map. It also frames the number as a **gap between trains**, not "no train for ~24 min": the older phrasing read as "24 minutes since a train was here," but the span measures the distance between the two trains bracketing the stretch (at the midpoint, a rider has waited only about half that).
+The post **names the empty stretch as a range** between the two stops/stations flanking it, rather than collapsing it onto a single midpoint — a long gap can span several stops, so a single anchor both under-states the hole and disagrees with the map. It also frames the number as a **gap between vehicles**, not "no vehicle for ~24 min": the span measures the distance between the two vehicles bracketing the stretch (at the midpoint, a rider has waited only about half that).
 
-The map highlights the empty stretch, tags the two trains **L** (last seen, the one that just passed) and **N** (next up, the one riders are waiting on), and labels the same flanking stations the post names. The post spells the two roles out instead of `(last)`/`(next)` — "the last train" reads as the final train of the night, which is the opposite of what we mean.
-
-On **bus** gaps, the two flanking buses also carry schedule adherence when we can compute it — often the gap itself is a late "next up" bus, so showing it makes the cause legible:
-
-> Last seen: #1934 (on time) · Next up: #8021 (15 min late)
-
-This reuses `scheduleDeviationMin` (see [BUNCHING.md](./BUNCHING.md#schedule-adherence--scheduledeviationmin-bus-only) for how the late/early minutes are derived from each bus's self-reported scheduled start). Either bus may be unplaceable, in which case it shows the bare id. Trains have no per-vehicle schedule anchor, so train gap posts stay id-only.
-
-#### When adherence looks like it contradicts the gap
-
-A wide gap with two near-on-time flanking buses isn't a contradiction or a bug. Schedule adherence (each bus vs *its own* trip) and the gap (empty road *between* two buses) measure different things. When both visible buses are close to schedule, they're just bookends running trips scheduled far apart — and the trips that should run *between* them (cancelled / short-turned / never dispatched) aren't on the street. Roughly, `gap ≈ (trailing.stst − leading.stst) − adherence diff` = the sum of the missing headways.
-
-To keep that from reading as self-contradictory, the post appends a one-line explanation **only in that regime** — gap ≥ 2× the scheduled headway *and* the next-up bus within ~6 min of schedule (so a late bus genuinely can't account for the hole):
-
-> Both buses here are near schedule — the gap is from trips missing between them.
-
-When the next-up bus *is* the cause (e.g. 22 min late), the adherence line already explains the wait, so the note is suppressed. This is a deliberately factual line about what the data shows, not a verdict on the missing trips' cause — we don't assert "cancelled" or "ghost" since they could also be bunched or short-turned elsewhere.
+The map highlights the empty stretch, tags the two flanking vehicles **L** (last seen) and **N** (next up), and labels the flanking stops the post names.
 
 ## The technical version
+
+### The `pdist` analog
+
+MARTA is GTFS-realtime — vehicles report `trip_id` + lat/lon, not distance-along-route. So distance-along-route is reconstructed by projecting each vehicle's position onto its trip's GTFS shape (`src/marta/bus/shapes.js#projectToShape` → `distFt`; rail uses the per-line geometry in `src/marta/rail/lines.js`). See [BUNCHING.md](./BUNCHING.md#the-pdist-analog--srcmartabusshapesjs) for the projection details. Everything below operates on `{shapeId, distFt}` (bus) or `{line, distFt}` (rail) samples.
 
 ### The core comparison
 
 We don't have ride times for empty stretches — no vehicle is there to measure. So we estimate them from a typical service speed:
 
-- Buses: **880 ft/min** (~10 mph, including stops and signals).
-- Trains: **2,200 ft/min** (~25 mph cruise + dwell).
+- Buses: **`TYPICAL_SPEED_FT_PER_MIN` = 880 ft/min** (~10 mph, including stops and signals).
+- Trains: **2,640 ft/min** (~30 mph cruise + dwell).
 
 For two consecutive vehicles separated by `gapFt` along the route:
 
@@ -64,80 +48,57 @@ gapMin = gapFt / TYPICAL_SPEED_FT_PER_MIN
 ratio  = gapMin / expectedHeadwayMin
 ```
 
-The number is intentionally crude. It's only used as a *ratio* against the scheduled headway, not as a literal ETA. A 2.5× ratio is the threshold: a gap that's two and a half times the schedule is worth posting.
+The number is intentionally crude. It's only used as a *ratio* against the scheduled headway, not as a literal ETA. **`RATIO_THRESHOLD` = 2.5** is the bar: a gap two and a half times the schedule is worth posting.
 
-`expectedHeadwayMin` is **per pattern**, not per direction. The GTFS index stores a headway for each origin→dest terminal pair, and the live vehicle's pattern is matched to the right group by its endpoint coordinates (`matchPattern` in `src/shared/gtfs.js`). This matters because a direction often runs several patterns at once — a through route plus owl short-turns or branches — and lumping them together corrupts the scheduled headway: the 66's overnight eastbound through service is every ~30 min, but mixing in the Austin→Pulaski owl short-turns made the old per-direction median read ~6 min, firing false gaps on a normal overnight wait. When a live pattern matches no indexed group, the lookup falls back to the direction's dominant pattern.
+### Where the expected headway comes from — the schedule index
 
-### Buses — `src/bus/gaps.js`
+`scripts/marta/build-schedule-index.js` streams GTFS `stop_times.txt` and writes `data/marta/schedule-index.json` (gitignored, rebuilt nightly by cron). It records, keyed by (shape|route|line, dayType, hour): the median scheduled headway, the median trip duration, and the active-trip count.
 
-For each pattern (`pid`), we already have `pdist` directly from the API, so:
+**Headways are measured per shape**, not per direction — a direction often runs several shapes at once (a through trip plus a branch), and mashing them together yields bogus ~0-min gaps when two leave together. The route/line rollup is the median of its shape headways.
 
-1. Filter to fresh observations (< 3 min).
-2. Sort by `pdist`.
-3. For each adjacent pair: skip if either bus is inside the start/end terminal zone (a route-length-scaled buffer — buses there are doing layovers, not running headways).
-4. Compute `gapMin` and `ratio`. Reject if `gapMin < 15` (absolute floor — protects 30-min-headway routes from spamming on a 31-min drift) or `ratio < 2.5`.
-5. For each surviving gap, find the stops **flanking** it — the named stop just outside each bus (`flankBefore` behind the trailing bus, `flankAfter` ahead of the leading bus, with their lat/lon) — to name the stretch as a range ("between A and B") in the post and label both ends on the map. The post falls back to the single anchor stop ("near X") when a flank is missing.
-6. Sort surviving gaps by `ratio` desc — biggest deviations first.
+- **Bus** gap detection reads `headwayForShape` with a `headwayForRoute` fallback (`src/marta/bus/schedule.js`).
+- **Rail** gap detection reads `headwayForLine` (`src/marta/rail/gaps.js`). Line-level aggregates deliberately sidestep the rail feed's N/S/E/W direction labels not lining up cleanly with GTFS `direction_id`.
 
-Both gap maps share the same look: a warm-amber strip over the empty stretch and a pinned, named stop at each flank. They run on different renderers — the train map (`src/map/train/gaps.js`) reuses the bunching frame with Mapbox `pin-s` station pins; the bus map (`src/map/bus/gaps.js`) composites its own bus-stop sign markers — so the marker glyph differs by mode, but the strip color, the flank labeling, and the L/N vehicle chips match.
+### Buses — `src/marta/bus/gaps.js`
 
-### Trains — `src/train/gaps.js`
+`detectBusGaps(vehicles, { headwayFor, lengthFor, stopsFor })` is the CTA algorithm, generic over `{shapeId, distFt}`; `gapsFromObservations` wires it to MARTA sources. Per shape:
 
-Same idea, but track distance comes from snapping lat/lon onto a polyline (same projection as bunching and speedmap). After snapping:
+1. Sort by `distFt`.
+2. For each adjacent pair: skip if either bus is inside the start/end terminal zone (`terminalZoneFt`, a route-length-scaled buffer — buses there are doing layovers, not running headways).
+3. Compute `gapMin` and `ratio`. Reject if `gapMin < ABSOLUTE_MIN_MIN` (15-min absolute floor — protects 30-min-headway routes from spamming on a 31-min drift) or `ratio < 2.5`.
+4. For each surviving gap, find the stops **flanking** it (`flankBefore` behind the trailing bus, `flankAfter` ahead of the leading bus, with lat/lon) to name the stretch as a range in the post and label both ends on the map. Falls back to a single anchor ("near X") when a flank is missing.
+5. Sort surviving gaps by `ratio` desc — biggest deviations first.
 
-1. Group by `(line, trDr)`, sort by track distance.
-2. Look up the scheduled headway for that line + destination via the GTFS index.
-3. Skip pairs in the terminal zone.
-4. Apply the same ratio + floor gates (10-min floor for trains, since rail headways are tighter).
-5. For each surviving gap, find the stations **flanking** it — the nearest stop just outside each train — to name the stretch as a range ("between A and B") in the post and on the map. A **midpoint** station is still computed as a fallback (used as "near X" when one flank is missing, e.g. a gap reaching toward a terminal) and as the timelapse's wait stop.
+### Trains — `src/marta/rail/gaps.js`
+
+Same idea on the per-line geometry, with `ABSOLUTE_MIN_MIN = 12` (rail headways are tighter) and `headwayForLine` for the expected value. The post (`src/marta/rail/post.js`) names the flanking stations and renders the gap onto a line map (`src/marta/map/railIncidents.js`).
 
 ### Why a ratio, not a literal ETA
 
-Gap times computed this way will be wrong in absolute terms — a real bus on Western at PM peak averages slower than 10 mph. But the schedule headway has the same kind of error baked in (also derived from a smooth model). When you take their ratio, the modeling error cancels: a true 3× deviation looks like 3× regardless of the constant.
-
-This is why the post says "~24 min" with a tilde — it's deliberately approximate.
-
-## Why this approach
-
-The signal we want is "the schedule said one thing, reality is much worse" — and the only ground truth we have is the live spacing of in-service vehicles. By comparing a model-estimated gap to a model-derived headway and gating with a ratio, we catch big deviations without needing a perfect ETA.
-
-The terminal-zone exclusion and the absolute-minute floor are the two filters that keep the false-positive rate low: gaps near terminals look big but mean nothing for riders mid-route, and one bus being 31 minutes apart on a 30-minute schedule isn't a story.
+Gap times computed this way are wrong in absolute terms — a real bus at PM peak averages slower than 10 mph. But the schedule headway has the same kind of modeling error baked in, and when you take their ratio the error cancels: a true 3× deviation looks like 3× regardless of the constant. That's why the post says "~24 min" with a tilde — it's deliberately approximate.
 
 ## Timelapse reply
 
-After the still gap post goes out, the bot captures a ~10-minute timelapse and threads it as a reply — but framed around the rider's real question, *"is my train coming?"*, not the inter-vehicle span a bunching clip reports.
+After the still gap post goes out, the bot threads a ~10-minute timelapse (`src/marta/bus/video.js` / `src/marta/rail/video.js`, via the maps in `src/marta/map/{busGap,railIncidents}.js`), built from the observe-loop DB history. The clip follows the trailing ("Next up") vehicle approaching the wait stop so the camera holds still while the next vehicle advances across the empty stretch — the motion *is* the story. Motion + dropout handling go through the shared `src/shared/videoTracks.js` kernel (see [BUNCHING.md](./BUNCHING.md#timelapse-video)).
 
-The clip **follows only the trailing ("Next up") vehicle approaching the wait stop** — which is the **gap midpoint**, not the leading-end stop the post names. The leading vehicle is dropped entirely: it already left, and on bad gaps it sits near a terminal, which would force the bbox miles wide and shrink the markers to specks. Anchoring at the midpoint also halves the distance the next vehicle must cover, so it's actually reachable in a 10-minute clip (a full 15+ min gap never is). By framing `[trailing vehicle path → midpoint stop]`, the camera holds still while the next vehicle advances across it, and the motion *is* the story.
+## Why this approach
 
-**Wording leads with the full gap, not just the ETA, and names the midpoint stop.** Because the wait stop is the midpoint, the ticking ETA is only the time to cover the *remaining* (back) half — it drops the time the rider already waited since the last vehicle passed. So the HUD leads with the total gap and labels the ETA's destination, and the reply flags the stop as "the middle of the gap" so a reader understands why the train still has ground to cover:
+The signal we want is "the schedule said one thing, reality is much worse" — and the only ground truth we have is the live spacing of in-service vehicles. By comparing a model-estimated gap to a model-derived headway and gating with a ratio, we catch big deviations without needing a perfect ETA. The terminal-zone exclusion and the absolute-minute floor are the two filters that keep false positives low.
 
-- A live **HUD readout** top-left: `~24-min gap · next train ~5 min to Wilson` (the gap is fixed; the ETA ticks down). It tracks the train through the stop across three states keyed on the signed distance to the midpoint: `~N min to Wilson` while approaching → `reaching Wilson` within the arrival window → `has left Wilson` once it passes (clips sometimes run on past the midpoint). Naming the stop matches the amber label on the map.
-- An **amber target ring + amber label** on the midpoint wait stop (same amber as the gap strip) so the eye lands on where the vehicle is heading.
-- The trailing vehicle's **N** chip + comet trail, the direction arrow, and the clip clock.
+## Cooldowns and the cap
 
-The reply leads with the gap, then reports the concrete progress against the midpoint stop, tying in the "Next up" run number: *"~24 min Red Line gap. 4 minutes later, the next train (#718) had closed to within ~0.87 mi of Wilson — the middle of the gap."* — or, on arrival, *"The next train (#718) reached Wilson — the middle of the gap — 4 minutes later."*
-
-**Deep gaps fall back to the still map** (no reply). Two guards enforce this: skip before capturing if the trailing vehicle's distance to the *midpoint* is too far to close in 10 minutes (>5 mi train / >3 mi bus — the readable-frame ceiling), and skip after capturing if it never meaningfully closed (<0.25 mi train / <0.125 mi bus) and didn't arrive. The worst gaps stay newsworthy as a still.
+Gap posting reuses the `src/marta/shared/incidents.js` lifecycle: per-shape/route (bus) and per-line (rail) cooldowns plus a daily cap with severity-escalation overrides. The cooldown uses a decaying margin (1.25× → 1.1× over the hour) with a sustained-severity escape (≥ 20 min & ≥ 3.0×), so an aging/worsening gap re-posts rather than being suppressed by an earlier, milder one on the same route.
 
 ## Files
 
-- `src/bus/gaps.js` — bus gap detection.
-- `src/bus/gapPost.js` — bus post + timelapse reply text.
-- `src/bus/gapVideo.js` — bus gap timelapse capture + clip assembly.
-- `src/train/gaps.js` — train gap detection with along-track snapping and station labeling.
-- `src/train/gapPost.js` — train post + timelapse reply text.
-- `src/train/gapVideo.js` — train gap timelapse capture + clip assembly.
-- `src/map/bus/gaps.js`, `src/map/train/gaps.js` — still gap maps + timelapse framing views.
-- `src/shared/geo.js` — terminal zone helpers (`terminalZoneFt`).
-- `bin/bus/gaps.js`, `bin/train/gaps.js` — cron entry points (`--video` dry-run flag renders the clip locally).
-
-## Train gap cap
-
-Train gaps cap at 2 posted events per **rush period** per line — AM (05–10), midday (10–15), PM (15–20), evening (20–05) — instead of per Chicago day. Each rush gets its own budget so two morning Red posts don't suppress an actual evening incident.
-
-When the rush-period cap is hit, the post is bypassed if either correlated signal fires:
-
-- A pulse on the same line within the last 30 min.
-- A ghost-detector near-miss (recorded to `meta_signals`) within the last 90 min.
-
-Otherwise the suppressed gap still gets a `meta_signals` row at severity proportional to its ratio, so `bin/incident-roundup.js` can incorporate it into the cross-detector roundup score.
+- `src/marta/bus/shapes.js` — projection to `distFt` (the `pdist` analog).
+- `src/marta/bus/schedule.js` — schedule index loader + `headwayForShape` / `headwayForRoute` / `headwayForLine`.
+- `src/marta/bus/gaps.js` — bus gap detection (`detectBusGaps`, `gapsFromObservations`).
+- `src/marta/rail/gaps.js` — rail gap detection (line-level headways).
+- `src/marta/bus/gapPost.js`, `src/marta/rail/post.js` — post + alt + video reply text.
+- `src/marta/map/{busGap,railIncidents}.js` — still gap maps + timelapse framing.
+- `src/marta/{bus,rail}/video.js`, `src/shared/videoTracks.js` — timelapse capture + dropout kernel.
+- `src/shared/geo.js` — terminal-zone helper (`terminalZoneFt`).
+- `src/marta/shared/incidents.js` — cooldown / cap / escalation.
+- `scripts/marta/build-schedule-index.js` — nightly schedule-index build.
+- `bin/marta/bus/gaps.js`, `bin/marta/rail/gaps.js` — cron entry points (`--dry-run`, `--check`).

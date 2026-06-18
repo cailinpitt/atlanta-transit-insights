@@ -1,20 +1,40 @@
 # Porting `cta-insights` → `atlanta-transit-insights`
 
 This repo is a fork-first port of [`cta-insights`](https://github.com/cailinpitt/cta-insights)
-to MARTA / Atlanta. Because we copied the Chicago tree wholesale, CTA-specific code
-will sit unused until it is either ported or deleted. This file is the source of truth
-for **what is CTA-only and slated for removal**, so dead Chicago code doesn't quietly
-accumulate.
+to MARTA / Atlanta.
 
-## The governing rule
+## Status: CTA tree removed
 
-> Keep CTA code **only while it is serving as a reference** for the MARTA version you are
-> writing. Once the MARTA analog exists — or you've decided there is no analog — **delete
-> it in the same change**. Nothing stays in the tree marked "might be useful."
+**The legacy CTA/Metra tree has been deleted.** All live code is under
+`src/marta/`, `bin/marta/`, `scripts/marta/`, and `test/marta/`. The only
+non-MARTA code that remains is:
 
-The **MARTA crontab (`cron/crontab.txt`) is the reachability root.** If a `bin/` script
-is not in the MARTA schedule and nothing imports it, it is dead. See the knip workflow
-below for the mechanical check.
+- **`src/shared/`** — trimmed to the 11 agency-agnostic modules MARTA actually
+  reuses: `cleanup, env, geo, ghostFormat, observationDescribe, polyline, post,
+  projection, retry, videoTracks, webPushTrigger`. Everything else (the CTA
+  alerts adapter, the `history`/`observations`/`gtfs`/`state` SQLite layer, the
+  CTA `recap`/`relatedQuotes`/`directionLabel`/etc.) was deleted — MARTA has its
+  own equivalents under `src/marta/`.
+- **`bin/export-csv.js`** — agency-agnostic CSV generator, still called by
+  `bin/marta/push-web-data.sh`.
+- **`scripts/configure-healthchecks.js`, `scripts/install-logrotate.sh`,
+  `cron/logrotate.conf`, `cron/healthchecks.env.example`** — ops tooling pending
+  a slug/path rebrand for MARTA.
+
+## The governing rule (still in force)
+
+> Keep CTA-derived code **only while it is serving as a reference** for the MARTA
+> version you are writing. Once the MARTA analog exists — or you've decided there is
+> no analog — **delete it in the same change**. Nothing stays in the tree marked
+> "might be useful."
+
+The **MARTA crontab (`cron/marta-crontab.txt`) is the reachability root.** If a `bin/`
+script is not in the MARTA schedule and nothing imports it, it is dead. See the knip
+workflow at the bottom for the mechanical check.
+
+> **The per-module tables below are historical** — they recorded the original
+> CTA→MARTA disposition during the port. The PORT/KEEP rows are done; the
+> DELETE/REFERENCE→DELETE rows have been carried out. Kept for provenance.
 
 ## MARTA vs CTA, in one paragraph
 

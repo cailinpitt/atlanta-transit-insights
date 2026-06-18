@@ -31,4 +31,16 @@ function buildAltText(cluster, ctx) {
   return `Map${where} showing ${cluster.trains.length} trains from ${cluster.lineCount} lines (${lines}) bunched within ${formatDistance(cluster.spanFt)} of each other.`;
 }
 
-module.exports = { buildPostText, buildAltText };
+function buildVideoPostText(video, cluster) {
+  const elapsed = video?.elapsedSec
+    ? `${Math.max(1, Math.round(video.elapsedSec / 60))} min`
+    : 'Several minutes';
+  return `${elapsed} of recent movement from this ${cluster.trains.length}-train, ${cluster.lineCount}-line pileup.`;
+}
+
+function buildVideoAltText(cluster, ctx = {}) {
+  const where = ctx.placeName ? ` at ${ctx.placeName}` : '';
+  return `Timelapse map${where} showing recent movement of ${cluster.trains.length} bunched trains from ${cluster.lineCount} lines.`;
+}
+
+module.exports = { buildPostText, buildAltText, buildVideoPostText, buildVideoAltText };

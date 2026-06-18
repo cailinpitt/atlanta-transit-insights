@@ -152,7 +152,12 @@ bins consult `incidents.recentCrossBunchMemberIds()` and **skip** any candidate
 sharing ≥ 2 vehicles with a recently-posted pileup, so the same physical pileup
 is never posted twice.
 
-Static map only for v1; timelapse video is a follow-up.
+Each cross-route post replies with a ~10-min timelapse
+(`src/marta/map/crossBunchingVideo.js`). Since the cluster spans routes there's
+no single polyline to glide along, so motion is a free lat/lon interpolation
+through the shared dropout kernel (`src/shared/videoTracks.js`, `pointAlong` =
+null) — discs ease between observed positions and fade out if a vehicle drops
+from the feed. Built from the observe-loop DB history (no live polling).
 
 ### Cron
 

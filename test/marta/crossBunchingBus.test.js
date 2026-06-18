@@ -1,6 +1,11 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { detectCrossRouteBunches, groupByRoute } = require('../../src/marta/bus/crossBunching');
+const {
+  detectCrossRouteBunches,
+  groupByRoute,
+  isAtTerminal,
+  LAYOVER_TERMINAL_FT,
+} = require('../../src/marta/bus/crossBunching');
 
 const NOW = Date.UTC(2026, 5, 17, 16, 0, 0);
 const FT_PER_MILLIDEG_LAT = 364;
@@ -42,6 +47,34 @@ test('drops stale fixes', () => {
     at('c', '102', 400, { tmstmp: NOW - 5 * 60 * 1000 }),
   ];
   assert.equal(detectCrossRouteBunches(vs, { now: NOW }).length, 0);
+});
+
+test('layoverIds buses are dropped before clustering', () => {
+  // 3 buses / 2 routes would normally post; but a + c are laying over → dissolves.
+  const vs = [at('a', '110', 0), at('b', '816', 200), at('c', '102', 400)];
+  assert.equal(
+    detectCrossRouteBunches(vs, { now: NOW, layoverIds: new Set(['a', 'c']) }).length,
+    0,
+  );
+  // A real through-bus (d) joining two layover buses still doesn't reach 2 routes.
+  const vs2 = [at('a', '110', 0), at('b', '110', 100), at('c', '816', 200), at('d', '816', 300)];
+  // Drop the two #816 layover buses → only #110 left → single-route → no post.
+  assert.equal(
+    detectCrossRouteBunches(vs2, { now: NOW, layoverIds: new Set(['c', 'd']) }).length,
+    0,
+  );
+  // Without the layover tag the same set posts.
+  assert.equal(detectCrossRouteBunches(vs2, { now: NOW }).length, 1);
+});
+
+test('isAtTerminal flags positions within margin of either shape end', () => {
+  const len = 10000;
+  assert.equal(isAtTerminal(100, len), true); // near start
+  assert.equal(isAtTerminal(len - 100, len), true); // near end
+  assert.equal(isAtTerminal(5000, len), false); // mid-route
+  assert.equal(isAtTerminal(LAYOVER_TERMINAL_FT + 1, len), false); // just past the start zone
+  assert.equal(isAtTerminal(NaN, len), false);
+  assert.equal(isAtTerminal(100, 0), false); // degenerate shape
 });
 
 test('groupByRoute numbers buses across routes, biggest group first', () => {

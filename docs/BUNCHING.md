@@ -133,6 +133,28 @@ and keep clusters passing three gates:
 Radius defaults: **660 ft** bus, **1,500 ft** rail. Rank most-vehicles-first,
 tie-break tightest span.
 
+### Layover gate (bus)
+
+Transit centers are also bus **layover** points: at Doraville, Lindbergh, Five
+Points, etc. several routes terminate and rest between trips in the off-street
+bays. Those parked buses look exactly like a congested multi-route pileup to the
+geographic detector (≥ 2 routes, ≥ 3 vehicles, all "stopped"), so the bus bin
+tags **layover buses and drops them before clustering** (`detectCrossRouteBunches`
+accepts a `layoverIds` set). A parked bus is a layover if **either**:
+
+- **At a terminal** — its position projects to within `LAYOVER_TERMINAL_FT`
+  (750 ft) of the start or end of its trip's shape (`isAtTerminal`).
+- **At a station bay** — its nearest GTFS stop is within `STATION_BAY_FT`
+  (600 ft) and is named like a rail-station bay (`/\bstation\b/i`, e.g.
+  *"Doraville Station - Bay D"*).
+
+The station-bay signal matters because layover bays sit back from the route line:
+a bus resting in *Bay D* can project too far off its shape to read as "at the
+terminal" (or fail to project at all), yet the bay name still identifies it. Only
+**parked** buses are eligible, so a bus driving *through* a terminal on a live run
+is unaffected. CTA's bin uses the terminal half of this only — see that repo's
+note on why a station-proximity signal would blanket the dense Loop.
+
 ### Posting & the place key
 
 The bins (`bin/marta/{bus,rail}/cross-bunching.js`) post to the bus / train

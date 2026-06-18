@@ -13,7 +13,12 @@ const argv = require('minimist')(process.argv.slice(2));
 const { loadGtfs } = require('../../../src/marta/gtfs');
 const { loadShapes, projectObservation, shapeForTrip } = require('../../../src/marta/bus/shapes');
 const { haversineFt } = require('../../../src/shared/geo');
-const { detectCrossRouteBunches, groupByRoute } = require('../../../src/marta/bus/crossBunching');
+const {
+  detectCrossRouteBunches,
+  groupByRoute,
+  isAtTerminal,
+  STATION_BAY_FT,
+} = require('../../../src/marta/bus/crossBunching');
 const { findParkedBusVids } = require('../../../src/marta/bus/bunching');
 const { nearestStop } = require('../../../src/marta/bus/stops');
 const storage = require('../../../src/marta/storage');
@@ -145,7 +150,28 @@ async function main() {
   }
   const stoppedIds = findParkedBusVids(projectedWindow);
 
-  const clusters = detectCrossRouteBunches(vehicles, { now, stoppedIds });
+  // Layover gate: a parked bus sitting at its route terminal OR at a rail-station
+  // bus bay is between trips, not stuck in traffic. Several routes lay over
+  // together at the same transit center (Doraville, Lindbergh, …), which would
+  // otherwise read as a multi-route pileup. Drop these before clustering. The
+  // off-route slack is widened since layover bays sit back from the route line.
+  const STATION_NAME_RE = /\bstation\b/i;
+  const layoverIds = new Set();
+  for (const v of vehicles) {
+    if (!stoppedIds.has(v.vehicleId)) continue;
+    const shape = shapeForTrip(gtfs, shapes, v.tripId);
+    const proj = projectObservation(v, { gtfs, shapes, maxOffrouteFt: 1500 });
+    let layover = !!(shape && proj && isAtTerminal(proj.distFt, shape.lengthFt));
+    if (!layover) {
+      const near = nearestStop(gtfs, v.lat, v.lon);
+      layover = !!(near && near.distFt <= STATION_BAY_FT && STATION_NAME_RE.test(near.stopName));
+    }
+    if (layover) layoverIds.add(v.vehicleId);
+  }
+  if (layoverIds.size > 0)
+    console.log(`Excluding ${layoverIds.size} layover bus(es) at terminals/bays`);
+
+  const clusters = detectCrossRouteBunches(vehicles, { now, stoppedIds, layoverIds });
   if (!argv['dry-run']) {
     const closed = incidents.reconcileBunchingEvents({
       kind: 'bus-multi',

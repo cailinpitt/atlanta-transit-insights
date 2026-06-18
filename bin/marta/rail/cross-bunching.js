@@ -174,7 +174,7 @@ async function main() {
 
   let image;
   try {
-    image = await renderCrossBunchingMap({ points, legend, title: mapTitle });
+    image = await renderCrossBunchingMap({ points, legend, title: mapTitle, markerKind: 'train' });
   } catch (e) {
     console.warn(`Map render failed (${e.message}); will post text-only`);
     image = null;
@@ -244,7 +244,11 @@ async function main() {
           label: String(labels.get(o.trainId) ?? '?'),
           groupIndex: groupIndexByLine.get(o.line) ?? 0,
         }));
-      const video = await captureCrossBunchingVideo(videoRows, { legend, title: mapTitle });
+      const video = await captureCrossBunchingVideo(videoRows, {
+        legend,
+        title: mapTitle,
+        markerKind: 'train',
+      });
       if (!video) {
         console.log('Rail timelapse history produced <2 frames, skipping reply');
         return;

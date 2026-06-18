@@ -16,7 +16,7 @@ const TAIL_FADE_MS = 60 * 1000;
 // members of the cluster. Returns { buffer, elapsedSec } or null (<2 snapshots).
 async function captureCrossBunchingVideo(
   memberRows,
-  { legend = [], title = '', interpolate = INTERPOLATE } = {},
+  { legend = [], title = '', markerKind = 'bus', interpolate = INTERPOLATE } = {},
 ) {
   const rows = (memberRows || []).filter(
     (r) => Number.isFinite(r?.lat) && Number.isFinite(r?.lon) && Number.isFinite(r?.ts),
@@ -68,6 +68,7 @@ async function captureCrossBunchingVideo(
       await renderCrossFrame(view, baseMap, frames[i], {
         legend,
         title,
+        markerKind,
         clock: { elapsedSec: (times[i] - startTs) / 1000, totalSec },
       }),
     );

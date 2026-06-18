@@ -126,6 +126,49 @@ test('drops an unpaired single detector instead of making a standalone event', (
   );
 });
 
+test('co-posted route-silence disruptions get distinct incident ids', () => {
+  // thin-gaps / pulse bundle several silent routes into one Bluesky rollup post,
+  // so each route's disruption row shares one post_uri. The export must still
+  // give each route its own incident id, or co-posted routes collide on one
+  // event page and all but the first are unreachable on the site.
+  const SHARED_URI = 'at://did:plc:bus/app.bsky.feed.post/rollup777';
+  incidents.recordDisruption(
+    {
+      kind: 'bus',
+      line: '21',
+      source: 'observed-thin',
+      posted: true,
+      postUri: SHARED_URI,
+      evidence: { headwayMin: 40, windowMin: 80, missedTrips: 2 },
+    },
+    NOW + 60 * 60_000,
+  );
+  incidents.recordDisruption(
+    {
+      kind: 'bus',
+      line: '116',
+      source: 'observed-thin',
+      posted: true,
+      postUri: SHARED_URI,
+      evidence: { headwayMin: 30, windowMin: 60, missedTrips: 2 },
+    },
+    NOW + 60 * 60_000,
+  );
+
+  const out = buildExport(storage.getDb(), NOW + 65 * 60_000);
+  const r21 = out.incidents.filter(
+    (i) => (i.routes || []).includes('21') && i.sources[0] === 'bot',
+  );
+  const r116 = out.incidents.filter(
+    (i) => (i.routes || []).includes('116') && i.sources[0] === 'bot',
+  );
+  assert.equal(r21.length, 1);
+  assert.equal(r116.length, 1);
+  assert.equal(r21[0].id, 'rollup777-21');
+  assert.equal(r116[0].id, 'rollup777-116');
+  assert.notEqual(r21[0].id, r116[0].id);
+});
+
 test('reconciliation resolves a detector folded under an official alert', () => {
   const ts = NOW + 40 * 60_000;
   seedAlert(

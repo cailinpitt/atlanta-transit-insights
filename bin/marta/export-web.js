@@ -586,11 +586,19 @@ function disruptionDetection(row) {
 }
 
 function buildIncidentFromDisruption(det) {
+  // A single Bluesky rollup post can list several routes (thin-gaps / pulse
+  // bundle every silent route into one thread). Each route records its own
+  // disruption row pointing at that shared post_uri, so keying the incident id
+  // on the post rkey alone collides — co-posted routes would share one event
+  // page and all but the first would be unreachable. Suffix the canonical route
+  // so each route gets a stable, distinct, shareable id.
+  const rkey = postUrlRkey(det.post_url);
+  const outRoute = canonicalRoute(det.route);
   return {
-    id: postUrlRkey(det.post_url) ?? det.id,
+    id: rkey ? `${rkey}-${outRoute}` : det.id,
     agency: 'marta',
     mode: det.mode,
-    routes: [canonicalRoute(det.route)],
+    routes: [outRoute],
     sources: ['bot'],
     lifecycle: lifecycleBlock({
       firstSeenTs: det.ts,

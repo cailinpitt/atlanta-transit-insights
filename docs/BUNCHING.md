@@ -104,6 +104,65 @@ that reappeared under a different `pid` is a *proven* turnaround (forced via an
 explicit `turnaroundEnd`), and the U-turn glyph **parks** at the terminus rather
 than fading (`turnaroundPark`).
 
+## Cross-route / cross-line bunching (MARTA)
+
+> The sections above this point still describe the CTA original. The MARTA live
+> bunching detectors are `src/marta/{bus,rail}/bunching.js`; what follows is the
+> MARTA-accurate description of the cross-route feature.
+
+The per-route detectors group by one shape (`src/marta/bus/bunching.js`, keyed on
+`shapeId`/`distFt`) or one `(line, direction)` (`src/marta/rail/bunching.js`).
+They can't see a pileup where vehicles from *different* routes converge on one
+spot — a knot of buses from different routes at one intersection, or RED + GOLD
+trains stacked at **Five Points** (where all four lines converge) or on the
+shared N-S / E-W trunks. Each route's `distFt` is a separate coordinate system,
+so the per-route sweep never compares across routes.
+
+Cross-route bunching is a **geographic** detector. The new primitive is
+`src/marta/shared/geoClusters.js#clusterByProximity`: connected-components
+clustering on raw lat/lon. The surface detectors
+(`src/marta/{bus,rail}/crossBunching.js`) run it over the whole fleet snapshot
+and keep clusters passing three gates:
+
+1. **≥ 2 distinct routes/lines** — else it's ordinary bunching.
+2. **≥ 3 vehicles** — a pileup, not a pair.
+3. **Congestion** — ≥ 2 members barely-moving. Bus reuses `findParkedBusVids`;
+   rail is intrinsic — a train whose `motionSign` is `null` (moved < 100 ft over
+   the window in `latestTrainPositions`) counts as stopped.
+
+Radius defaults: **660 ft** bus, **1,500 ft** rail. Rank most-vehicles-first,
+tie-break tightest span.
+
+### Posting & the place key
+
+The bins (`bin/marta/{bus,rail}/cross-bunching.js`) post to the bus / train
+account with an intersection map (`src/marta/map/crossBunching.js`): each vehicle
+is a numbered disc colored by route, plus a legend. The lifecycle reuses
+`src/marta/shared/incidents.js` (cooldown, cap, callouts, `reconcileBunchingEvents`
+for the web export) but is **keyed on the place** (nearest GTFS stop, else a
+rounded centroid) under a new `kind` (`bus-multi` / `rail-multi`). Place name
+comes from `nearestStop(gtfs, …)`, which scans all GTFS stops (rail platforms
+included).
+
+### Suppression (cross-route beats per-route)
+
+The cross-route bin runs **1 minute before** the per-route bin. When it posts, it
+records the cluster's member ids (`bunching_events.member_ids`); the per-route
+bins consult `incidents.recentCrossBunchMemberIds()` and **skip** any candidate
+sharing ≥ 2 vehicles with a recently-posted pileup, so the same physical pileup
+is never posted twice.
+
+Static map only for v1; timelapse video is a follow-up.
+
+### Cron
+
+The two cross-bunching jobs are in `cron/marta-crontab.txt`, each scheduled 1
+min before its per-route job (`bin/marta/bus/cross-bunching.js` at `1-59/5`,
+before bus bunching at `2-59/5`; `bin/marta/rail/cross-bunching.js` at `7-59/5`,
+before rail bunching at `8-59/5`). Apply to the server with
+`scripts/marta/install-crontab.sh` as usual — it marker-merges the block,
+substitutes paths, and creates the `state/logs` targets.
+
 ## Why this approach
 
 The signal is geometric, not statistical: vehicles on the same pattern, close together, in service territory. Most of the code is filtering — terminal layovers, ghost reports, opposite-direction noise — to make sure the post matches what a rider on the street would actually see.

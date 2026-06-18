@@ -113,6 +113,12 @@ async function main() {
     }
   }
 
+  // Buses already covered by a recently-posted cross-route pileup (the
+  // cross-bunching bin runs just before this one). A per-route candidate that
+  // is mostly the same buses is the same physical pileup — the multi-route post
+  // is the better story, so suppress this one. See src/marta/bus/crossBunching.js.
+  const crossClaimed = argv['dry-run'] ? new Set() : incidents.recentCrossBunchMemberIds();
+
   let bunch = null;
   let cooldownOverridden = false;
   for (const candidate of activeBunches) {
@@ -141,6 +147,16 @@ async function main() {
     }
 
     if (!argv['dry-run']) {
+      const overlap = candidate.vehicles.filter((v) =>
+        crossClaimed.has(String(v.vehicleId)),
+      ).length;
+      if (overlap >= 2) {
+        console.log(
+          `  skip shape ${candidate.shapeId}: ${overlap} buses already covered by a cross-route pileup`,
+        );
+        recordSkip(candidate);
+        continue;
+      }
       const shapeKey = `shape:${candidate.shapeId}`;
       const routeKey = `route:${candidate.route}`;
       const cd = isOnCooldown(shapeKey) || isOnCooldown(routeKey);

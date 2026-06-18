@@ -25,6 +25,10 @@
 # Bus bunching detect→post (martabusinsights). Every 5 min, offset off the observe
 # minutes; reads the latest snapshot the observe loop recorded (no extra fetch).
 # Posting volume is bounded by per-shape+route 1h cooldowns and a 3/route/day cap.
+# Cross-route bus pileup (martabusinsights). Every 5 min, 1 min BEFORE the
+# per-route bunching job so a posted multi-route pileup suppresses the per-route
+# post for the same buses (recentCrossBunchMemberIds, 10-min window).
+1-59/5 * * * * cd __REPO__ && __NODE__ bin/marta/bus/cross-bunching.js >> __REPO__/state/logs/bus-cross-bunching.log 2>&1
 2-59/5 * * * * cd __REPO__ && __NODE__ bin/marta/bus/bunching.js >> __REPO__/state/logs/bus-bunching.log 2>&1
 # Bus gap detect→post (martabusinsights). Every 5 min, offset from bunching.
 # Reads the latest observed snapshot; bounded by per-shape+route cooldowns and
@@ -43,6 +47,10 @@
 14-59/5 * * * * cd __REPO__ && __NODE__ bin/marta/bus/pulse.js >> __REPO__/state/logs/bus-pulse.log 2>&1
 # Rail gap and bunching detect→post (martatraininsights). Offset from bus jobs.
 6-59/5 * * * * cd __REPO__ && __NODE__ bin/marta/rail/gaps.js >> __REPO__/state/logs/rail-gaps.log 2>&1
+# Cross-line rail pileup (martatraininsights). 1 min BEFORE the per-line bunching
+# job so a posted multi-line pileup (e.g. RED+GOLD at Five Points) suppresses the
+# per-line post for the same trains.
+7-59/5 * * * * cd __REPO__ && __NODE__ bin/marta/rail/cross-bunching.js >> __REPO__/state/logs/rail-cross-bunching.log 2>&1
 8-59/5 * * * * cd __REPO__ && __NODE__ bin/marta/rail/bunching.js >> __REPO__/state/logs/rail-bunching.log 2>&1
 # Rail ghost rollup and speedmap rotation (martatraininsights).
 10-59/15 * * * * cd __REPO__ && __NODE__ bin/marta/rail/ghosts.js >> __REPO__/state/logs/rail-ghosts.log 2>&1

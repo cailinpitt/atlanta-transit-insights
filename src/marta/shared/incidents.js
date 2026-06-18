@@ -183,6 +183,9 @@ function getDb() {
       addColumnIfMissing(db, table, 'resolved_ts', 'INTEGER');
       addColumnIfMissing(db, table, 'resolved_post_uri', 'TEXT');
     }
+    // member_ids = JSON array of the vehicle/train ids in a cross-route bunch,
+    // used to suppress the per-route post for the same pileup (see crossBunching).
+    addColumnIfMissing(db, 'bunching_events', 'member_ids', 'TEXT');
     addColumnIfMissing(db, 'ghost_events', 'canceled_trips', 'INTEGER');
     addColumnIfMissing(db, 'ghost_events', 'unexplained_missing', 'REAL');
     for (const [name, type] of [
@@ -228,14 +231,14 @@ function startOfDayET(ts) {
 }
 
 function recordBunching(
-  { kind, route, direction, vehicleCount, severityFt, nearStop, posted, postUri },
+  { kind, route, direction, vehicleCount, severityFt, nearStop, posted, postUri, memberIds },
   now = Date.now(),
 ) {
   getDb()
     .prepare(`
       INSERT INTO bunching_events
-        (ts, kind, route, direction, vehicle_count, severity_ft, near_stop, posted, post_uri, last_seen_ts)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        (ts, kind, route, direction, vehicle_count, severity_ft, near_stop, posted, post_uri, last_seen_ts, member_ids)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `)
     .run(
       now,
@@ -248,10 +251,32 @@ function recordBunching(
       posted ? 1 : 0,
       postUri || null,
       posted ? now : null,
+      memberIds && memberIds.length ? JSON.stringify(memberIds.map(String)) : null,
     );
   // A posted detection is the only kind the web export reads; it may fold into
   // an active alert/roundup incident, so refresh the published data.
   if (posted && postUri) markWebPushPending();
+}
+
+// The vehicle/train ids in cross-route bunches (`kind` ending in `-multi`)
+// posted within `withinMs`. The per-route bunching bins consult this to
+// suppress the per-route post for a pileup the cross-route bin already covered.
+function recentCrossBunchMemberIds({ withinMs = 10 * 60 * 1000 } = {}, now = Date.now()) {
+  const rows = getDb()
+    .prepare(`
+      SELECT member_ids FROM bunching_events
+      WHERE kind LIKE '%-multi' AND posted = 1 AND member_ids IS NOT NULL AND ts >= ?
+    `)
+    .all(now - withinMs);
+  const ids = new Set();
+  for (const row of rows) {
+    try {
+      for (const id of JSON.parse(row.member_ids)) ids.add(String(id));
+    } catch {
+      // tolerate a malformed row rather than crash the bin
+    }
+  }
+  return ids;
 }
 
 // Must be called BEFORE recordBunching writes the current event, otherwise the
@@ -844,6 +869,7 @@ module.exports = {
   getDb,
   startOfDayET,
   recordBunching,
+  recentCrossBunchMemberIds,
   reconcileBunchingEvents,
   bunchingCallouts,
   formatCallouts,

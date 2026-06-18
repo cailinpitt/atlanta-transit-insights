@@ -7,6 +7,7 @@ const {
   isSignificantAlert,
   alertRelevance,
   entityMode,
+  alertDisplayName,
   buildAlertText,
   buildResolutionText,
 } = require('../../src/marta/alert/significance');
@@ -100,9 +101,13 @@ test('irrelevant alert (no scope) is never significant', () => {
   assert.equal(isSignificantAlert({ effect: 'NO_SERVICE', informedEntities: [] }), false);
 });
 
-test('post text stays within Bluesky 300-grapheme limit', () => {
-  const text = buildAlertText(railAlert, 'rail');
-  assert.ok(text.includes(railAlert.header));
+test('post text leads with the descriptive name and stays within 300 graphemes', () => {
+  const rel = alertRelevance(railAlert);
+  const text = buildAlertText(railAlert, rel);
+  // Leads with the synthesized scannable name, not MARTA's generic header.
+  assert.ok(text.includes(alertDisplayName(railAlert, rel)));
+  // MARTA's verbatim prose still follows in the body.
+  if (railAlert.description) assert.ok(text.includes(railAlert.description.slice(0, 40)));
   assert.match(text, /Per MARTA/);
   assert.ok([...text].length <= 300);
 });

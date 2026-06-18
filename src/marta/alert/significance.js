@@ -18,6 +18,7 @@
 const { graphemeLength } = require('../../shared/post');
 const { isStreetcarRoute } = require('../routeKeys');
 const { LINES: RAIL_LINES } = require('../rail/api');
+const { buildAlertDisplayName } = require('./displayName');
 
 const EMOJI_WARN = '⚠️';
 // GTFS route_type: 0 tram/streetcar, 1 subway/metro (MARTA heavy rail), 3 bus.
@@ -170,11 +171,29 @@ function truncateSentence(s, maxChars) {
   return `${slice.slice(0, lastSpace > 0 ? lastSpace : maxChars)}…`;
 }
 
-// Bluesky post text for a republished MARTA alert: mode emoji + header +
-// truncated body + provenance. Falls back to a header-only form when the full
-// text exceeds Bluesky's 300-grapheme limit.
-function buildAlertText(alert, mode = 'general') {
-  const head = alert.header || 'Service alert';
+// The scannable display name for an alert ("Green Line partial service"),
+// synthesized from its mode + affected routes + nature. Replaces MARTA's generic
+// header ("Rail Service Alert for Green Line") as the post's lead line; MARTA's
+// verbatim prose still follows in the body. `rel` is alertRelevance(alert).
+function alertDisplayName(alert, rel) {
+  return buildAlertDisplayName({
+    header: alert.header ?? null,
+    description: alert.description ?? null,
+    mode: rel?.mode ?? 'general',
+    routes: rel?.routes ?? [],
+    effect: alert.effect ?? null,
+  });
+}
+
+// Bluesky post text for a republished MARTA alert: mode emoji + descriptive name
+// + truncated body + provenance. Falls back to a name-only form when the full
+// text exceeds Bluesky's 300-grapheme limit. `rel` is alertRelevance(alert)
+// (mode + affected routes); a bare mode string is still accepted for callers
+// that only have the mode.
+function buildAlertText(alert, rel = 'general') {
+  const relObj = typeof rel === 'string' ? { mode: rel, routes: [] } : rel;
+  const mode = relObj.mode || 'general';
+  const head = alertDisplayName(alert, relObj) || alert.header || 'Service alert';
   const prefix = `${MODE_EMOJI[mode] || EMOJI_WARN}${EMOJI_WARN}`;
   const parts = [`${prefix} ${head}`];
   if (alert.description) {
@@ -200,6 +219,7 @@ module.exports = {
   isSignificantAlert,
   alertRelevance,
   entityMode,
+  alertDisplayName,
   buildAlertText,
   buildResolutionText,
 };

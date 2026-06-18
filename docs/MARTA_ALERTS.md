@@ -72,6 +72,43 @@ elevator/ADA/construction spam trains followers to ignore the feed.
   `routeId`. Rail wins when an alert spans modes. This `mode` is the agency/mode
   field the website export will key on.
 
+## Display name — `src/marta/alert/displayName.js`
+
+MARTA's own `alertHeaderText` is generic (*"Rail Service Alert for Green Line"*,
+*"Rail Service Alert for Red/Gold lines"*) — useless for scanning a list. The
+real information is in the description prose and the structured `effect`.
+`buildAlertDisplayName({ header, description, mode, routes, effect })` is a pure
+helper that synthesizes a short, scannable name:
+
+- **Subject** — the affected line(s)/route(s): `Green Line`, `Red/Gold Line`,
+  `Streetcar`, `Route 110`, `Routes 110, 49`, or `MARTA` (agency-wide).
+- **Nature** — the disruption phrase, keyword-scanned over header + description
+  first (most precise: `single-tracking`, `service suspended`, `partial
+  service`, `shuttle service`, `detour`, `station closure`, `delays`, …), then
+  the structured `effect`, then a generic `service alert`.
+
+Result: *"Green Line partial service"*, *"Route 110 detour"*. It deliberately
+**omits the station segment** — that surfaces as a separate `from → to` subtitle
+on the website (from `scope.from_station`/`to_station`), not in the name.
+
+**Fallback.** Only when we pin down *neither* a route subject (so subject falls
+to `MARTA`) *nor* a recognizable nature (so it falls to `service alert`) does the
+synthesized name lose to MARTA's own wording — there it returns the **raw
+`alertHeaderText`** instead of the vaguer *"MARTA service alert"*. A real route
+subject is always kept (*"Green Line service alert"* beats *"Rail Service Alert
+for Green Line"*). With no header to fall back to, it stays *"MARTA service
+alert"*.
+
+Used in both places so the bot post and the website never diverge:
+
+- **Bluesky post** (`significance.js#buildAlertText`) leads with the name; MARTA's
+  verbatim prose still follows in the body. The resolution reply uses it too.
+- **Website export** (`bin/marta/export-web.js`) emits it as `official_alert.headline`
+  (and rewrites each `versions[].headline`, since the site's "stable
+  first-version headline" drives the title). `description` keeps MARTA's verbatim
+  text. Re-derived at export — nothing is stored, so it backfills historical
+  alerts on the next run.
+
 ## Lifecycle store — `src/marta/alert/store.js`
 
 Owns `alert_posts` + `alert_versions` on the shared MARTA SQLite file (its own

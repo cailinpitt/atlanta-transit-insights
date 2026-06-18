@@ -11,6 +11,7 @@ const { canonicalMode, canonicalRoute, routeMatchKey } = require('../../src/mart
 const { describeBotEvidenceBullets } = require('../../src/shared/observationDescribe');
 const { classifyRailCancellation } = require('../../src/marta/alert/cancellation');
 const { ensureSchema: ensureAlertSchema } = require('../../src/marta/alert/store');
+const { buildAlertDisplayName } = require('../../src/marta/alert/displayName');
 
 const DB_PATH =
   process.env.MARTA_HISTORY_DB_PATH || Path.join(__dirname, '..', '..', 'state', 'marta.sqlite');
@@ -96,13 +97,30 @@ function officialScope(alert) {
   };
 }
 
+// Synthesize the scannable display title for an official alert (or one of its
+// text versions) from the affected routes + the nature of the disruption. The
+// generic MARTA header ("Rail Service Alert for Green Line") is replaced by this
+// for the event title; MARTA's verbatim prose is preserved in `description`. The
+// affected station segment is NOT folded in here — the website renders it as a
+// separate "from → to" subtitle from `scope`.
+function displayHeadline(alert, mode, routes, { header, description } = {}) {
+  return buildAlertDisplayName({
+    header: header ?? alert.headline ?? null,
+    description: description ?? alert.description ?? null,
+    mode,
+    routes,
+    effect: alert.effect ?? null,
+  });
+}
+
 function officialAlertBlock(alert) {
   const routes = canonicalRoutes(alert.routes);
+  const mode = canonicalMode(alert.mode, routes);
   const block = {
     id: alert.alert_id,
-    mode: canonicalMode(alert.mode, routes),
+    mode,
     routes,
-    headline: alert.headline ?? null,
+    headline: displayHeadline(alert, mode, routes),
     description: alert.description ?? null,
     cause: alert.cause ?? null,
     effect: alert.effect ?? null,
@@ -119,7 +137,23 @@ function officialAlertBlock(alert) {
       end_ts: alert.active_end_ts ?? null,
     },
   };
-  if (alert.versions?.length > 1) block.versions = alert.versions;
+  // Rewrite each text version's headline through the same synthesizer so the
+  // website's "stable first-version headline" title is the descriptive name too
+  // (not the raw MARTA header). The version's own routes/text drive it, falling
+  // back to the alert's mode/routes/effect; `description` is left untouched so
+  // the "Per MARTA" timeline still shows MARTA's verbatim prose.
+  if (alert.versions?.length > 1) {
+    block.versions = alert.versions.map((v) => {
+      const vRoutes = v.routes != null ? canonicalRoutes(parseRoutes(v.routes)) : routes;
+      return {
+        ...v,
+        headline: displayHeadline(alert, mode, vRoutes.length ? vRoutes : routes, {
+          header: v.headline,
+          description: v.description,
+        }),
+      };
+    });
+  }
   return block;
 }
 

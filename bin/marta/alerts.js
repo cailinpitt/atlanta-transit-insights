@@ -18,6 +18,7 @@ const { fetchAlerts } = require('../../src/marta/alert/api');
 const {
   isSignificantAlert,
   alertRelevance,
+  alertDisplayName,
   buildAlertText,
   buildResolutionText,
 } = require('../../src/marta/alert/significance');
@@ -99,7 +100,7 @@ function periodBounds(alert) {
 }
 
 async function postNewAlert(alert, rel, agentGetter, now = Date.now()) {
-  const text = buildAlertText(alert, rel.mode);
+  const text = buildAlertText(alert, rel);
   const period = periodBounds(alert);
 
   if (DRY_RUN) {
@@ -150,8 +151,23 @@ async function postResolution(alertRow, agentGetter) {
     return;
   }
 
-  const link = resolvedEventLink(alertRow.post_uri, alertRow.headline || 'MARTA alert resolved');
-  const baseText = buildResolutionText(alertRow.headline);
+  // Lead the resolution reply with the same descriptive name as the original
+  // post, synthesized from the stored row, not MARTA's generic header.
+  const displayName =
+    alertDisplayName(
+      { header: alertRow.headline, description: alertRow.description, effect: alertRow.effect },
+      {
+        mode: alertRow.mode,
+        routes: (alertRow.routes || '')
+          .split(',')
+          .map((r) => r.trim())
+          .filter(Boolean),
+      },
+    ) ||
+    alertRow.headline ||
+    'MARTA alert resolved';
+  const link = resolvedEventLink(alertRow.post_uri, displayName);
+  const baseText = buildResolutionText(displayName);
   const text = link ? `${baseText}\n\n${link.url}` : baseText;
 
   if (DRY_RUN) {

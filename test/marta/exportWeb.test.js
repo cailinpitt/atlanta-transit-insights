@@ -92,6 +92,8 @@ test('pairs posted bot detections with matching official alerts', () => {
   assert.equal(incident.detections[0].source, 'gap');
   assert.equal(incident.detections[0].post_url, atUriToUrl(GAP_URI));
   assert.equal(incident.lifecycle.active, true);
+  // Official "delays" alert + a bot gap → producer-classified delay status.
+  assert.equal(incident.status?.type, 'delay');
 });
 
 test('drops an unpaired single detector instead of making a standalone event', () => {
@@ -248,10 +250,46 @@ test('uses alerts-account roundup as bot incident anchor and folds detector evid
     incident.detections.map((det) => det.source),
     ['roundup', 'gap'],
   );
+  // A roundup whose signals include a gap is a delay incident.
+  assert.equal(incident.status?.type, 'delay');
   assert.equal(
     out.incidents.some((row) => row.id === 'gap996'),
     false,
   );
+});
+
+test('delay status: a non-delay alert with no gap gets no status; a gapless roundup does not either', () => {
+  // Official alert whose nature is a detour (not delays), no paired gap.
+  seedAlert(
+    {
+      alertId: 'alert-detour',
+      mode: 'bus',
+      routes: '55',
+      headline: 'Route 55 detour',
+      description: 'Route 55 is detouring around road construction.',
+      effect: 'DETOUR',
+      postUri: 'at://did:plc:alerts/app.bsky.feed.post/detour55',
+    },
+    NOW + 80 * 60_000,
+  );
+  // Roundup driven purely by bunching — a gapless bot incident.
+  incidents.recordRoundupAnchor({
+    kind: 'bus',
+    line: '60',
+    postUri: 'at://did:plc:martaalerts/app.bsky.feed.post/roundup60',
+    postCid: 'cid-roundup60',
+    ts: NOW + 80 * 60_000,
+    signals: ['bunching'],
+    bullets: [{ source: 'bunching', detail: {} }],
+  });
+
+  const out = buildExport(storage.getDb(), NOW + 85 * 60_000);
+  const detour = out.incidents.find((i) => i.official_alert?.id === 'alert-detour');
+  assert.ok(detour);
+  assert.equal(detour.status, undefined);
+  const bunchRoundup = out.incidents.find((i) => i.id === 'roundup60');
+  assert.ok(bunchRoundup);
+  assert.equal(bunchRoundup.status, undefined);
 });
 
 test('reconciliation resolves the superseded detector but keeps the newest active', () => {

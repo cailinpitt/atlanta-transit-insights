@@ -11,7 +11,7 @@ const { canonicalMode, canonicalRoute, routeMatchKey } = require('../../src/mart
 const { describeBotEvidenceBullets } = require('../../src/shared/observationDescribe');
 const { classifyRailCancellation } = require('../../src/marta/alert/cancellation');
 const { ensureSchema: ensureAlertSchema } = require('../../src/marta/alert/store');
-const { buildAlertDisplayName } = require('../../src/marta/alert/displayName');
+const { buildAlertDisplayName, alertNature } = require('../../src/marta/alert/displayName');
 
 const DB_PATH =
   process.env.MARTA_HISTORY_DB_PATH || Path.join(__dirname, '..', '..', 'state', 'marta.sqlite');
@@ -382,6 +382,46 @@ function cancellationStatus(alert, now) {
   };
 }
 
+// True when a set of detection records includes a headway gap — a felt delay.
+// Accepts raw detector records (with `.source`) and/or built detection blocks (a
+// roundup block carries its sub-signals in `.evidence.signals`). Bunching,
+// ghost, thin-gap, and pulse are deliberately NOT treated as delays.
+function recordsIncludeGap(records) {
+  for (const d of records || []) {
+    if (d?.source === 'gap') return true;
+    const sigs = d?.evidence?.signals;
+    if (Array.isArray(sigs) && sigs.includes('gap')) return true;
+  }
+  return false;
+}
+
+// True when an official alert's nature is "delays" — reuses the display-name
+// synthesizer's classification (SIGNIFICANT_DELAYS effect or "delay" wording),
+// so a more-specific nature like detour / partial-service correctly does NOT
+// count as a delay even if the prose mentions delays in passing.
+function alertReportsDelay(alert) {
+  return (
+    alertNature({
+      header: alert.headline,
+      description: alert.description,
+      effect: alert.effect,
+      mode: canonicalMode(alert.mode, canonicalRoutes(alert.routes)),
+    }) === 'delays'
+  );
+}
+
+// Incident-level "delays" status — the producer-classified signal the website
+// reads to show its amber "Delays" badge (the MARTA analog of CTA's Metra delay
+// status). Set when an official alert reports delays OR a bot headway gap is
+// present; null otherwise. A cancellation status (terminal) takes precedence and
+// is set separately by the caller.
+function delayStatus({ alert = null, records = [] }) {
+  if ((alert && alertReportsDelay(alert)) || recordsIncludeGap(records)) {
+    return { type: 'delay' };
+  }
+  return null;
+}
+
 function routeMatches(alert, det) {
   if (!alert.routes || alert.routes.length === 0) return true;
   const detRoute = normalizeRoute(det.route);
@@ -664,7 +704,7 @@ function detectorMatchesRoundup(roundup, det) {
   return true;
 }
 
-function buildIncidentFromRoundup(roundup, matches) {
+function buildIncidentFromRoundup(roundup, matches, status = null) {
   // The roundup anchor owns the incident lifecycle, matching CTA: the anchor's
   // own clear-ticks resolution sweep (bin/marta/incident-roundup.js) decides when
   // service is back to normal. Paired gap/bunch/ghost detectors are evidence only
@@ -689,6 +729,7 @@ function buildIncidentFromRoundup(roundup, matches) {
     }),
     official_alert: null,
     detections: [detectionBlock(roundup), ...matches.map(detectionBlock)],
+    ...(status ? { status } : {}),
   };
 }
 
@@ -696,14 +737,17 @@ function buildIncidents(alerts, detections, roundups = [], disruptions = [], now
   const usedDetections = new Set();
   const incidents = [];
   for (const alert of alerts) {
-    const status = cancellationStatus(alert, now);
+    const cancellation = cancellationStatus(alert, now);
     // A single-departure cancellation is a point-in-time fact, not an open
     // disruption — it must NOT absorb unrelated same-line gap/bunch/ghost
     // detections that merely fall in the time window (mirrors the CTA export's
     // planned-Metra merge guard). Leave it a marta-only incident.
     const matches =
-      status?.type === 'cancellation' ? [] : findMatches(alert, detections, usedDetections);
+      cancellation?.type === 'cancellation' ? [] : findMatches(alert, detections, usedDetections);
     for (const det of matches) usedDetections.add(det.id);
+    // Cancellation (terminal) wins; otherwise classify a "delays" status from the
+    // alert's nature or a paired bot gap.
+    const status = cancellation ?? delayStatus({ alert, records: matches });
     incidents.push(buildIncidentFromAlert(alert, matches, status));
   }
   for (const roundup of roundups) {
@@ -711,7 +755,10 @@ function buildIncidents(alerts, detections, roundups = [], disruptions = [], now
       .filter((det) => !usedDetections.has(det.id) && detectorMatchesRoundup(roundup, det))
       .sort((a, b) => Math.abs(a.ts - roundup.ts) - Math.abs(b.ts - roundup.ts));
     for (const det of matches) usedDetections.add(det.id);
-    incidents.push(buildIncidentFromRoundup(roundup, matches));
+    // A roundup is a "delays" incident when its own signals or any paired
+    // detector include a headway gap.
+    const status = delayStatus({ records: [roundup, ...matches] });
+    incidents.push(buildIncidentFromRoundup(roundup, matches, status));
   }
   // Route-silence disruptions stand alone (see readDisruptions) — they have no
   // co-occurring signal to pair into a roundup or alert.

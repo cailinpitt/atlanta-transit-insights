@@ -30,6 +30,7 @@ const {
   renderCrossBunchingMap,
   pointsFromCluster,
 } = require('../../../src/marta/map/crossBunching');
+const { lineColor } = require('../../../src/marta/map/railIncidents');
 const { captureCrossBunchingVideo } = require('../../../src/marta/map/crossBunchingVideo');
 const {
   buildPostText,
@@ -51,6 +52,22 @@ function placeFor(gtfs, centroid) {
   const placeName = near && near.distFt <= PLACE_MAX_FT ? near.stopName : null;
   const placeKey = placeName || `${centroid.lat.toFixed(3)},${centroid.lon.toFixed(3)}`;
   return { placeName, placeKey };
+}
+
+// Route-line overlays for the map: each involved line's geometry, colored to
+// match its discs + legend (groupIndex = index in groupOrder). The map module
+// clips each to the framed intersection, so passing the whole line is fine.
+// Best-effort — a line with no geometry just renders without a trace line.
+function buildRoutePaths(lineGeom, groupOrder) {
+  const paths = [];
+  for (let groupIndex = 0; groupIndex < groupOrder.length; groupIndex++) {
+    const geom = lineGeom.get(groupOrder[groupIndex]);
+    const points = (geom?.points || [])
+      .filter((p) => Number.isFinite(p.lat) && Number.isFinite(p.lon))
+      .map((p) => ({ lat: p.lat, lon: p.lon }));
+    if (points.length >= 2) paths.push({ points, groupIndex });
+  }
+  return paths;
 }
 
 function recordSkip(cluster, placeKey, placeName, suppressed) {
@@ -171,10 +188,22 @@ async function main() {
     legendLabelOf: (l) => lineTitle(l),
   });
   const mapTitle = `${chosen.trains.length} trains · ${chosen.lineCount} lines`;
+  const groupLines = byLine.map((g) => g.line);
+  const routePaths = buildRoutePaths(lineGeom, groupLines);
+  // Official MARTA line colors (RED, GOLD, BLUE, GREEN) so each disc + line reads
+  // as its real line rather than an arbitrary palette swatch.
+  const colors = groupLines.map((line) => lineColor(line));
 
   let image;
   try {
-    image = await renderCrossBunchingMap({ points, legend, title: mapTitle, markerKind: 'train' });
+    image = await renderCrossBunchingMap({
+      points,
+      legend,
+      title: mapTitle,
+      markerKind: 'train',
+      routePaths,
+      colors,
+    });
   } catch (e) {
     console.warn(`Map render failed (${e.message}); will post text-only`);
     image = null;
@@ -248,6 +277,8 @@ async function main() {
         legend,
         title: mapTitle,
         markerKind: 'train',
+        routePaths,
+        colors,
       });
       if (!video) {
         console.log('Rail timelapse history produced <2 frames, skipping reply');

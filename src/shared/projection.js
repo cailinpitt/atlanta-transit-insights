@@ -35,4 +35,15 @@ function project(lat, lon, centerLat, centerLon, zoom, widthPx, heightPx) {
   };
 }
 
-module.exports = { fitZoom, project };
+// Invert latToY / lonToX (Web Mercator) back to lat/lon — used to recover the
+// geographic bounds of a rendered frame from its center + zoom.
+function xToLon(x) {
+  return x * 360 - 180;
+}
+
+function yToLat(y) {
+  const rad = 2 * (Math.atan(Math.exp(Math.PI * (1 - 2 * y))) - Math.PI / 4);
+  return (rad * 180) / Math.PI;
+}
+
+module.exports = { fitZoom, project, lonToX, latToY, xToLon, yToLat, TILE_SIZE };

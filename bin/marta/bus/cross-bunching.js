@@ -11,7 +11,8 @@ const Path = require('node:path');
 const argv = require('minimist')(process.argv.slice(2));
 
 const { loadGtfs } = require('../../../src/marta/gtfs');
-const { loadShapes, projectObservation } = require('../../../src/marta/bus/shapes');
+const { loadShapes, projectObservation, shapeForTrip } = require('../../../src/marta/bus/shapes');
+const { haversineFt } = require('../../../src/shared/geo');
 const { detectCrossRouteBunches, groupByRoute } = require('../../../src/marta/bus/crossBunching');
 const { findParkedBusVids } = require('../../../src/marta/bus/bunching');
 const { nearestStop } = require('../../../src/marta/bus/stops');
@@ -58,6 +59,30 @@ function placeFor(gtfs, centroid) {
   const placeName = near && near.distFt <= PLACE_MAX_FT ? near.stopName : null;
   const placeKey = placeName || `${centroid.lat.toFixed(3)},${centroid.lon.toFixed(3)}`;
   return { placeName, placeKey };
+}
+
+// Route-line overlays for the map: for each route group, draw the GTFS shape the
+// pileup is sitting on. We pick the clustered bus of that route nearest the
+// centroid and resolve its trip's shape (buses in a bunch share a trip pattern,
+// so any of them resolves the same line through the corner). groupIndex matches
+// the disc color so each line ties to its vehicles + legend. Best-effort — a
+// route whose shape won't resolve is just left without a line.
+function buildRoutePaths(gtfs, shapes, cluster, groupOrder) {
+  const paths = [];
+  for (let groupIndex = 0; groupIndex < groupOrder.length; groupIndex++) {
+    const route = groupOrder[groupIndex];
+    const members = cluster.vehicles.filter((v) => v.route === route && v.tripId);
+    if (members.length === 0) continue;
+    const rep = members.reduce((a, b) =>
+      haversineFt(b, cluster.centroid) < haversineFt(a, cluster.centroid) ? b : a,
+    );
+    const shape = shapeForTrip(gtfs, shapes, rep.tripId);
+    const points = (shape?.points || [])
+      .filter((p) => Number.isFinite(p.lat) && Number.isFinite(p.lon))
+      .map((p) => ({ lat: p.lat, lon: p.lon }));
+    if (points.length >= 2) paths.push({ points, groupIndex });
+  }
+  return paths;
 }
 
 function recordSkip(cluster, placeKey, placeName, suppressed) {
@@ -108,6 +133,7 @@ async function main() {
       lat: o.lat,
       lon: o.lon,
       tmstmp: o.ts,
+      tripId: o.tripId,
     });
   }
 
@@ -204,10 +230,22 @@ async function main() {
     legendLabelOf: (r) => routeTitles.get(r) || `Route ${r}`,
   });
   const mapTitle = `${chosen.vehicles.length} buses · ${chosen.routeCount} routes`;
+  const routePaths = buildRoutePaths(
+    gtfs,
+    shapes,
+    chosen,
+    byRoute.map((g) => g.route),
+  );
 
   let image;
   try {
-    image = await renderCrossBunchingMap({ points, legend, title: mapTitle, markerKind: 'bus' });
+    image = await renderCrossBunchingMap({
+      points,
+      legend,
+      title: mapTitle,
+      markerKind: 'bus',
+      routePaths,
+    });
   } catch (e) {
     console.warn(`Map render failed (${e.message}); will post text-only`);
     image = null;
@@ -286,6 +324,7 @@ async function main() {
         legend,
         title: mapTitle,
         markerKind: 'bus',
+        routePaths,
       });
       if (!video) {
         console.log('Timelapse history produced <2 frames, skipping reply');

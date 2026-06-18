@@ -144,6 +144,37 @@ rounded centroid) under a new `kind` (`bus-multi` / `rail-multi`). Place name
 comes from `nearestStop(gtfs, …)`, which scans all GTFS stops (rail platforms
 included).
 
+**Route lines under the discs.** Like the per-route bunching maps, the still
+image and the timelapse draw each involved route's polyline baked into the
+Mapbox base map as a `path-` overlay (black halo + a route-colored core), so a
+viewer sees the lines that are actually converging on the pileup — e.g. RED and
+GOLD running through Five Points — not just a floating cluster of discs. The
+bins source the geometry per group from GTFS shapes: buses resolve the clustered
+bus nearest the centroid to its trip's shape (`shapeForTrip(gtfs, shapes,
+tripId)`); rail uses the line geometry (`buildLineGeometry(gtfs, shapes)`). That
+goes to the map as `routePaths: [{ points, groupIndex }]`.
+
+`buildRoutePathOverlays` then, per line:
+
+- **Clips to the visible frame**, grown ~35% on each side (`clipPathToView` →
+  `frameBounds`, which recovers the rendered viewport's lat/lon from its
+  center + zoom). Keeping one point past each boundary crossing means a route
+  that continues beyond the pileup runs all the way *off* every edge instead of
+  stopping short — at any zoom, including the wider window the video frames over.
+- **Thins** the survivors to ≤ 120 vertices (`thinPolylinePoints`). MARTA rail
+  shapes carry a vertex roughly every 6 ft (~22k points on the RED line), so
+  without thinning the encoded `path-` overlays would blow the Mapbox static URL
+  length with several lines packed into one request.
+- **Colors** the core to match that group's discs + legend. Rail passes official
+  MARTA line colors (`lineColor` — RED, GOLD, BLUE, GREEN) via the map's `colors`
+  option, so a line reads as its real self rather than an arbitrary palette
+  swatch; buses, which have no canonical color, fall back to the palette
+  (`colorForGroup`). All halos are drawn first, then all cores, so where two
+  routes cross a core is never buried under another route's halo.
+
+Route-line sourcing is best-effort — a route whose shape won't resolve just
+posts without its trace line.
+
 ### Suppression (cross-route beats per-route)
 
 The cross-route bin runs **1 minute before** the per-route bin. When it posts, it

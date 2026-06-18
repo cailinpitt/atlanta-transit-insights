@@ -9,7 +9,16 @@
 // (src/marta/map/crossBunchingVideo.js) can render many frames against one
 // fetched base map — the still map is just a one-frame render.
 const sharp = require('sharp');
-const { fitZoom, project } = require('../../shared/projection');
+const {
+  fitZoom,
+  project,
+  lonToX,
+  latToY,
+  xToLon,
+  yToLat,
+  TILE_SIZE,
+} = require('../../shared/projection');
+const { encode } = require('../../shared/polyline');
 const {
   STYLE,
   WIDTH,
@@ -22,15 +31,32 @@ const {
   markerLabelChip,
   measureTextWidth,
   buildClipProgress,
+  thinPolylinePoints,
   xmlEscape,
 } = require('./common');
 
 const PALETTE = ['ff2a6d', '27c4f5', 'a162e8', 'ffd166', '06d6a0', 'f78c6b', 'ff8c42', 'c0c0c0'];
 const MARKER_RADIUS = 32;
 const LEGEND_FONT = 26;
+// Route-line overlay strokes (per-group color core over a black halo, the same
+// halo/core idiom the per-route bunching maps use). Thinner than the per-route
+// 14/8 because a cross-route frame can carry several lines at once.
+const ROUTE_PATH_HALO_STROKE = 11;
+const ROUTE_PATH_CORE_STROKE = 6;
+const ROUTE_PATH_HALO_COLOR = '000';
+// Grow the clip past the visible frame so route lines that continue beyond the
+// pileup always run fully off every edge rather than stopping at the border.
+const FRAME_CLIP_MARGIN = 0.35;
 
 function colorForIndex(i) {
   return PALETTE[i % PALETTE.length];
+}
+
+// Color for a route group: a caller-supplied per-group color (e.g. official rail
+// line colors — RED, GOLD…) when present, else the generic palette (buses, which
+// have no canonical color). `colors` is aligned to groupIndex.
+function colorForGroup(groupIndex, colors) {
+  return colors?.[groupIndex] || colorForIndex(groupIndex);
 }
 
 // Measured text widths are stable per (label, size) and the legend text repeats
@@ -79,18 +105,80 @@ function computeCrossView(points) {
   const centerLat = (padded.minLat + padded.maxLat) / 2;
   const centerLon = (padded.minLon + padded.maxLon) / 2;
   const zoom = Math.max(12, Math.min(17, Math.floor(fitZoom(padded, WIDTH, HEIGHT, 90))));
-  return { centerLat, centerLon, zoom };
+  return { centerLat, centerLon, zoom, bbox: padded };
 }
 
-async function fetchCrossBaseMap(view) {
+// Geographic bounds of the rendered frame, recovered from its center + zoom and
+// grown by `margin` (fraction of the frame) on every side. Clipping route lines
+// to *this* — the actual viewport, not the data bbox — is what guarantees a line
+// that continues past the pileup runs all the way off every edge, at any zoom.
+function frameBounds(view, margin = FRAME_CLIP_MARGIN) {
+  const worldSize = TILE_SIZE * 2 ** view.zoom;
+  const cx = lonToX(view.centerLon);
+  const cy = latToY(view.centerLat);
+  const halfX = (WIDTH / 2 / worldSize) * (1 + margin);
+  const halfY = (HEIGHT / 2 / worldSize) * (1 + margin);
+  return {
+    minLon: xToLon(cx - halfX),
+    maxLon: xToLon(cx + halfX),
+    maxLat: yToLat(cy - halfY), // smaller mercator-y = higher latitude
+    minLat: yToLat(cy + halfY),
+  };
+}
+
+// Keep only the stretch of a route polyline that's within (a slightly grown)
+// frame. A full shape runs miles past this intersection view; baking the whole
+// thing wastes Mapbox URL budget (several routes at once) and draws nothing
+// visible. We keep a point whenever it OR a neighbor is inside, so a segment
+// crossing the boundary keeps its outside endpoint and the line runs to the
+// frame edge instead of stopping short.
+function clipPathToView(points, view) {
+  if (!Array.isArray(points) || points.length < 2 || !view) return [];
+  const box = frameBounds(view);
+  const inside = (p) =>
+    p &&
+    Number.isFinite(p.lat) &&
+    Number.isFinite(p.lon) &&
+    p.lat >= box.minLat &&
+    p.lat <= box.maxLat &&
+    p.lon >= box.minLon &&
+    p.lon <= box.maxLon;
+  const kept = points.filter((p, i) => inside(p) || inside(points[i - 1]) || inside(points[i + 1]));
+  return kept.length >= 2 ? kept : [];
+}
+
+// Mapbox static `path-` overlays for each route group's polyline, clipped to the
+// view and colored to match that group's discs + legend. All halos first, then
+// all cores, so where two routes cross a core is never buried under another
+// route's halo. `routePaths`: [{ points:[{lat,lon}], groupIndex }].
+function buildRoutePathOverlays(routePaths, view, colors) {
+  const halos = [];
+  const cores = [];
+  for (const rp of routePaths || []) {
+    // Clip to the frame, then thin so a dense GTFS shape (a vertex every few
+    // feet) doesn't blow the Mapbox static URL length with several lines at once.
+    const pts = thinPolylinePoints(clipPathToView(rp?.points, view), 120);
+    if (pts.length < 2) continue;
+    const encoded = encodeURIComponent(encode(pts.map((p) => [p.lat, p.lon])));
+    halos.push(`path-${ROUTE_PATH_HALO_STROKE}+${ROUTE_PATH_HALO_COLOR}(${encoded})`);
+    cores.push(
+      `path-${ROUTE_PATH_CORE_STROKE}+${colorForGroup(rp.groupIndex, colors)}(${encoded})`,
+    );
+  }
+  return [...halos, ...cores];
+}
+
+async function fetchCrossBaseMap(view, routePaths = [], colors = []) {
   const token = requireMapboxToken();
-  const url = `https://api.mapbox.com/styles/v1/${STYLE}/static/${view.centerLon.toFixed(5)},${view.centerLat.toFixed(5)},${view.zoom.toFixed(2)}/${WIDTH}x${HEIGHT}@2x?access_token=${token}`;
+  const overlays = buildRoutePathOverlays(routePaths, view, colors);
+  const overlaySeg = overlays.length ? `${overlays.join(',')}/` : '';
+  const url = `https://api.mapbox.com/styles/v1/${STYLE}/static/${overlaySeg}${view.centerLon.toFixed(5)},${view.centerLat.toFixed(5)},${view.zoom.toFixed(2)}/${WIDTH}x${HEIGHT}@2x?access_token=${token}`;
   return fetchMapboxStatic(url, 20000);
 }
 
 // Legend bottom-left: a color swatch + route label per group, in a box sized to
 // the widest label (measured) so long names don't spill past the background.
-async function buildLegend(legend) {
+async function buildLegend(legend, colors) {
   if (!legend.length) return '';
   const padX = 16;
   const r = 14;
@@ -108,7 +196,7 @@ async function buildLegend(legend) {
   ];
   legend.forEach((g, i) => {
     const cy = y0 + 16 + i * rowH + rowH / 2 - 8;
-    const color = `#${colorForIndex(g.groupIndex)}`;
+    const color = `#${colorForGroup(g.groupIndex, colors)}`;
     els.push(
       `<circle cx="${x0 + padX + r}" cy="${cy}" r="${r}" fill="${color}" stroke="#fff" stroke-width="2"/>`,
       `<text x="${x0 + textX}" y="${cy + 9}" fill="#fff" font-family="Inter, Helvetica, Arial, sans-serif" font-size="${LEGEND_FONT}" font-weight="600">${xmlEscape(g.label)}</text>`,
@@ -125,7 +213,7 @@ async function renderCrossFrame(
   view,
   baseMap,
   vehicles,
-  { legend = [], title = '', clock = null, markerKind = 'bus' } = {},
+  { legend = [], title = '', clock = null, markerKind = 'bus', colors = [] } = {},
 ) {
   const inner = markerKind === 'train' ? TWEMOJI_TRAIN_INNER : TWEMOJI_BUS_INNER;
   const raw = vehicles.map((p) =>
@@ -137,7 +225,7 @@ async function renderCrossFrame(
       x: sep[i].x,
       y: sep[i].y,
       radius: MARKER_RADIUS,
-      color: colorForIndex(p.groupIndex),
+      color: colorForGroup(p.groupIndex, colors),
       inner,
       opacity: p.opacity ?? 1,
     }),
@@ -148,7 +236,7 @@ async function renderCrossFrame(
     return op < 1 && chip ? `<g opacity="${op}">${chip}</g>` : chip;
   });
 
-  const legendEl = await buildLegend(legend);
+  const legendEl = await buildLegend(legend, colors);
 
   const titleEls = [];
   if (title) {
@@ -174,11 +262,18 @@ async function renderCrossFrame(
 // `points`: [{ lat, lon, label, groupIndex }]. `legend`: [{ label, groupIndex }].
 // `markerKind`: 'bus' | 'train'. Returns a JPEG buffer (single frame); throws
 // (caller posts text-only) on <2 points or a missing Mapbox token.
-async function renderCrossBunchingMap({ points, legend = [], title = '', markerKind = 'bus' }) {
+async function renderCrossBunchingMap({
+  points,
+  legend = [],
+  title = '',
+  markerKind = 'bus',
+  routePaths = [],
+  colors = [],
+}) {
   if (!points || points.length < 2) throw new Error('cross-bunching map needs ≥2 points');
   const view = computeCrossView(points);
-  const baseMap = await fetchCrossBaseMap(view);
-  return renderCrossFrame(view, baseMap, points, { legend, title, markerKind });
+  const baseMap = await fetchCrossBaseMap(view, routePaths, colors);
+  return renderCrossFrame(view, baseMap, points, { legend, title, markerKind, colors });
 }
 
 // Build the normalized { points, legend } from a cluster's members. See the CTA
@@ -200,6 +295,8 @@ module.exports = {
   renderCrossFrame,
   computeCrossView,
   fetchCrossBaseMap,
+  buildRoutePathOverlays,
+  clipPathToView,
   pointsFromCluster,
   PALETTE,
 };

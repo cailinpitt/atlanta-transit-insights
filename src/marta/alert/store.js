@@ -104,6 +104,35 @@ function listUnresolvedAlerts() {
   return getDb().prepare('SELECT * FROM alert_posts WHERE resolved_ts IS NULL').all();
 }
 
+// post_uri of the most-recent open official rail alert that names `line`
+// (RED/GOLD/BLUE/GREEN), or null. Lets the rail dead-segment ("pulse") detector
+// thread its disruption + ✅-clear under the matching official alert, the way
+// cta-insights threads pulses under open CTA alerts. `routes` holds the
+// display name ('Red'); the headline reads "Rail Service Alert for Red Line".
+function findUnresolvedRailAlertForLine(line) {
+  if (!line) return null;
+  const key = String(line).toLowerCase();
+  const rows = getDb()
+    .prepare(`
+      SELECT post_uri, routes, headline FROM alert_posts
+      WHERE mode = 'rail' AND resolved_ts IS NULL AND post_uri IS NOT NULL
+      ORDER BY first_seen_ts DESC
+    `)
+    .all();
+  for (const r of rows) {
+    const routes = (r.routes || '').toLowerCase();
+    const headline = (r.headline || '').toLowerCase();
+    const routeMatch = routes
+      .split(/[,/]/)
+      .map((s) => s.trim())
+      .includes(key);
+    if (routeMatch || routes.includes(key) || headline.includes(`${key} line`)) {
+      return r.post_uri;
+    }
+  }
+  return null;
+}
+
 // Every version row for an alert, oldest first — the text-change timeline.
 function getAlertVersions(alertId) {
   return getDb()
@@ -320,6 +349,7 @@ module.exports = {
   getAlertPost,
   getAlertVersions,
   listUnresolvedAlerts,
+  findUnresolvedRailAlertForLine,
   recordAlertSeen,
   recordAlertResolved,
   incrementAlertClearTicks,

@@ -856,6 +856,32 @@ function findUnresolvedDisruptions({ kind, source, sinceMs, untilMs = 0 }, now =
 }
 
 // Drop expired cooldowns (+ ancient legacy null-ttl rows) and stale meta_signals.
+// Has an 'observed-clear' already been recorded for the dead-segment pulse
+// whose canonical post is `pulseUri`? Dedups the ✅ clear reply against retries.
+// MARTA stores from/to in `evidence` (not dedicated columns like cta-insights),
+// and pulse_state is per-(line, direction) with one live outage at a time, so
+// line + direction + a clear at/after the pulse's ts is a sufficient key.
+function hasObservedClearForPulse({ kind, pulseUri }) {
+  if (!pulseUri) return false;
+  const pulseEvt = getDb()
+    .prepare(`
+      SELECT ts, line, direction FROM disruption_events
+      WHERE kind = ? AND source IN ('observed', 'observed-held') AND post_uri = ?
+      ORDER BY ts DESC LIMIT 1
+    `)
+    .get(kind, pulseUri);
+  if (!pulseEvt) return false;
+  const row = getDb()
+    .prepare(`
+      SELECT id FROM disruption_events
+      WHERE kind = ? AND source = 'observed-clear'
+        AND ts >= ? AND line = ? AND IFNULL(direction, '') = IFNULL(?, '')
+      LIMIT 1
+    `)
+    .get(kind, pulseEvt.ts, pulseEvt.line, pulseEvt.direction);
+  return !!row;
+}
+
 // Event tables are an archive — kept forever.
 function rolloffOld(now = Date.now()) {
   const db = getDb();
@@ -890,6 +916,7 @@ module.exports = {
   getRecentMetaSignals,
   recordDisruption,
   findUnresolvedDisruptions,
+  hasObservedClearForPulse,
   recordRoundupAnchor,
   listUnresolvedRoundupAnchors,
   updateRoundupClearTicks,

@@ -67,12 +67,20 @@ async function main() {
     if (!s) return null;
     const parentId = s.parent_station?.trim() ? s.parent_station : s.stop_id;
     const parent = stopById.get(parentId) || s;
-    return { id: parentId, name: (parent.stop_name || s.stop_name || '').trim() };
+    const lat = Number(parent.stop_lat ?? s.stop_lat);
+    const lon = Number(parent.stop_lon ?? s.stop_lon);
+    return {
+      id: parentId,
+      name: (parent.stop_name || s.stop_name || '').trim(),
+      lat: Number.isFinite(lat) ? lat : null,
+      lon: Number.isFinite(lon) ? lon : null,
+    };
   }
 
   // Stream stop_times.txt (~125 MB) and accumulate, per rail trip, the set of
   // lines that call at each parent station.
   const linesByStation = new Map(); // station name -> Set<line>
+  const coordsByStation = new Map(); // station name -> { lat, lon }
   const rl = readline.createInterface({
     input: Fs.createReadStream(Path.join(GTFS_DIR, 'stop_times.txt')),
     crlfDelay: Infinity,
@@ -95,10 +103,16 @@ async function main() {
     const name = normalizeStationName(parent.name);
     if (!linesByStation.has(name)) linesByStation.set(name, new Set());
     linesByStation.get(name).add(railLine);
+    if (!coordsByStation.has(name) && parent.lat != null && parent.lon != null) {
+      coordsByStation.set(name, { lat: parent.lat, lon: parent.lon });
+    }
   }
 
   const roster = [...linesByStation.entries()]
-    .map(([name, lines]) => ({ name, lines: [...lines].sort() }))
+    .map(([name, lines]) => {
+      const c = coordsByStation.get(name);
+      return { name, lat: c?.lat ?? null, lon: c?.lon ?? null, lines: [...lines].sort() };
+    })
     .sort((a, b) => a.name.localeCompare(b.name));
 
   Fs.writeFileSync(OUT, `${JSON.stringify(roster, null, 2)}\n`);

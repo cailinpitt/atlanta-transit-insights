@@ -2,6 +2,7 @@ const sharp = require('sharp');
 const { encode } = require('../../shared/polyline');
 const { cumulativeDistances, bearing } = require('../../shared/geo');
 const { fitZoom, project } = require('../../shared/projection');
+const { projectToShape } = require('../bus/shapes');
 const {
   STYLE,
   WIDTH,
@@ -21,6 +22,9 @@ const {
   separateMarkers,
   perpendicularFromBearing,
   thinPolylinePoints,
+  paddedBbox,
+  bboxOf,
+  measureTextWidth,
 } = require('./common');
 
 const LINE_COLORS = {
@@ -232,6 +236,169 @@ async function renderRailGapMap(gap, line, opts = {}) {
   return renderRailFrame(view, baseMap, trains, opts);
 }
 
+// Dead-segment ("pulse") framing, mirroring cta-insights renderDisruption: the
+// line is drawn solid+bright OUTSIDE the suspended stretch and solid but DIMMED
+// (same stroke width, 0.4 opacity, drawn on top) between the two endpoint
+// stations, so it reads as "the route line, dimmed" rather than a side-trace.
+// White circular markers + name-label pills mark the bracketing stations. The
+// disruption carries fromLoc/toLoc ({lat, lon, name}); runLoFt/runHiFt frame the
+// split. Reuses gapViewFor's machinery only conceptually — the overlay set is
+// built here so the dim segment lands exactly between the stations.
+const SUSPENDED_OPACITY = 0.4;
+
+async function renderRailDisruptionMap(disruption, line, opts = {}) {
+  const color = lineColor(line.line);
+  const fromLoc = disruption.fromLoc;
+  const toLoc = disruption.toLoc;
+  if (!fromLoc || !toLoc) throw new Error('renderRailDisruptionMap needs fromLoc/toLoc');
+
+  const fFt = projectToShape(line, fromLoc.lat, fromLoc.lon)?.distFt;
+  const tFt = projectToShape(line, toLoc.lat, toLoc.lon)?.distFt;
+  if (!Number.isFinite(fFt) || !Number.isFinite(tFt)) {
+    throw new Error('renderRailDisruptionMap could not project endpoint stations');
+  }
+  const lo = Math.min(fFt, tFt);
+  const hi = Math.max(fFt, tFt);
+  const loPt = fFt <= tFt ? [fromLoc.lat, fromLoc.lon] : [toLoc.lat, toLoc.lon];
+  const hiPt = fFt <= tFt ? [toLoc.lat, toLoc.lon] : [fromLoc.lat, fromLoc.lon];
+
+  const cum = cumulativeDistances(line.points);
+  const distAt = (p, i) => p.distFt ?? cum[i];
+  const ll = (p) => [p.lat, p.lon];
+  const before = line.points.filter((p, i) => distAt(p, i) < lo).map(ll);
+  const inner = line.points.filter((p, i) => distAt(p, i) > lo && distAt(p, i) < hi).map(ll);
+  const after = line.points.filter((p, i) => distAt(p, i) > hi).map(ll);
+
+  const active = [];
+  if (before.length) active.push([...before, loPt]);
+  if (after.length) active.push([hiPt, ...after]);
+  const suspended = [[loPt, ...inner, hiPt]];
+
+  const enc = (seg) =>
+    encodeURIComponent(
+      encode(
+        thinPolylinePoints(seg.map((p) => ({ lat: p[0], lon: p[1] }))).map((p) => [p.lat, p.lon]),
+      ),
+    );
+  const overlays = [];
+  // Active first (bright halo + core), suspended last so the dim sits on top
+  // and isn't bridged by the bright line caps at the join.
+  for (const seg of active) {
+    if (seg.length < 2) continue;
+    overlays.push(
+      `path-${ROUTE_HALO_STROKE}+${ROUTE_HALO_COLOR}(${enc(seg)})`,
+      `path-${ROUTE_CORE_STROKE}+${color}(${enc(seg)})`,
+    );
+  }
+  for (const seg of suspended) {
+    if (seg.length < 2) continue;
+    overlays.push(`path-${ROUTE_CORE_STROKE}+${color}-${SUSPENDED_OPACITY}(${enc(seg)})`);
+  }
+
+  // Frame on the suspended stretch + buffer; whole-line zoom would lose short
+  // suspensions.
+  const flatSuspended = suspended.flat();
+  const bbox = paddedBbox(bboxOf(flatSuspended), 0.5, 0.02);
+  const centerLat = (bbox.minLat + bbox.maxLat) / 2;
+  const centerLon = (bbox.minLon + bbox.maxLon) / 2;
+  const zoom = Math.min(13, fitZoom(bbox, WIDTH, HEIGHT, 120));
+
+  const token = requireMapboxToken();
+  const url = `https://api.mapbox.com/styles/v1/${STYLE}/static/${overlays.join(',')}/${centerLon.toFixed(5)},${centerLat.toFixed(5)},${zoom.toFixed(2)}/${WIDTH}x${HEIGHT}@2x?access_token=${token}`;
+  const baseMap = await fetchMapboxStatic(url, 20000);
+
+  const titleEls = [];
+  if (opts.title) {
+    const { fontSize, pillWidth } = await fitTitlePill(opts.title, 40, WIDTH - 80, { padding: 44 });
+    const h = fontSize + 28;
+    titleEls.push(
+      `<rect x="20" y="20" width="${pillWidth.toFixed(1)}" height="${h}" rx="10" fill="#000" fill-opacity="0.66"/>`,
+      `<text x="${(20 + pillWidth / 2).toFixed(1)}" y="${(20 + h / 2 + fontSize * 0.35).toFixed(1)}" text-anchor="middle" font-family="Inter, Helvetica, Arial, sans-serif" font-size="${fontSize}" font-weight="700" fill="#fff">${xmlEscape(opts.title)}</text>`,
+    );
+  }
+
+  const fromPx = project(fromLoc.lat, fromLoc.lon, centerLat, centerLon, zoom, WIDTH, HEIGHT);
+  const toPx = project(toLoc.lat, toLoc.lon, centerLat, centerLon, zoom, WIDTH, HEIGHT);
+  const labels = await pairedStationLabels([
+    { name: fromLoc.name, px: fromPx },
+    { name: toLoc.name, px: toPx },
+  ]);
+
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${WIDTH}" height="${HEIGHT}">${titleEls.join('\n')}${labels}</svg>`;
+  return sharp(baseMap)
+    .resize(WIDTH, HEIGHT)
+    .composite([{ input: Buffer.from(svg), top: 0, left: 0 }])
+    .jpeg({ quality: 88 })
+    .toBuffer();
+}
+
+// White circular station markers + black name-label pills (above the dot,
+// flipped below when they'd hit the title or collide). Port of cta-insights
+// src/map/disruption.js pairedStationLabels.
+const DISRUPTION_TITLE_KEEPOUT = { x: 0, y: 0, w: 700, h: 110 };
+
+async function pairedStationLabels(stationPts) {
+  const layouts = [];
+  for (const s of stationPts) {
+    if (!s.name || !Number.isFinite(s.px.x) || !Number.isFinite(s.px.y)) continue;
+    const text = displayStationName(s.name);
+    const fontSize = 28;
+    const pad = 12;
+    const textW = await measureTextWidth(text, fontSize, { bold: true });
+    const pillW = textW + pad * 2;
+    const h = fontSize + pad * 1.4;
+    const xPill = Math.round(s.px.x - pillW / 2);
+    const above = Math.round(s.px.y - h - 26);
+    const below = Math.round(s.px.y + 26);
+    const wouldHitTitle =
+      above < DISRUPTION_TITLE_KEEPOUT.y + DISRUPTION_TITLE_KEEPOUT.h &&
+      xPill < DISRUPTION_TITLE_KEEPOUT.x + DISRUPTION_TITLE_KEEPOUT.w &&
+      xPill + pillW > DISRUPTION_TITLE_KEEPOUT.x;
+    layouts.push({
+      px: s.px,
+      text,
+      fontSize,
+      pad,
+      pillW,
+      h,
+      xPill,
+      above,
+      below,
+      forcedBelow: above < 8 || wouldHitTitle,
+    });
+  }
+  const rectsOverlap = (a, b) =>
+    !(a.right < b.left || b.right < a.left || a.bottom < b.top || b.bottom < a.top);
+  const pillRect = (l, y) => ({ left: l.xPill, right: l.xPill + l.pillW, top: y, bottom: y + l.h });
+  const ys = layouts.map((l) => (l.forcedBelow ? l.below : l.above));
+  for (let i = 0; i < layouts.length; i++) {
+    for (let j = i + 1; j < layouts.length; j++) {
+      if (!rectsOverlap(pillRect(layouts[i], ys[i]), pillRect(layouts[j], ys[j]))) continue;
+      if (!layouts[j].forcedBelow && ys[j] !== layouts[j].below) ys[j] = layouts[j].below;
+      else if (!layouts[i].forcedBelow && ys[i] !== layouts[i].below) ys[i] = layouts[i].below;
+    }
+  }
+  return layouts
+    .map((l, i) => {
+      const y = ys[i];
+      return [
+        `<rect x="${l.xPill}" y="${y}" width="${Math.round(l.pillW)}" height="${Math.round(l.h)}" fill="#000" fill-opacity="0.82" rx="8"/>`,
+        `<text x="${Math.round(l.px.x)}" y="${Math.round(y + l.h - l.pad)}" fill="#fff" text-anchor="middle" font-family="Inter, Helvetica, Arial, sans-serif" font-size="${l.fontSize}" font-weight="600">${xmlEscape(l.text)}</text>`,
+        `<circle cx="${Math.round(l.px.x)}" cy="${Math.round(l.px.y)}" r="18" fill="#fff" stroke="#000" stroke-width="5"/>`,
+      ].join('');
+    })
+    .join('\n');
+}
+
+// rail-stations.json names are SCREAMING + "Station"; present rider-facing.
+function displayStationName(name) {
+  return String(name || '')
+    .replace(/\s+station\s*$/i, '')
+    .toLowerCase()
+    .replace(/\b([a-z])/g, (m) => m.toUpperCase())
+    .trim();
+}
+
 // Distance window around a rail bunch (min→max train distFt) with context on
 // each side, for framing. Mirrors the gap framing so a bunch zooms to the
 // cluster instead of fitting the whole line. Trains carry a projected distFt;
@@ -251,6 +418,7 @@ async function renderRailBunchingMap(bunch, line, opts = {}) {
 module.exports = {
   renderRailGapMap,
   renderRailBunchingMap,
+  renderRailDisruptionMap,
   lineColor,
   viewFor,
   bunchBounds,

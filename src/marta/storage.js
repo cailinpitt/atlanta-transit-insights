@@ -161,6 +161,28 @@ function getDb() {
     );
     CREATE INDEX IF NOT EXISTS idx_streetcar_obs_veh_ts
       ON streetcar_observations(vehicle_id, ts);
+
+    -- Rail dead-segment ("pulse") debounce state: one row per (line, direction)
+    -- tracking a cold run across cron ticks so a flicker doesn't post and the
+    -- eventual ✅ clear targets the canonical post. Ported from cta-insights
+    -- pulse_state. active_post_uri pins the post for the live outage.
+    CREATE TABLE IF NOT EXISTS pulse_state (
+      line TEXT NOT NULL,
+      direction TEXT NOT NULL,
+      run_lo_ft INTEGER,
+      run_hi_ft INTEGER,
+      from_station TEXT,
+      to_station TEXT,
+      started_ts INTEGER,
+      last_seen_ts INTEGER,
+      consecutive_ticks INTEGER NOT NULL DEFAULT 0,
+      clear_ticks INTEGER NOT NULL DEFAULT 0,
+      clear_started_ts INTEGER,
+      posted_cooldown_key TEXT,
+      active_post_uri TEXT,
+      active_post_ts INTEGER,
+      PRIMARY KEY (line, direction)
+    );
   `);
   return _db;
 }
@@ -476,6 +498,79 @@ function getRecentRailObservationsAll(sinceTs) {
     .all(sinceTs);
 }
 
+// --- Rail pulse debounce state (port of cta-insights pulse_state) ---
+
+function getPulseState(line, direction) {
+  return (
+    getDb()
+      .prepare('SELECT * FROM pulse_state WHERE line = ? AND direction = ?')
+      .get(line, direction) || null
+  );
+}
+
+function listPulseStateForLine(line) {
+  return getDb().prepare('SELECT * FROM pulse_state WHERE line = ?').all(line);
+}
+
+function upsertPulseState({
+  line,
+  direction,
+  runLoFt,
+  runHiFt,
+  fromStation,
+  toStation,
+  startedTs,
+  lastSeenTs,
+  consecutiveTicks,
+  clearTicks,
+  postedCooldownKey,
+  activePostUri = null,
+  activePostTs = null,
+  clearStartedTs = null,
+}) {
+  getDb()
+    .prepare(`
+      INSERT INTO pulse_state
+        (line, direction, run_lo_ft, run_hi_ft, from_station, to_station,
+         started_ts, last_seen_ts, consecutive_ticks, clear_ticks, clear_started_ts,
+         posted_cooldown_key, active_post_uri, active_post_ts)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(line, direction) DO UPDATE SET
+        run_lo_ft = excluded.run_lo_ft,
+        run_hi_ft = excluded.run_hi_ft,
+        from_station = excluded.from_station,
+        to_station = excluded.to_station,
+        started_ts = excluded.started_ts,
+        last_seen_ts = excluded.last_seen_ts,
+        consecutive_ticks = excluded.consecutive_ticks,
+        clear_ticks = excluded.clear_ticks,
+        clear_started_ts = excluded.clear_started_ts,
+        posted_cooldown_key = excluded.posted_cooldown_key,
+        active_post_uri = excluded.active_post_uri,
+        active_post_ts = excluded.active_post_ts
+    `)
+    .run(
+      String(line),
+      String(direction),
+      runLoFt == null ? null : Math.round(runLoFt),
+      runHiFt == null ? null : Math.round(runHiFt),
+      fromStation || null,
+      toStation || null,
+      startedTs || null,
+      lastSeenTs || null,
+      consecutiveTicks || 0,
+      clearTicks || 0,
+      clearStartedTs || null,
+      postedCooldownKey || null,
+      activePostUri || null,
+      activePostTs || null,
+    );
+}
+
+function clearPulseState(line, direction) {
+  getDb().prepare('DELETE FROM pulse_state WHERE line = ? AND direction = ?').run(line, direction);
+}
+
 function getRecentStreetcarObservations(sinceTs) {
   return getDb()
     .prepare(`
@@ -553,6 +648,10 @@ module.exports = {
   getRecentBusTripStatuses,
   getRecentRailObservations,
   getRecentRailObservationsAll,
+  getPulseState,
+  listPulseStateForLine,
+  upsertPulseState,
+  clearPulseState,
   getRecentStreetcarObservations,
   getRailArrivals,
   getSnapshotTimestamps,

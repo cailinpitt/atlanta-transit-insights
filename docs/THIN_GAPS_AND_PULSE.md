@@ -43,14 +43,59 @@ vehicles** in a headway-scaled lookback (3× longest-direction headway, clamped 
 The 20-min headway boundary partitions the two cleanly so a route is never both a
 thin-gap and a pulse candidate.
 
+## rail pulse — dead track segments (`bin/marta/rail/pulse.js`)
+
+The rail analog of the CTA train pulse: it flags a **stretch of track between
+stations that no train has passed through when the schedule says one should
+have** — e.g. a stalled or suspended corridor. The mainline rail **gap** detector
+(`src/marta/rail/gaps.js`) is blind to this because it needs ≥2 live trains on the
+line to measure a hole *between* them; a stalled or fully-dark corridor produces
+no pair to compare.
+
+- Pure core: `src/marta/rail/pulse.js` (`detectDeadSegments`, `detectFeedGap`),
+  the CTA `src/train/pulse.js` port collapsed to MARTA's four point-to-point lines
+  and N/S/E/W feed directions. One representative geometry per line
+  (`rail/lines.js`); the detector bins each line by along-track distance and scans
+  **once per feed direction**, treating a bin as "cold" when no train going that
+  direction has projected into it within `max(2.5× headway, 15 min)` (verbatim CTA
+  thresholds; the 1-station "solo" admit path needs 3.5× headway).
+- A candidate is admitted via any of three paths: `passLong` (run ≥ 2 mi),
+  `passMulti` (≥ 2 stations inside the cold run), or `passSolo` (≥ 1 station +
+  ≥ 3 expected-but-missed trains + ≥ 3.5× headway cold). Generic FP guards kept
+  from CTA: terminal-zone clip, active-service-range clip + pinned ranges, ramp-up
+  (2 h lookback), fast-traversal ("crossed"), feed-gap, cold-start / sparse-
+  coverage / sparse-span, terminal-adjacency margin, dispatch-continuity, plus the
+  inferred-held reclassification (relabels a cold run as "trains stuck" when a
+  train's GPS goes silent stationary mid-segment). CTA's Loop-trunk / Express-
+  overlay / round-trip-turnaround machinery is dropped (no MARTA analog).
+- Posts to **`@martaalertinsights`** (not the train account) — it's framed as a
+  service disruption, threads under any open official MARTA rail alert for the
+  line (`alert/store.js#findUnresolvedRailAlertForLine`), and ✅-clears. Renders a
+  CTA-style **suspended-segment map**: the affected stretch is drawn solid but
+  dimmed (0.4 opacity) between white station-pin markers, the rest of the line
+  bright (`map/railIncidents.js#renderRailDisruptionMap`).
+- Per-(line, direction) debounce lives in the `pulse_state` table
+  (`src/marta/storage.js`): posts after `MIN_CONSECUTIVE_TICKS = 3` ticks of
+  ≥ 50% run overlap, clears after `CLEAR_TICKS_TO_RESET = 5` clean ticks;
+  `active_post_uri` pins the canonical post. When a whole line goes dark while the
+  schedule says it should run, a **synthetic full-line candidate** is flagged.
+- Records `observed` / `observed-held` (and `observed-clear`) `disruption_events`
+  with the from/to segment in `evidence`; the web export surfaces them standalone.
+- Cron: `rail-pulse`, every 2 min (even minutes, offset from the official-alerts
+  job) in `cron/marta-crontab.txt`.
+
 ## Website surfacing
 
 Unlike a lone gap/bunch/ghost (which only reaches the site folded into a roundup
 or official alert), thin-gap and pulse firings surface **standalone** — a silent
 route has no co-occurring signal to correlate. `bin/marta/export-web.js`
-(`readDisruptions`) reads posted `observed-thin` → `thin-gap` and `observed` →
-`pulse-cold` rows, pairs each with the next `observed-clear` on the same line, and
-emits a `['bot']` incident with the firing→clear lifecycle.
+(`readDisruptions`) reads posted `observed-thin` → `thin-gap`, `observed` /
+`observed-held` → `pulse-cold` rows, pairs each with the next `observed-clear` on
+the same line, and emits a `['bot']` incident with the firing→clear lifecycle.
+Rail dead-segment rows (`kind = 'rail'`) carry the from/to segment in `evidence`,
+so their incident description names the stretch (`Gold Line trains not moving
+between Lenox and Chamblee`) and `scope.near_stop` carries `"<from> ↔ <to>"`; bus
+route-silence rows keep their whole-route phrasing.
 
 ## Gap cooldown alignment
 
@@ -64,10 +109,21 @@ sustained/aged escalations CTA re-posts.
 
 - `src/marta/bus/thinGaps.js`, `bin/marta/bus/thin-gaps.js`
 - `src/marta/bus/pulse.js`, `bin/marta/bus/pulse.js`
+- `src/marta/rail/pulse.js`, `bin/marta/rail/pulse.js` — rail dead-segment core +
+  bin (posts to `@martaalertinsights`).
+- `src/marta/rail/disruptionPost.js` — rail disruption post/alt/clear text.
+- `src/marta/map/railIncidents.js#renderRailDisruptionMap` — suspended-segment map.
+- `src/marta/alert/store.js#findUnresolvedRailAlertForLine` — open-alert threading.
 - `src/marta/shared/incidents.js` — `disruption_events`, `recordDisruption`,
-  `findUnresolvedDisruptions`, decaying/sustained `gapCooldownAllows`.
+  `findUnresolvedDisruptions`, `hasObservedClearForPulse`, decaying/sustained
+  `gapCooldownAllows`.
 - `src/marta/storage.js` — `getLastBusObservationTs`,
-  `countDistinctBusObservationTs`, `getDistinctBusRoutesSince`.
+  `countDistinctBusObservationTs`, `getDistinctBusRoutesSince`; `pulse_state`
+  table + `getPulseState` / `listPulseStateForLine` / `upsertPulseState` /
+  `clearPulseState`.
+- `src/marta/rail-stations.json` (+ `scripts/marta/build-rail-stations.js`) — now
+  carries per-station `lat`/`lon` (the detector projects stations onto the line).
 - `bin/marta/export-web.js` — `readDisruptions` / standalone disruption incidents.
-- Tests: `test/marta/{thinGaps,pulse,gapCooldownAllows}.test.js`.
-- Cron: `bus-thin-gaps` (15 min), `bus-pulse` (5 min) in `cron/marta-crontab.txt`.
+- Tests: `test/marta/{thinGaps,pulse,gapCooldownAllows,railPulse}.test.js`.
+- Cron: `bus-thin-gaps` (15 min), `bus-pulse` (5 min), `rail-pulse` (2 min) in
+  `cron/marta-crontab.txt`.

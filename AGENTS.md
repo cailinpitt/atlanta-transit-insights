@@ -88,6 +88,7 @@ THIN_GAPS_AND_PULSE,MARTA_ALERTS,MARTA_FEEDS}.md`.
 | Bunching / gaps / ghosts (rail) | `src/marta/rail/{bunching,gaps,ghosts}.js` |
 | Cross-route / cross-line pileups | `src/marta/{bus,rail}/crossBunching.js`, `src/marta/shared/geoClusters.js` |
 | Thin-gaps / pulse (low-freq + blackout) | `src/marta/bus/{thinGaps,pulse}.js`, `docs/THIN_GAPS_AND_PULSE.md` |
+| Rail dead-segment / pulse (track gap) | `src/marta/rail/pulse.js`, `bin/marta/rail/pulse.js`, `docs/THIN_GAPS_AND_PULSE.md` |
 | Speedmaps | `src/marta/bus/speedmap.js`, `src/marta/rail/speedmap.js`, `src/marta/streetcar/speedmap.js` |
 | Official alerts (fetch + significance + store) | `src/marta/alert/{api,otp,significance,store,cancellation}.js`, `docs/MARTA_ALERTS.md` |
 | Incident roundup (multi-signal correlation) | `bin/marta/incident-roundup.js` |
@@ -110,6 +111,7 @@ Most thresholds are single-file constants — search the relevant
 | Gap ratio + floor | `src/marta/bus/gaps.js` | `RATIO_THRESHOLD = 2.5`, `ABSOLUTE_MIN_MIN = 15` (rail: 12) |
 | Ghost gates | `src/marta/bus/ghosts.js` | `MISSING_PCT 0.25`, `MISSING_ABS 3` (trailing 2), `MIN_SNAPSHOTS 4` |
 | Speedmap coverage gate | `bin/marta/bus/speedmap.js` | `MIN_COVERAGE = 0.3` |
+| Rail pulse cold threshold | `src/marta/rail/pulse.js` | `COLD_HEADWAY_MULT 2.5` / `_STRICT 3.5`, `DEFAULT_MIN_COLD_MS 15min` (CTA parity); ticks in `bin/marta/rail/pulse.js` |
 | Observation rolloff | `src/marta/storage.js` | 7-day window |
 | Alert clear window | `src/marta/alert/store.js` | `ALERT_CLEAR_TICKS = 3` ↔ 2-min alert cadence |
 

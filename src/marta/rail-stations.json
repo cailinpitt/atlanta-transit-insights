@@ -1,154 +1,230 @@
 [
   {
     "name": "AIRPORT Station",
+    "lat": 33.640806,
+    "lon": -84.446214,
     "lines": ["gold", "red"]
   },
   {
     "name": "ARTS CENTER Station",
+    "lat": 33.78918,
+    "lon": -84.38728,
     "lines": ["gold", "red"]
   },
   {
     "name": "ASHBY Station",
+    "lat": 33.75645,
+    "lon": -84.41728,
     "lines": ["blue", "green"]
   },
   {
     "name": "AVONDALE Station",
+    "lat": 33.77535,
+    "lon": -84.28191,
     "lines": ["blue"]
   },
   {
     "name": "BANKHEAD Station",
+    "lat": 33.77231,
+    "lon": -84.4289,
     "lines": ["green"]
   },
   {
     "name": "BROOKHAVEN-OGLETHORPE Station",
+    "lat": 33.85999,
+    "lon": -84.3394,
     "lines": ["gold"]
   },
   {
     "name": "BUCKHEAD Station",
+    "lat": 33.84773,
+    "lon": -84.36766,
     "lines": ["red"]
   },
   {
     "name": "CHAMBLEE Station",
+    "lat": 33.88786,
+    "lon": -84.30566,
     "lines": ["gold"]
   },
   {
     "name": "CIVIC CENTER Station",
+    "lat": 33.76634,
+    "lon": -84.38749,
     "lines": ["gold", "red"]
   },
   {
     "name": "COLLEGE PARK Station",
+    "lat": 33.65159,
+    "lon": -84.44878,
     "lines": ["gold", "red"]
   },
   {
     "name": "DECATUR Station",
+    "lat": 33.77468,
+    "lon": -84.29553,
     "lines": ["blue"]
   },
   {
     "name": "DORAVILLE Station",
+    "lat": 33.90296,
+    "lon": -84.28026,
     "lines": ["gold"]
   },
   {
     "name": "DUNWOODY Station",
+    "lat": 33.92124,
+    "lon": -84.34427,
     "lines": ["red"]
   },
   {
     "name": "EAST LAKE Station",
+    "lat": 33.76518,
+    "lon": -84.31315,
     "lines": ["blue"]
   },
   {
     "name": "EAST POINT Station",
+    "lat": 33.67753,
+    "lon": -84.4405,
     "lines": ["gold", "red"]
   },
   {
     "name": "EDGEWOOD-CANDLER PARK Station",
+    "lat": 33.76193,
+    "lon": -84.33962,
     "lines": ["blue", "green"]
   },
   {
     "name": "FIVE POINTS Station",
+    "lat": 33.75387,
+    "lon": -84.39157,
     "lines": ["blue", "gold", "green", "red"]
   },
   {
     "name": "GARNETT Station",
+    "lat": 33.748544,
+    "lon": -84.395888,
     "lines": ["gold", "red"]
   },
   {
     "name": "GEORGIA STATE Station",
+    "lat": 33.75007,
+    "lon": -84.38587,
     "lines": ["blue", "green"]
   },
   {
     "name": "HAMILTON E HOLMES Station",
+    "lat": 33.75448,
+    "lon": -84.47003,
     "lines": ["blue"]
   },
   {
     "name": "INDIAN CREEK Station",
+    "lat": 33.76982,
+    "lon": -84.22953,
     "lines": ["blue"]
   },
   {
     "name": "INMAN PARK-REYNOLDSTOWN Station",
+    "lat": 33.75753,
+    "lon": -84.35265,
     "lines": ["blue", "green"]
   },
   {
     "name": "KENSINGTON Station",
+    "lat": 33.77262,
+    "lon": -84.25192,
     "lines": ["blue"]
   },
   {
     "name": "KING MEMORIAL Station",
+    "lat": 33.7499,
+    "lon": -84.3758,
     "lines": ["blue", "green"]
   },
   {
     "name": "LAKEWOOD-FT MCPHERSON Station",
+    "lat": 33.70042,
+    "lon": -84.42883,
     "lines": ["gold", "red"]
   },
   {
     "name": "LENOX Station",
+    "lat": 33.8454,
+    "lon": -84.35811,
     "lines": ["gold"]
   },
   {
     "name": "LINDBERGH CENTER Station",
+    "lat": 33.82291,
+    "lon": -84.36947,
     "lines": ["gold", "red"]
   },
   {
     "name": "MEDICAL CENTER Station",
+    "lat": 33.91072,
+    "lon": -84.35145,
     "lines": ["red"]
   },
   {
     "name": "MIDTOWN Station",
+    "lat": 33.78107,
+    "lon": -84.38632,
     "lines": ["gold", "red"]
   },
   {
     "name": "NORTH AVE Station",
+    "lat": 33.77179,
+    "lon": -84.38709,
     "lines": ["gold", "red"]
   },
   {
     "name": "NORTH SPRINGS Station",
+    "lat": 33.94498,
+    "lon": -84.3572,
     "lines": ["red"]
   },
   {
     "name": "OAKLAND CITY Station",
+    "lat": 33.71716,
+    "lon": -84.42507,
     "lines": ["gold", "red"]
   },
   {
     "name": "PEACHTREE CENTER Station",
+    "lat": 33.759684,
+    "lon": -84.387598,
     "lines": ["gold", "red"]
   },
   {
     "name": "SANDY SPRINGS Station",
+    "lat": 33.93174,
+    "lon": -84.35096,
     "lines": ["red"]
   },
   {
     "name": "SEC DISTRICT Station",
+    "lat": 33.759702,
+    "lon": -84.387605,
     "lines": ["blue", "green"]
   },
   {
     "name": "VINE CITY Station",
+    "lat": 33.75657,
+    "lon": -84.404,
     "lines": ["blue", "green"]
   },
   {
     "name": "WEST END Station",
+    "lat": 33.73612,
+    "lon": -84.41364,
     "lines": ["gold", "red"]
   },
   {
     "name": "WEST LAKE Station",
+    "lat": 33.75327,
+    "lon": -84.4453,
     "lines": ["blue"]
   }
 ]

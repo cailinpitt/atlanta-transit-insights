@@ -607,7 +607,21 @@ function readRoundups(db) {
 // the site. Each posted firing is paired with the earliest 'observed-clear' on
 // the same line after it; absence of one means still-active. Mirrors CTA's
 // export disruption_events('observed','observed-held','observed-thin') union.
-const DISRUPTION_WEB_SOURCE = { 'observed-thin': 'thin-gap', observed: 'pulse-cold' };
+const DISRUPTION_WEB_SOURCE = {
+  'observed-thin': 'thin-gap',
+  observed: 'pulse-cold',
+  'observed-held': 'pulse-cold',
+};
+
+// rail-stations.json names are SCREAMING + "Station" ("LENOX Station"); present
+// rider-facing in the incident description ("Lenox").
+function displayStationName(name) {
+  return String(name || '')
+    .replace(/\s+station\s*$/i, '')
+    .toLowerCase()
+    .replace(/\b([a-z])/g, (m) => m.toUpperCase())
+    .trim();
+}
 
 function readDisruptions(db) {
   if (!tableExists(db, 'disruption_events')) return [];
@@ -618,7 +632,7 @@ function readDisruptions(db) {
                  WHERE c.kind = d.kind AND c.source = 'observed-clear'
                    AND c.line = d.line AND c.ts >= d.ts) AS resolved_ts
        FROM disruption_events d
-       WHERE d.source IN ('observed-thin', 'observed')
+       WHERE d.source IN ('observed-thin', 'observed', 'observed-held')
          AND d.posted = 1 AND d.post_uri IS NOT NULL
        ORDER BY d.ts DESC, d.id DESC`,
     )
@@ -637,10 +651,26 @@ function disruptionDetection(row) {
   } catch (_) {
     evidence = null;
   }
-  const description =
-    webSource === 'thin-gap'
-      ? `Route ${route} thin-service gap`
-      : `Route ${route} no buses running`;
+  // Rail dead-segment pulses name a track stretch between two stations; bus
+  // pulses/thin-gaps are whole-route silences. evidence.from/to carry the
+  // canonical (slug-matching) station names — present them rider-facing here.
+  let description;
+  let nearStop = null;
+  if (row.kind === 'rail') {
+    const lineName = `${route.charAt(0)}${route.slice(1).toLowerCase()} Line`;
+    const from = evidence?.from ? displayStationName(evidence.from) : null;
+    const to = evidence?.to ? displayStationName(evidence.to) : null;
+    const seg = from && to ? ` between ${from} and ${to}` : '';
+    if (evidence?.synthetic) description = `${lineName} no trains running`;
+    else if (row.source === 'observed-held') description = `${lineName} trains stuck${seg}`;
+    else description = `${lineName} trains not moving${seg}`;
+    if (from && to) nearStop = `${from} ↔ ${to}`;
+  } else {
+    description =
+      webSource === 'thin-gap'
+        ? `Route ${route} thin-service gap`
+        : `Route ${route} no buses running`;
+  }
   return {
     id: `marta-${webSource}-${row.id}`,
     source: webSource,
@@ -648,7 +678,7 @@ function disruptionDetection(row) {
     mode,
     route: outRoute,
     direction: row.direction ?? null,
-    near_stop: null,
+    near_stop: nearStop,
     ts: row.ts,
     resolved_ts: row.resolved_ts ?? null,
     post_url: atUriToUrl(row.post_uri),

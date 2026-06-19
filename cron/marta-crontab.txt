@@ -59,6 +59,13 @@
 # of stored rail observations (no extra fetch) and posts a smooth, interpolated
 # system-wide clip of every train in service.
 25 */3 * * * cd __REPO__ && __NODE__ bin/marta/rail/timelapse.js >> __REPO__/state/logs/rail-timelapse.log 2>&1
+# Rail dead-segment "pulse" (martaalertinsights). Every 2 min (even minutes, offset
+# from the official-alerts job). Flags a stretch of track between stations that no
+# train has passed through for longer than the schedule allows (>= max(2.5x headway,
+# 15 min)); posts after 3 consecutive ticks, threads a clear reply after 5 clean
+# ticks, and threads under any open official rail alert. Reads the latest stored
+# rail observations (no extra fetch).
+0-58/2 * * * * cd __REPO__ && __NODE__ bin/marta/rail/pulse.js >> __REPO__/state/logs/rail-pulse.log 2>&1
 # Official service alerts (martaalertinsights). Every 2 min (odd minutes, offset
 # from the insight jobs); republishes significant GTFS-rt ServiceAlerts and posts
 # a threaded "resolved" reply when one clears. The 2-min cadence pairs with

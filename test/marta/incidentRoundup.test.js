@@ -18,6 +18,34 @@ test('scoreSignals matches CTA-style source dedupe and persistence bonus', () =>
   assert.equal(Math.round(result.total * 100) / 100, 1.75);
 });
 
+test('ghostOverrideQualifies counts unexplained shortfall, not announced cancellations', () => {
+  const { ghostOverrideQualifies } = require(BIN);
+  // 4 of 6 missing but all 4 are MARTA-announced cancellations → does not qualify.
+  assert.equal(
+    ghostOverrideQualifies({
+      source: 'ghost',
+      detail: JSON.stringify({ missing: 4, expected: 6, canceledTrips: 4, unexplainedMissing: 0 }),
+    }),
+    false,
+  );
+  // 4 of 6 missing with none announced → genuine ghost, qualifies.
+  assert.equal(
+    ghostOverrideQualifies({
+      source: 'ghost',
+      detail: JSON.stringify({ missing: 4, expected: 6, canceledTrips: 0, unexplainedMissing: 4 }),
+    }),
+    true,
+  );
+  // Legacy/rail signals without cancellation context fall back to raw missing.
+  assert.equal(
+    ghostOverrideQualifies({
+      source: 'ghost',
+      detail: JSON.stringify({ missing: 4, expected: 6 }),
+    }),
+    true,
+  );
+});
+
 test('buildRoundupText uses MARTA route and rail framing', () => {
   const { buildRoundupText } = require(BIN);
   const bus = buildRoundupText({

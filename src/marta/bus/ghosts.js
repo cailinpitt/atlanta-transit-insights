@@ -92,11 +92,13 @@ function detectBusGhosts({
       const counts = [...perSnapshot.values()].map((s) => s.size);
       const observedActive = median(counts);
       const missing = active - observedActive;
+      const canceled = canceledTrips ? canceledTrips(route, direction) : 0;
       const detail = {
         ...ctx,
         expectedActive: active,
         observedActive,
         missing,
+        canceledTrips: canceled,
         snapshots: perSnapshot.size,
       };
 
@@ -143,7 +145,7 @@ function detectBusGhosts({
         expectedActive: active,
         observedActive,
         missing,
-        canceledTrips: canceledTrips ? canceledTrips(route, direction) : 0,
+        canceledTrips: canceled,
         snapshots: perSnapshot.size,
         headway: expectedHeadway ? expectedHeadway(route, direction) : null,
       });

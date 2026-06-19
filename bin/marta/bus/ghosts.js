@@ -67,19 +67,26 @@ async function main() {
   // bin/bus/ghosts.js; severity scales with how close it came to the bar.
   if (!argv['dry-run']) {
     for (const d of drops) {
+      const unexplained = Math.max(0, (d.missing ?? 0) - (d.canceledTrips || 0));
       if (
         d.reason === 'below_abs_threshold' &&
         d.route &&
         d.missing != null &&
-        d.missing >= MISSING_ABS_THRESHOLD * 0.5
+        unexplained >= MISSING_ABS_THRESHOLD * 0.5
       ) {
         incidents.recordMetaSignal({
           kind: 'bus',
           line: d.route,
           direction: d.direction || null,
           source: 'ghost',
-          severity: Math.min(1, d.missing / MISSING_ABS_THRESHOLD),
-          detail: { observed: d.observedActive, expected: d.expectedActive, missing: d.missing },
+          severity: Math.min(1, unexplained / MISSING_ABS_THRESHOLD),
+          detail: {
+            observed: d.observedActive,
+            expected: d.expectedActive,
+            missing: d.missing,
+            canceledTrips: d.canceledTrips || 0,
+            unexplainedMissing: unexplained,
+          },
           posted: false,
         });
       }
@@ -101,12 +108,17 @@ async function main() {
   }
 
   for (const e of events) {
+    // Roundup severity reflects only the UNEXPLAINED shortfall: buses missing
+    // beyond MARTA-announced cancellations. A route MARTA officially curtailed
+    // still posts the "ghost buses" rollup (riders experience missing buses),
+    // but it shouldn't hold a degraded-service roundup open — those cancellations
+    // are surfaced by the hourly cancellation rollup instead.
     incidents.recordMetaSignal({
       kind: 'bus',
       line: e.route,
       direction: e.direction || null,
       source: 'ghost',
-      severity: 1,
+      severity: Math.min(1, e.unexplainedMissing / MISSING_ABS_THRESHOLD),
       detail: {
         observed: e.observedActive,
         expected: e.expectedActive,

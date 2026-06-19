@@ -51,6 +51,23 @@ test('ghost event includes canceled trip context when provided', () => {
   assert.equal(events[0].canceledTrips, 3);
 });
 
+test('drops carry canceledTrips so the roundup near-miss can subtract them', () => {
+  // observed 8 of 10 → missing 2 (below abs threshold), 2 announced cancellations
+  // → fully explained, so the bin records zero unexplained severity.
+  const drops = [];
+  detectBusGhosts({
+    routes: ['20'],
+    getObservations: () => buildObs([8, 8, 8, 8, 8, 8]),
+    expectedActive: () => 10,
+    canceledTrips: () => 2,
+    onDrop: (d) => drops.push(d),
+  });
+  const near = drops.find((d) => d.reason === 'below_abs_threshold');
+  assert.ok(near, 'expected a below_abs_threshold drop');
+  assert.equal(near.missing, 2);
+  assert.equal(near.canceledTrips, 2);
+});
+
 test('ghost post line uses headsign labels instead of raw dir ids', () => {
   const line = formatGhostLine(
     {

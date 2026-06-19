@@ -77,7 +77,13 @@ function ghostOverrideQualifies(signal) {
   } catch (_e) {
     return false;
   }
-  const missing = Number(detail.missing);
+  // Count only the shortfall MARTA hasn't already announced as cancellations;
+  // an officially-curtailed route shouldn't open a degraded-service roundup on
+  // its own. Falls back to raw missing for signals without cancellation context
+  // (e.g. rail ghosts, legacy rows).
+  const missing = Number.isFinite(Number(detail.unexplainedMissing))
+    ? Number(detail.unexplainedMissing)
+    : Number(detail.missing);
   const expected = Number(detail.expected);
   if (!Number.isFinite(missing) || !Number.isFinite(expected) || expected <= 0) return false;
   if (missing < GHOST_OVERRIDE_MIN_MISSING) return false;
@@ -312,6 +318,7 @@ async function main() {
 }
 
 module.exports = {
+  ghostOverrideQualifies,
   scoreSignals,
   buildRoundupText,
   buildResolutionText,

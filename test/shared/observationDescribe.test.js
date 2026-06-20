@@ -5,7 +5,32 @@ const {
   describeBotResolution,
   describeBotOnset,
   describeBotEvidenceBullets,
+  describeSignal,
 } = require('../../src/shared/observationDescribe');
+
+test('describeSignal renders a bus cancellation bullet with counts', () => {
+  const out = describeSignal(
+    {
+      source: 'cancellation',
+      detail: JSON.stringify({ canceled: 7, scheduled: 12, fraction: 7 / 12 }),
+    },
+    'bus',
+  );
+  assert.equal(out, '· 7 of 12 scheduled trips canceled this past hour');
+});
+
+test('describeBotObservation: roundup folding a cancellation signal', () => {
+  const out = describeBotObservation({
+    kind: 'bus',
+    line: '49',
+    detection_source: 'roundup',
+    signals: ['cancellation'],
+  });
+  assert.equal(
+    out,
+    'Route 49 service appears degraded — a large share of scheduled trips canceled.',
+  );
+});
 
 test('describeBotObservation: roundup on a train line with multiple signals', () => {
   const out = describeBotObservation({

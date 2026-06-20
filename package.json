@@ -25,6 +25,8 @@
     "marta:bus-gaps:dry": "node bin/marta/bus/gaps.js --dry-run",
     "marta:bus-ghosts": "node bin/marta/bus/ghosts.js",
     "marta:bus-ghosts:dry": "node bin/marta/bus/ghosts.js --dry-run",
+    "marta:bus-cancellation-surge": "node bin/marta/bus/cancellation-surge.js",
+    "marta:bus-cancellation-surge:dry": "node bin/marta/bus/cancellation-surge.js --dry-run",
     "marta:bus-speedmap": "node bin/marta/bus/speedmap.js",
     "marta:bus-speedmap:dry": "node bin/marta/bus/speedmap.js --dry-run",
     "marta:rail-gaps": "node bin/marta/rail/gaps.js",

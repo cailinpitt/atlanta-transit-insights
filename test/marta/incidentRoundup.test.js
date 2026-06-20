@@ -18,6 +18,64 @@ test('scoreSignals matches CTA-style source dedupe and persistence bonus', () =>
   assert.equal(Math.round(result.total * 100) / 100, 1.75);
 });
 
+test('cancellationOverrideQualifies needs both a severe fraction and a real count', () => {
+  const { cancellationOverrideQualifies } = require(BIN);
+  // 8 of 12 (67%) canceled → severe surge, qualifies for a standalone incident.
+  assert.equal(
+    cancellationOverrideQualifies({
+      source: 'cancellation',
+      detail: JSON.stringify({ canceled: 8, scheduled: 12, fraction: 8 / 12 }),
+    }),
+    true,
+  );
+  // 5 of 10 (50%) but only 5 trips → below the min count, must compound instead.
+  assert.equal(
+    cancellationOverrideQualifies({
+      source: 'cancellation',
+      detail: JSON.stringify({ canceled: 5, scheduled: 10, fraction: 0.5 }),
+    }),
+    false,
+  );
+  // 6 of 20 (30%) → real count but mild share, must compound instead.
+  assert.equal(
+    cancellationOverrideQualifies({
+      source: 'cancellation',
+      detail: JSON.stringify({ canceled: 6, scheduled: 20, fraction: 0.3 }),
+    }),
+    false,
+  );
+  // Other sources never qualify on this gate.
+  assert.equal(
+    cancellationOverrideQualifies({ source: 'gap', detail: JSON.stringify({ ratio: 4 }) }),
+    false,
+  );
+});
+
+test('scoreSignals surfaces the cancellation override and a moderate surge stays weak', () => {
+  const { scoreSignals } = require(BIN);
+  // Severe surge alone: total is below the score threshold, but the override flags it.
+  const severe = scoreSignals([
+    {
+      source: 'cancellation',
+      severity: 0.7,
+      detail: JSON.stringify({ canceled: 8, fraction: 0.7 }),
+    },
+  ]);
+  assert.ok(severe.total < 1.75);
+  assert.equal(severe.cancellationOverride, true);
+
+  // Moderate surge: no override; it can only fire by compounding with another source.
+  const moderate = scoreSignals([
+    {
+      source: 'cancellation',
+      severity: 0.4,
+      detail: JSON.stringify({ canceled: 5, fraction: 0.4 }),
+    },
+  ]);
+  assert.equal(moderate.cancellationOverride, false);
+  assert.ok(moderate.total < 1.75);
+});
+
 test('ghostOverrideQualifies counts unexplained shortfall, not announced cancellations', () => {
   const { ghostOverrideQualifies } = require(BIN);
   // 4 of 6 missing but all 4 are MARTA-announced cancellations → does not qualify.

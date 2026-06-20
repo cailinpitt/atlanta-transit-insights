@@ -176,6 +176,32 @@ fire-and-forget (no thread/clear lifecycle). Silent when nothing's new.
   `(trip_id, service_date)`) so each canceled trip is reported exactly once across
   overlapping hourly windows. Dry run: `MARTA_ALERTS_DRY_RUN=1 node bin/marta/bus/cancellations.js`.
 
+## Bus cancellation surges — `bin/marta/bus/cancellation-surge.js`
+
+The hourly digest above is the *complete* cancellation record but is, by design,
+not an incident — it never reaches the website. A route shedding a large SHARE of
+its service in one window is a different story: rider-impacting, route-scoped, and
+worth surfacing as an incident. The surge detector turns that case into a roundup
+signal — the rate-shaped bus analog of the point-in-time rail cancellation below.
+
+- **Same source, sized against the schedule.** It counts the same structured
+  TripUpdates `CANCELED` flag (so it can't diverge from the digest or the ghost
+  detector) and divides by the schedule index's scheduled active-trip count for
+  the hour (`src/marta/bus/schedule.js#activeForLine`).
+- **Hybrid gate** (`src/marta/bus/cancellationSurge.js`, pure): a route fires only
+  when it clears both an absolute floor (`CANCEL_ABS_FLOOR`) and a share-of-service
+  fraction (`CANCEL_FRAC_THRESHOLD`) — abs alone punishes high-frequency trunk
+  routes, fraction alone fires on tiny samples. Constants are a first-pass guess
+  pending calibration.
+- **Signal-only, the roundup owns the incident.** Every qualifying route writes a
+  `cancellation` `meta_signal` (`posted: false`) — it never posts on its own.
+  `bin/marta/incident-roundup.js` then either folds a moderate surge in alongside
+  gaps/ghosts, or — when a surge is severe (`CANCEL_OVERRIDE_*`: at least half the
+  route's service shed, with a real count behind it) — stands it up as its own
+  degraded-service incident via the cancellation override, mirroring the ghost
+  override. Resolution is the roundup's ordinary clear-tick sweep once the signal
+  ages out. Dry run: `node bin/marta/bus/cancellation-surge.js --dry-run`.
+
 ## Rail single-departure cancellations — `src/marta/alert/cancellation.js`
 
 MARTA announces individual cancelled rail trains in the prose of an otherwise

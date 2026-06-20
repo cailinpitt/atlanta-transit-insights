@@ -62,6 +62,10 @@ function signalPhrase(signal, kind) {
       return 'trains held in place';
     case 'thin-gap':
       return 'no buses observed within a full scheduled headway';
+    case 'cancellation':
+      return kind === 'bus'
+        ? 'a large share of scheduled trips canceled'
+        : 'a large share of scheduled departures canceled';
     default:
       return null;
   }
@@ -219,6 +223,12 @@ function describeSignal(s, kind) {
     const n = detail.vehicles || '?';
     const noun = kind === 'bus' ? 'buses' : 'trains';
     return `· ${n} ${noun} recently bunched together`;
+  }
+  if (s.source === 'cancellation') {
+    const canceled = Math.max(0, Math.round(detail.canceled || 0));
+    const scheduled = Math.max(0, Math.round(detail.scheduled || 0));
+    const trip = canceled === 1 ? 'trip' : 'trips';
+    return `· ${canceled} of ${scheduled} scheduled ${trip} canceled this past hour`;
   }
   if (s.source === 'pulse-cold' || s.source === 'pulse-held') {
     const seg =

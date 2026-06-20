@@ -40,6 +40,14 @@ const PERSISTENCE_BONUS_PER_REPEAT = 0.15;
 const PERSISTENCE_BONUS_CAP = 0.5;
 const GHOST_OVERRIDE_PCT = 0.5;
 const GHOST_OVERRIDE_MIN_MISSING = 3;
+// A bus cancellation surge stands up its own roundup incident (below the score
+// threshold) only when it's severe: at least half the route's scheduled service
+// shed AND a real count behind it. A milder surge stays a weak `cancellation`
+// signal that must COMPOUND with gaps/ghosts to fire — mirroring the ghost
+// override, and keeping announced-but-modest cancellations from re-opening the
+// pin-forever problem that commit 83b3ecb fixed.
+const CANCEL_OVERRIDE_FRAC = 0.5;
+const CANCEL_OVERRIDE_MIN = 6;
 const DRY_RUN = process.env.ROUNDUP_DRY_RUN === '1' || process.argv.includes('--dry-run');
 
 function routeMaps(gtfs) {
@@ -90,6 +98,25 @@ function ghostOverrideQualifies(signal) {
   return missing / expected >= GHOST_OVERRIDE_PCT;
 }
 
+// A cancellation surge severe enough to be an incident on its own (see the
+// CANCEL_OVERRIDE_* rationale). Reads the share of scheduled service lost that
+// the cancellation detector stored, so the bar is the same "fraction" the
+// detector gated on, just higher.
+function cancellationOverrideQualifies(signal) {
+  if (signal.source !== 'cancellation') return false;
+  let detail = {};
+  try {
+    detail = signal.detail ? JSON.parse(signal.detail) : {};
+  } catch (_e) {
+    return false;
+  }
+  const canceled = Number(detail.canceled);
+  const fraction = Number(detail.fraction);
+  if (!Number.isFinite(canceled) || !Number.isFinite(fraction)) return false;
+  if (canceled < CANCEL_OVERRIDE_MIN) return false;
+  return fraction >= CANCEL_OVERRIDE_FRAC;
+}
+
 function scoreSignals(signals) {
   const bySource = new Map();
   for (const s of signals) {
@@ -106,7 +133,12 @@ function scoreSignals(signals) {
     v.bonus = bonus;
     total += v.contribution;
   }
-  return { total, bySource, ghostOverride: signals.some(ghostOverrideQualifies) };
+  return {
+    total,
+    bySource,
+    ghostOverride: signals.some(ghostOverrideQualifies),
+    cancellationOverride: signals.some(cancellationOverrideQualifies),
+  };
 }
 
 function severityFor(s) {
@@ -160,7 +192,7 @@ async function processKind({ kind, identifiers, getName, agentGetter, now }) {
     const signals = getRecentMetaSignals({ kind, line, withinMs: WINDOW_MS }, now);
     if (signals.length === 0) continue;
 
-    const { total, bySource, ghostOverride } = scoreSignals(signals);
+    const { total, bySource, ghostOverride, cancellationOverride } = scoreSignals(signals);
     const label = `${kind}/${line}`;
     const ghostOverrideAlreadyPosted = signals.some(
       (s) => s.source === 'ghost' && s.posted === 1 && ghostOverrideQualifies(s),
@@ -169,7 +201,7 @@ async function processKind({ kind, identifiers, getName, agentGetter, now }) {
       console.log(`marta-roundup: ${label} suppressed - ghost standalone already posted`);
       continue;
     }
-    if (total < SCORE_THRESHOLD && !ghostOverride) {
+    if (total < SCORE_THRESHOLD && !ghostOverride && !cancellationOverride) {
       console.log(
         `marta-roundup: ${label} score=${total.toFixed(2)} sources=${[...bySource.keys()].join(',')} below threshold`,
       );
@@ -229,9 +261,12 @@ async function processKind({ kind, identifiers, getName, agentGetter, now }) {
 async function sweepResolutions({ kind, getName, agentGetter, now }) {
   for (const row of listUnresolvedRoundupAnchors(kind)) {
     const signals = getRecentMetaSignals({ kind, line: row.line, withinMs: WINDOW_MS }, now);
-    const { total } = scoreSignals(signals);
+    const { total, ghostOverride, cancellationOverride } = scoreSignals(signals);
     const label = `${kind}/${row.line}`;
-    if (total >= RESOLVE_SCORE_THRESHOLD) {
+    // An override-qualifying surge holds the incident open even if its scaled
+    // score sits under the resolve threshold — the route is still gutted. (No-op
+    // for ghosts, whose override already implies a score ≥ the threshold.)
+    if (total >= RESOLVE_SCORE_THRESHOLD || ghostOverride || cancellationOverride) {
       if (row.clear_ticks !== 0) updateRoundupClearTicks(row.id, 0, now);
       continue;
     }
@@ -319,6 +354,7 @@ async function main() {
 
 module.exports = {
   ghostOverrideQualifies,
+  cancellationOverrideQualifies,
   scoreSignals,
   buildRoundupText,
   buildResolutionText,

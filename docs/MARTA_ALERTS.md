@@ -186,8 +186,13 @@ signal — the rate-shaped bus analog of the point-in-time rail cancellation bel
 
 - **Same source, sized against the schedule.** It counts the same structured
   TripUpdates `CANCELED` flag (so it can't diverge from the digest or the ghost
-  detector) and divides by the schedule index's scheduled active-trip count for
-  the hour (`src/marta/bus/schedule.js#activeForLine`).
+  detector) and divides by the schedule index's *flow* count of trips scheduled
+  to operate during the hour (`src/marta/bus/schedule.js#scheduledForLine`, backed
+  by the builder's `inServiceByHour`). This is deliberately **not** `activeForLine`'s
+  simultaneous-at-:30 snapshot: the numerator is distinct trips canceled over a
+  rolling hour, so a snapshot denominator undercounts ~2× and yields impossible
+  fractions like "7 of 3". The window straddles two clock hours, so it sizes
+  against the larger of the two.
 - **Hybrid gate** (`src/marta/bus/cancellationSurge.js`, pure): a route fires only
   when it clears both an absolute floor (`CANCEL_ABS_FLOOR`) and a share-of-service
   fraction (`CANCEL_FRAC_THRESHOLD`) — abs alone punishes high-frequency trunk

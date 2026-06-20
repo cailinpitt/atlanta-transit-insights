@@ -68,6 +68,22 @@ function tripActiveAt(firstDep, lastArr, instSec) {
   );
 }
 
+// Does a trip (firstDep..lastArr) OVERLAP clock hour `hour` (0-23) at all? This
+// is a FLOW count — every distinct trip operating during the hour — as opposed
+// to tripActiveAt's simultaneous-at-:30 SNAPSHOT. Cancellation-surge sizing
+// needs flow: its numerator is distinct trips canceled over a rolling hour, and
+// a snapshot denominator undercounts (a route with short, frequent trips runs
+// far more distinct trips per hour than are ever in motion at one instant), so
+// canceled-over-active can exceed 100% ("7 of 3"). The +86400 arm folds owl
+// trips encoded as 24:xx/25:xx onto hours 0/1, mirroring tripActiveAt.
+function tripInServiceDuringHour(firstDep, lastArr, hour) {
+  if (firstDep == null || lastArr == null) return false;
+  const start = hour * 3600;
+  const end = start + 3600;
+  const overlaps = (a, b) => a < end && b >= start;
+  return overlaps(firstDep, lastArr) || overlaps(firstDep - 86400, lastArr - 86400);
+}
+
 const WEEKDAYS = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday'];
 
 // Map a calendar.txt row to a coarse day-type bucket, or null for the
@@ -189,12 +205,33 @@ function activeForLine(index, route, now = new Date()) {
   return sum;
 }
 
+// Count of distinct trips SCHEDULED to operate during this hour on a
+// route+direction (the flow denominator from tripInServiceDuringHour), or null.
+function scheduledTripsForRoute(index, route, direction, now = new Date()) {
+  return hourlyLookup(index?.routes?.[route]?.[String(direction)]?.inServiceByHour, now);
+}
+
+// Line-level sum of scheduled trips this hour across directions — the right
+// denominator for bus cancellation-surge sizing (matches the rolling-hour,
+// distinct-trip numerator). Null when the index predates inServiceByHour.
+function scheduledForLine(index, route, now = new Date()) {
+  const dirs = index?.routes?.[route];
+  if (!dirs) return null;
+  let sum = null;
+  for (const d of Object.values(dirs)) {
+    const v = hourlyLookup(d.inServiceByHour, now);
+    if (v != null) sum = (sum || 0) + v;
+  }
+  return sum;
+}
+
 module.exports = {
   // pure helpers
   parseGtfsTime,
   median,
   hourOfSec,
   tripActiveAt,
+  tripInServiceDuringHour,
   headwayFromDepartures,
   dayTypeForCalendarRow,
   dayTypeFor,
@@ -208,5 +245,7 @@ module.exports = {
   activeTripsForRoute,
   headwayForLine,
   activeForLine,
+  scheduledTripsForRoute,
+  scheduledForLine,
   INDEX_PATH,
 };

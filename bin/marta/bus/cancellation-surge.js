@@ -18,7 +18,7 @@ require('../../../src/shared/env');
 const { setup, runBin } = require('../../../src/marta/shared/runBin');
 const storage = require('../../../src/marta/storage');
 const incidents = require('../../../src/marta/shared/incidents');
-const { loadScheduleIndex, activeForLine } = require('../../../src/marta/bus/schedule');
+const { loadScheduleIndex, scheduledForLine } = require('../../../src/marta/bus/schedule');
 const { extractCanceledTrips, summarizeByRoute } = require('../../../src/marta/bus/cancellations');
 const { detectCancellationSurges } = require('../../../src/marta/bus/cancellationSurge');
 
@@ -33,10 +33,18 @@ async function main({ now = Date.now(), idx = null } = {}) {
   const statuses = storage.getRecentBusTripStatuses(now - WINDOW_MS);
   const { perRoute } = summarizeByRoute(extractCanceledTrips(statuses));
 
-  const events = detectCancellationSurges({
-    perRoute,
-    scheduledForRoute: (route) => activeForLine(index, route, nowDate),
-  });
+  // The numerator is distinct trips canceled over the trailing WINDOW_MS, which
+  // straddles two clock hours; the index buckets scheduled service per clock
+  // hour. Size against the LARGER of the two hours the window spans so a
+  // service ramp (e.g. late-evening taper) can't push canceled past scheduled.
+  const windowStart = new Date(now - WINDOW_MS);
+  const scheduledForRoute = (route) =>
+    maxNullable(
+      scheduledForLine(index, route, nowDate),
+      scheduledForLine(index, route, windowStart),
+    );
+
+  const events = detectCancellationSurges({ perRoute, scheduledForRoute });
 
   if (events.length === 0) {
     console.log('No bus cancellation surges meet the threshold, staying silent');
@@ -61,6 +69,14 @@ async function main({ now = Date.now(), idx = null } = {}) {
       now,
     );
   }
+}
+
+// max of two values where either may be null (no scheduled service that hour);
+// null only when both are null.
+function maxNullable(a, b) {
+  if (a == null) return b;
+  if (b == null) return a;
+  return Math.max(a, b);
 }
 
 if (require.main === module) runBin(main);

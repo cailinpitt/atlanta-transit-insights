@@ -15,6 +15,7 @@ const {
   parseGtfsTime,
   hourOfSec,
   tripActiveAt,
+  tripInServiceDuringHour,
   headwayFromDepartures,
   median,
   dayTypeForCalendarRow,
@@ -143,7 +144,8 @@ async function main() {
   // trip COUNT, so it's safe to bucket per route+direction.
   const shapeDeps = new Map(); // shapeId|dayType|hour -> [depSec]
   const shapeDur = new Map(); // shapeId|dayType|hour -> [durMin]
-  const routeActive = new Map(); // route|dir|dayType|hour -> count
+  const routeActive = new Map(); // route|dir|dayType|hour -> snapshot count (@:30)
+  const routeInService = new Map(); // route|dir|dayType|hour -> flow count (overlap)
   const shapeMeta = new Map(); // shapeId -> { route, direction }
 
   for (const [tripId, meta] of tripMeta) {
@@ -162,10 +164,19 @@ async function main() {
       // simultaneous service (the right unit to compare against observed
       // vehicles-per-snapshot in ghost detection; counting every trip that
       // merely touches an hour overcounts ~2x and false-fires).
+      //
+      // in-service-by-hour = every distinct trip whose span touches the hour — a
+      // FLOW count. This is the denominator for cancellation-surge sizing, whose
+      // numerator is distinct trips canceled over a rolling hour; the snapshot
+      // count there undercounts and yields >100% ("7 of 3").
       for (let h = 0; h < 24; h++) {
-        if (!tripActiveAt(fl.firstDep, fl.lastArr, h * 3600 + 1800)) continue;
         const k = `${meta.route}|${meta.direction}|${meta.dayType}|${h}`;
-        routeActive.set(k, (routeActive.get(k) || 0) + 1);
+        if (tripActiveAt(fl.firstDep, fl.lastArr, h * 3600 + 1800)) {
+          routeActive.set(k, (routeActive.get(k) || 0) + 1);
+        }
+        if (tripInServiceDuringHour(fl.firstDep, fl.lastArr, h)) {
+          routeInService.set(k, (routeInService.get(k) || 0) + 1);
+        }
       }
     }
   }
@@ -212,7 +223,11 @@ async function main() {
           setHour(headways, dayType, hour, Math.round(median(list) * 10) / 10);
         }
       }
-      byDir[dir] = { headways, activeByHour: activeByHourFor(routeActive, route, dir) };
+      byDir[dir] = {
+        headways,
+        activeByHour: activeByHourFor(routeActive, route, dir),
+        inServiceByHour: activeByHourFor(routeInService, route, dir),
+      };
     }
   }
 

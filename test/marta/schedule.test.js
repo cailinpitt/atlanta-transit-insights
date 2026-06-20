@@ -5,6 +5,7 @@ const {
   median,
   hourOfSec,
   tripActiveAt,
+  tripInServiceDuringHour,
   headwayFromDepartures,
   dayTypeForCalendarRow,
   dayTypeFor,
@@ -13,6 +14,7 @@ const {
   headwayForRoute,
   tripMinutesForShape,
   activeTripsForRoute,
+  scheduledForLine,
 } = require('../../src/marta/bus/schedule');
 
 test('parseGtfsTime handles leading spaces and >24h owl times', () => {
@@ -52,6 +54,38 @@ test('tripActiveAt snapshots simultaneous service, including owl trips', () => {
   // Owl trip encoded 25:10–25:45 (1:10–1:45 AM) is active at the 1:30 snapshot.
   assert.equal(tripActiveAt(h(25) + 600, h(25) + 2700, h(1) + 1800), true);
   assert.equal(tripActiveAt(null, h(10), h(1)), false);
+});
+
+test('tripInServiceDuringHour counts any overlap (flow), not just the :30 snapshot', () => {
+  const h = (n) => n * 3600;
+  // Trip 10:05–10:25 never touches :30 but is in service during hour 10.
+  assert.equal(tripInServiceDuringHour(h(10) + 300, h(10) + 1500, 10), true);
+  assert.equal(tripActiveAt(h(10) + 300, h(10) + 1500, h(10) + 1800), false);
+  // A long trip 10:50–11:40 overlaps BOTH hours 10 and 11 (counted in each).
+  assert.equal(tripInServiceDuringHour(h(10) + 3000, h(11) + 2400, 10), true);
+  assert.equal(tripInServiceDuringHour(h(10) + 3000, h(11) + 2400, 11), true);
+  assert.equal(tripInServiceDuringHour(h(10) + 3000, h(11) + 2400, 9), false);
+  assert.equal(tripInServiceDuringHour(h(10) + 3000, h(11) + 2400, 12), false);
+  // Owl trip 25:10–25:45 (1:10–1:45 AM) folds onto hour 1.
+  assert.equal(tripInServiceDuringHour(h(25) + 600, h(25) + 2700, 1), true);
+  assert.equal(tripInServiceDuringHour(null, h(10), 10), false);
+});
+
+test('scheduledForLine sums in-service trips across directions, null before backfill', () => {
+  const now = new Date('2026-06-15T15:30:00-04:00'); // a weekday, hour 15 ET
+  const index = {
+    routes: {
+      49: {
+        0: { inServiceByHour: { weekday: { 15: 6 } } },
+        1: { inServiceByHour: { weekday: { 15: 5 } } },
+      },
+      // Route 84 has only the old activeByHour shape (index predates the fix).
+      84: { 0: { activeByHour: { weekday: { 15: 3 } } } },
+    },
+  };
+  assert.equal(scheduledForLine(index, '49', now), 11);
+  assert.equal(scheduledForLine(index, '84', now), null);
+  assert.equal(scheduledForLine(index, '999', now), null);
 });
 
 test('dayTypeForCalendarRow classifies the MARTA service rows', () => {

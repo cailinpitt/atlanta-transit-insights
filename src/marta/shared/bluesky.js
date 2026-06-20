@@ -225,14 +225,15 @@ async function postText(agent, text, replyRef = null) {
 
 async function postWithExternal(agent, text, link, replyRef = null) {
   let thumb;
-  if (link?.thumbUrl) {
+  for (const thumbUrl of [link?.thumbUrl, link?.fallbackThumbUrl].filter(Boolean)) {
     try {
-      const resp = await fetch(link.thumbUrl);
+      const resp = await fetch(thumbUrl);
       if (resp.ok) {
         const buf = Buffer.from(await resp.arrayBuffer());
         const ct = resp.headers.get('content-type') || 'image/png';
         const upload = await agent.uploadBlob(buf, { encoding: ct });
         thumb = upload.data.blob;
+        break;
       }
     } catch (_) {}
   }

@@ -267,6 +267,8 @@ collapsed band rather than mixing them into the live disruptions.
   protobuf decodes an *absent* int field as 0 too, so a bare `0` is ambiguous and
   not trusted. Streetcar alerts currently fall through to `general` unless a rail
   line name matches; recognizing the streetcar route by id is a follow-up.
-- **Resolution replies are text-only.** The archive-page link card (as the CTA
-  accounts attach) waits for the website + `data.atlantatransitalerts.app`
-  (plan Phase 8/9).
+- **Resolution replies carry an archive link card.** The card prefers the
+  event-specific `/event/<rkey>/resolved/og.png`; if the website rebuild has
+  not produced it yet, posting uploads the site-wide OG image instead. This
+  prevents a publish-time race from permanently creating a thumbnail-less
+  Bluesky embed.

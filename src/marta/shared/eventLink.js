@@ -16,6 +16,7 @@ function resolvedEventLink(postUri, title) {
     title: title || 'Atlanta Transit Alerts',
     description: 'View this incident on the Atlanta Transit Alerts archive.',
     thumbUrl: `${url}/og.png`,
+    fallbackThumbUrl: 'https://atlantatransitalerts.app/og-image.png',
   };
 }
 

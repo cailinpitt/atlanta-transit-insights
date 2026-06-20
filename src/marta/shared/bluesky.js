@@ -268,21 +268,6 @@ async function getPostRecord(agent, uri) {
   }
 }
 
-// Delete a post by its at:// URI (the agent must be logged in as the repo that
-// owns it). Returns true on delete, false if the URI is malformed or the record
-// is already gone. Used by maintenance cleanups that retract mis-posted alerts.
-async function deletePost(agent, uri) {
-  const m = /^at:\/\/([^/]+)\/([^/]+)\/(.+)$/.exec(uri || '');
-  if (!m) return false;
-  const [, repo, collection, rkey] = m;
-  try {
-    await agent.com.atproto.repo.deleteRecord({ repo, collection, rkey });
-    return true;
-  } catch (_e) {
-    return false;
-  }
-}
-
 // Build a {root, parent} reply ref for threading a reply onto an EXISTING post
 // (from a prior cron run) — unlike the same-run self-threading the insight bins
 // do with a just-posted {uri, cid}. Inherits the thread root from the parent's
@@ -335,5 +320,4 @@ module.exports = {
   postText,
   postWithExternal,
   resolveReplyRef,
-  deletePost,
 };

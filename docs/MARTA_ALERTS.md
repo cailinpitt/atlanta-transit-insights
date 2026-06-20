@@ -213,6 +213,18 @@ The website (`atlanta-transit-alerts`) renders the `status` block as a
 cancellation pill + structured title instead of an ongoing/resolved pill and
 duration timer (`src/lib/cancellation.js`).
 
+### Detour status
+
+`bin/marta/export-web.js` also attaches a `status: { type:'detour' }` block on
+incidents built from an official alert whose `alertNature` is `detour` (a
+`DETOUR` effect or detour/reroute/bypass wording — the same classifier the
+display name uses, so the status and the rendered name never disagree). The
+precedence on an alert-built incident is **cancellation → detour → delay**: a
+detour is more specific than the generic "delays" status, and a cancellation
+(terminal) still wins over both. Bot-only roundups never carry detour
+semantics. MARTA posts detours in bulk, so the website lifts these into a
+collapsed band rather than mixing them into the live disruptions.
+
 ## Known limitations / follow-ups
 
 - **`routeId` form: RESOLVED (2026-06-17).** OTP supplies both the public

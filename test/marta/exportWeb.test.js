@@ -258,7 +258,7 @@ test('uses alerts-account roundup as bot incident anchor and folds detector evid
   );
 });
 
-test('delay status: a non-delay alert with no gap gets no status; a gapless roundup does not either', () => {
+test('status: a detour alert is classified as a detour (not a delay); a gapless roundup gets no status', () => {
   // Official alert whose nature is a detour (not delays), no paired gap.
   seedAlert(
     {
@@ -286,7 +286,9 @@ test('delay status: a non-delay alert with no gap gets no status; a gapless roun
   const out = buildExport(storage.getDb(), NOW + 85 * 60_000);
   const detour = out.incidents.find((i) => i.official_alert?.id === 'alert-detour');
   assert.ok(detour);
-  assert.equal(detour.status, undefined);
+  // Producer-classified detour status — distinct from delay, drives the
+  // website's blue "Detour" badge and collapsed Detours band.
+  assert.equal(detour.status?.type, 'detour');
   const bunchRoundup = out.incidents.find((i) => i.id === 'roundup60');
   assert.ok(bunchRoundup);
   assert.equal(bunchRoundup.status, undefined);

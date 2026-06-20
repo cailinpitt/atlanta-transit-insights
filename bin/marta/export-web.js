@@ -410,6 +410,33 @@ function alertReportsDelay(alert) {
   );
 }
 
+// True when an official alert's nature is a route detour — reuses the display-
+// name synthesizer's classification (DETOUR effect or detour/reroute/bypass
+// wording), the same source the bus display names draw on, so the status and
+// the rendered name never disagree.
+function alertReportsDetour(alert) {
+  return (
+    alertNature({
+      header: alert.headline,
+      description: alert.description,
+      effect: alert.effect,
+      mode: canonicalMode(alert.mode, canonicalRoutes(alert.routes)),
+    }) === 'detour'
+  );
+}
+
+// Incident-level "detour" status — the producer-classified signal the website
+// reads to show its blue "Detour" badge and lift the incident into the
+// homepage's collapsed "Detours" band. MARTA posts these in bulk, so pulling
+// them out of the live disruptions keeps the homepage legible. Set only from an
+// official alert's nature (bot detections never carry detour semantics); null
+// otherwise. A cancellation status (terminal) takes precedence and is set by
+// the caller, which also prefers a detour over a delay.
+function detourStatus({ alert = null }) {
+  if (alert && alertReportsDetour(alert)) return { type: 'detour' };
+  return null;
+}
+
 // Incident-level "delays" status — the producer-classified signal the website
 // reads to show its amber "Delays" badge (the MARTA analog of CTA's Metra delay
 // status). Set when an official alert reports delays OR a bot headway gap is
@@ -775,9 +802,11 @@ function buildIncidents(alerts, detections, roundups = [], disruptions = [], now
     const matches =
       cancellation?.type === 'cancellation' ? [] : findMatches(alert, detections, usedDetections);
     for (const det of matches) usedDetections.add(det.id);
-    // Cancellation (terminal) wins; otherwise classify a "delays" status from the
-    // alert's nature or a paired bot gap.
-    const status = cancellation ?? delayStatus({ alert, records: matches });
+    // Cancellation (terminal) wins; then a detour (more specific than delays);
+    // otherwise classify a "delays" status from the alert's nature or a paired
+    // bot gap.
+    const status =
+      cancellation ?? detourStatus({ alert }) ?? delayStatus({ alert, records: matches });
     incidents.push(buildIncidentFromAlert(alert, matches, status));
   }
   for (const roundup of roundups) {

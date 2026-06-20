@@ -14,7 +14,7 @@ const {
   headwayForRoute,
   tripMinutesForShape,
   activeTripsForRoute,
-  scheduledForLine,
+  inServiceForLineAtHour,
 } = require('../../src/marta/bus/schedule');
 
 test('parseGtfsTime handles leading spaces and >24h owl times', () => {
@@ -71,21 +71,24 @@ test('tripInServiceDuringHour counts any overlap (flow), not just the :30 snapsh
   assert.equal(tripInServiceDuringHour(null, h(10), 10), false);
 });
 
-test('scheduledForLine sums in-service trips across directions, null before backfill', () => {
-  const now = new Date('2026-06-15T15:30:00-04:00'); // a weekday, hour 15 ET
+test('inServiceForLineAtHour sums a specific hour across directions, null before backfill', () => {
+  const now = new Date('2026-06-15T15:30:00-04:00'); // a weekday in ET
   const index = {
     routes: {
       49: {
-        0: { inServiceByHour: { weekday: { 15: 6 } } },
+        0: { inServiceByHour: { weekday: { 14: 4, 15: 6 } } },
         1: { inServiceByHour: { weekday: { 15: 5 } } },
       },
       // Route 84 has only the old activeByHour shape (index predates the fix).
       84: { 0: { activeByHour: { weekday: { 15: 3 } } } },
     },
   };
-  assert.equal(scheduledForLine(index, '49', now), 11);
-  assert.equal(scheduledForLine(index, '84', now), null);
-  assert.equal(scheduledForLine(index, '999', now), null);
+  // Hour 15 sums both directions; hour 14 only direction 0 has service.
+  assert.equal(inServiceForLineAtHour(index, '49', 15, now), 11);
+  assert.equal(inServiceForLineAtHour(index, '49', 14, now), 4);
+  assert.equal(inServiceForLineAtHour(index, '49', 3, now), null, 'no service that hour');
+  assert.equal(inServiceForLineAtHour(index, '84', 15, now), null);
+  assert.equal(inServiceForLineAtHour(index, '999', 15, now), null);
 });
 
 test('dayTypeForCalendarRow classifies the MARTA service rows', () => {

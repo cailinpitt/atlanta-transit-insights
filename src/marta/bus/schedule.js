@@ -205,21 +205,22 @@ function activeForLine(index, route, now = new Date()) {
   return sum;
 }
 
-// Count of distinct trips SCHEDULED to operate during this hour on a
-// route+direction (the flow denominator from tripInServiceDuringHour), or null.
-function scheduledTripsForRoute(index, route, direction, now = new Date()) {
-  return hourlyLookup(index?.routes?.[route]?.[String(direction)]?.inServiceByHour, now);
-}
-
-// Line-level sum of scheduled trips this hour across directions — the right
-// denominator for bus cancellation-surge sizing (matches the rolling-hour,
-// distinct-trip numerator). Null when the index predates inServiceByHour.
-function scheduledForLine(index, route, now = new Date()) {
+// Line-level count of distinct trips scheduled to be in service during a
+// SPECIFIC clock `hour` (0-23), summed across directions, for `now`'s day type.
+// The flow denominator for bus cancellation-surge sizing: the surge bin buckets
+// canceled trips by their scheduled departure hour and sums this over exactly
+// those hours, so numerator and denominator share a bucket. Because a trip
+// departing in hour H is in service during H, canceled-departing-in-H never
+// exceeds inService(H) — which is what keeps the share from going impossible
+// ("7 of 6"). Null when the route/day/hour has no scheduled service, or when
+// the index predates inServiceByHour.
+function inServiceForLineAtHour(index, route, hour, now = new Date()) {
   const dirs = index?.routes?.[route];
   if (!dirs) return null;
+  const dt = dayTypeFor(now);
   let sum = null;
   for (const d of Object.values(dirs)) {
-    const v = hourlyLookup(d.inServiceByHour, now);
+    const v = d.inServiceByHour?.[dt]?.[hour];
     if (v != null) sum = (sum || 0) + v;
   }
   return sum;
@@ -245,7 +246,6 @@ module.exports = {
   activeTripsForRoute,
   headwayForLine,
   activeForLine,
-  scheduledTripsForRoute,
-  scheduledForLine,
+  inServiceForLineAtHour,
   INDEX_PATH,
 };

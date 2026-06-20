@@ -18,12 +18,27 @@ require('../../../src/shared/env');
 const { setup, runBin } = require('../../../src/marta/shared/runBin');
 const storage = require('../../../src/marta/storage');
 const incidents = require('../../../src/marta/shared/incidents');
-const { loadScheduleIndex, scheduledForLine } = require('../../../src/marta/bus/schedule');
+const {
+  loadScheduleIndex,
+  inServiceForLineAtHour,
+  parseGtfsTime,
+  hourOfSec,
+  hourFor,
+} = require('../../../src/marta/bus/schedule');
 const { extractCanceledTrips, summarizeByRoute } = require('../../../src/marta/bus/cancellations');
 const { detectCancellationSurges } = require('../../../src/marta/bus/cancellationSurge');
 
 const DRY_RUN = process.argv.includes('--dry-run');
 const WINDOW_MS = 60 * 60 * 1000;
+
+// The scheduled departure clock hour (0-23) of a canceled trip, from its GTFS
+// start_time. Falls back to the current clock hour when the feed omits one (rare
+// for CANCELED TripUpdates) — cancellations are near-real-time, so "now" is the
+// right bucket. Owl times (24:xx/25:xx) fold to 0/1 via hourOfSec.
+function departureHour(startTime, now) {
+  const sec = parseGtfsTime(startTime);
+  return sec == null ? hourFor(now) : hourOfSec(sec);
+}
 
 async function main({ now = Date.now(), idx = null } = {}) {
   setup();
@@ -31,18 +46,32 @@ async function main({ now = Date.now(), idx = null } = {}) {
   const nowDate = new Date(now);
 
   const statuses = storage.getRecentBusTripStatuses(now - WINDOW_MS);
-  const { perRoute } = summarizeByRoute(extractCanceledTrips(statuses));
+  const canceled = extractCanceledTrips(statuses);
+  const { perRoute } = summarizeByRoute(canceled);
 
-  // The numerator is distinct trips canceled over the trailing WINDOW_MS, which
-  // straddles two clock hours; the index buckets scheduled service per clock
-  // hour. Size against the LARGER of the two hours the window spans so a
-  // service ramp (e.g. late-evening taper) can't push canceled past scheduled.
-  const windowStart = new Date(now - WINDOW_MS);
-  const scheduledForRoute = (route) =>
-    maxNullable(
-      scheduledForLine(index, route, nowDate),
-      scheduledForLine(index, route, windowStart),
-    );
+  // Bucket each route's canceled trips by their scheduled departure hour. The
+  // numerator (distinct trips canceled over the trailing hour) straddles two
+  // clock hours, while the index is per-clock-hour — so we size against the SUM
+  // of in-service trips over exactly the hours the cancellations fall in. Since
+  // a trip departing in hour H is in service during H, per-hour canceled never
+  // exceeds per-hour scheduled, so the share can't go impossible ("7 of 6").
+  const hoursByRoute = new Map(); // route -> Set<hour>
+  for (const t of canceled) {
+    if (t.route == null) continue;
+    const route = String(t.route);
+    if (!hoursByRoute.has(route)) hoursByRoute.set(route, new Set());
+    hoursByRoute.get(route).add(departureHour(t.startTime, nowDate));
+  }
+  const scheduledForRoute = (route) => {
+    const hours = hoursByRoute.get(String(route));
+    if (!hours) return null;
+    let sum = null;
+    for (const h of hours) {
+      const v = inServiceForLineAtHour(index, route, h, nowDate);
+      if (v != null) sum = (sum || 0) + v;
+    }
+    return sum;
+  };
 
   const events = detectCancellationSurges({ perRoute, scheduledForRoute });
 
@@ -69,14 +98,6 @@ async function main({ now = Date.now(), idx = null } = {}) {
       now,
     );
   }
-}
-
-// max of two values where either may be null (no scheduled service that hour);
-// null only when both are null.
-function maxNullable(a, b) {
-  if (a == null) return b;
-  if (b == null) return a;
-  return Math.max(a, b);
 }
 
 if (require.main === module) runBin(main);

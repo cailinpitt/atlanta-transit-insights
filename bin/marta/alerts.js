@@ -31,6 +31,7 @@ const {
 const { resolvedEventLink } = require('../../src/marta/shared/eventLink');
 const { classifyRailCancellation } = require('../../src/marta/alert/cancellation');
 const { extractAlertStations } = require('../../src/marta/alert/stations');
+const { isAllClearText } = require('../../src/marta/alert/chain');
 const {
   getAlertPost,
   recordAlertSeen,
@@ -38,6 +39,8 @@ const {
   incrementAlertClearTicks,
   resetAlertClearTicks,
   listUnresolvedAlerts,
+  findThreadableAlert,
+  hasLaterChainMember,
   ALERT_CLEAR_TICKS,
 } = require('../../src/marta/alert/store');
 
@@ -56,7 +59,7 @@ const io = {
 
 // The fields the store persists for an alert, derived from a feed entity + its
 // resolved relevance (mode + affected routes).
-function seenFields(alert, rel, postUri, period) {
+function seenFields(alert, rel, postUri, period, threadRootUri = null) {
   // Pull the canonical station names out of rail-alert prose so the web export
   // can tie the alert to its /station/:slug pages. Rail only — bus/streetcar
   // alerts don't name heavy-rail stations, and the extractor is line-scoped to
@@ -83,6 +86,7 @@ function seenFields(alert, rel, postUri, period) {
     affectedFromStation: stations.affectedFromStation,
     affectedToStation: stations.affectedToStation,
     mentionedStations: stations.mentionedStations,
+    threadRootUri,
   };
 }
 
@@ -102,22 +106,42 @@ function periodBounds(alert) {
 async function postNewAlert(alert, rel, agentGetter, now = Date.now()) {
   const text = buildAlertText(alert, rel);
   const period = periodBounds(alert);
+  // MARTA posts each update ("delays" → "Update: resumed normal schedule") as a
+  // fresh alert_id. If this one continues a recent same-line thread, reply under
+  // its root instead of opening a new thread, and remember the root so the whole
+  // chain stays one thread + one website incident.
+  const thread = findThreadableAlert({ mode: rel.mode, routes: rel.routes, now });
+  const threadRootUri = thread?.threadRootUri ?? null;
 
   if (DRY_RUN) {
     console.log(
-      `--- DRY RUN marta alert ${alert.id} [${rel.mode}] (DB write skipped) ---\n${text}\n`,
+      `--- DRY RUN marta alert ${alert.id} [${rel.mode}]${
+        threadRootUri ? ' (threaded reply)' : ''
+      } (DB write skipped) ---\n${text}\n`,
     );
     return;
   }
 
   // Pre-post write (postUri:null) so a crash between posting and the post-post
   // write is still detectable — mirrors the CTA/Metra invariant.
-  recordAlertSeen(seenFields(alert, rel, null, period), now);
+  recordAlertSeen(seenFields(alert, rel, null, period, threadRootUri), now);
 
   const agent = await agentGetter();
-  const result = await io.postText(agent, text);
-  console.log(`Posted marta alert ${alert.id}: ${result.url}`);
-  recordAlertSeen(seenFields(alert, rel, result.uri, period), now);
+  let replyRef = null;
+  if (threadRootUri) {
+    try {
+      replyRef = await io.resolveReplyRef(agent, threadRootUri);
+    } catch (e) {
+      console.warn(
+        `Marta alert ${alert.id}: could not resolve thread root ${threadRootUri}, posting standalone: ${e.message}`,
+      );
+    }
+  }
+  const result = replyRef
+    ? await io.postText(agent, text, replyRef)
+    : await io.postText(agent, text);
+  console.log(`Posted marta alert ${alert.id}: ${result.url}${replyRef ? ' (threaded)' : ''}`);
+  recordAlertSeen(seenFields(alert, rel, result.uri, period, threadRootUri), now);
 }
 
 // A stored alert row that names a single cancelled rail departure. The website
@@ -138,6 +162,23 @@ function rowIsRailCancellation(row) {
 }
 
 async function postResolution(alertRow, agentGetter) {
+  // Chain members close SILENTLY (no public "✅ resolved" reply): a non-tail
+  // member whose thread a newer alert continues, or an "all clear" entity whose
+  // own text already says service resumed — otherwise a churned chain would post
+  // a redundant "✅ resolved: …resumed normal schedule". Only a genuine tail with
+  // ordinary disruption text posts the resolution reply below.
+  if (hasLaterChainMember(alertRow) || isAllClearText(alertRow.headline, alertRow.description)) {
+    if (DRY_RUN) {
+      console.log(
+        `--- DRY RUN would silently close chain member ${alertRow.alert_id} (no resolution reply) ---`,
+      );
+      return;
+    }
+    recordAlertResolved({ alertId: alertRow.alert_id, replyUri: null });
+    console.log(`Marta alert ${alertRow.alert_id} silently closed (chain member / all-clear)`);
+    return;
+  }
+
   // Cancellation events are terminal; don't post a misleading resolution reply.
   if (rowIsRailCancellation(alertRow)) {
     if (DRY_RUN) {

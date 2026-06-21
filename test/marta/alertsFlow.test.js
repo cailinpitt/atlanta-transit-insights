@@ -196,6 +196,69 @@ test('a rail cancellation is silently closed on feed-drop (no "resolved" reply)'
   }
 });
 
+test('a continuation alert replies in one thread; the chain closes silently', async () => {
+  const { bin, store, posts, setFeed, cleanup } = loadBinWithTempDb();
+  try {
+    const T0 = 1_000_000;
+    const delays = {
+      id: 'sc-delay',
+      source: 'otp',
+      effect: null,
+      header: 'Streetcar delays',
+      description: 'Heavy traffic delays in Streetcar service.',
+      informedEntities: [{ routeType: 0, routeId: 'ATLSC' }],
+      activePeriods: [],
+    };
+    setFeed([delays]);
+    await bin.main({ now: T0 });
+    assert.equal(posts.length, 1);
+    assert.equal(posts[0].replyRef, null, 'first alert opens a new thread');
+    const rootUri = posts[0].uri;
+
+    // MARTA's "all clear" follow-up arrives as a NEW alert_id ~3 min later.
+    const clear = {
+      id: 'sc-clear',
+      source: 'otp',
+      effect: null,
+      header: 'Streetcar service alert',
+      description: 'Update: Streetcars resumed normal schedule.',
+      informedEntities: [{ routeType: 0, routeId: 'ATLSC' }],
+      activePeriods: [],
+    };
+    setFeed([delays, clear]);
+    await bin.main({ now: T0 + 3 * 60_000 });
+    assert.equal(posts.length, 2);
+    // Posted as a reply under the first thread's root, not a new top-level post.
+    assert.deepEqual(posts[1].replyRef, { root: { uri: rootUri }, parent: { uri: rootUri } });
+    assert.equal(store.getAlertPost('sc-clear').thread_root_uri, rootUri);
+
+    // Both drop from the feed. Keep an unrelated alert present so the sweep runs.
+    const other = {
+      id: 'gold',
+      source: 'otp',
+      effect: 'NO_SERVICE',
+      header: 'Gold Line single-tracking',
+      description: 'Single tracking on the Gold line.',
+      informedEntities: [{ routeType: 1, routeId: 'GOLD' }],
+      activePeriods: [],
+    };
+    setFeed([other]);
+    const t = T0 + 3 * 60_000;
+    await bin.main({ now: t + 60_000 });
+    await bin.main({ now: t + 120_000 });
+    await bin.main({ now: t + 180_000 }); // third missing tick → resolution sweep
+
+    // Neither streetcar member posts a public "✅ resolved" reply: the delay has a
+    // later chain member, and the clear is all-clear text. Both close silently.
+    const resolutionReplies = posts.filter((p) => p.replyRef && /resolved/i.test(p.text));
+    assert.equal(resolutionReplies.length, 0, 'no redundant resolution reply on the chain');
+    assert.notEqual(store.getAlertPost('sc-delay').resolved_ts, null);
+    assert.notEqual(store.getAlertPost('sc-clear').resolved_ts, null);
+  } finally {
+    cleanup();
+  }
+});
+
 test('empty feed skips the resolution sweep (flicker guard)', async () => {
   const { bin, store, posts, setFeed, cleanup } = loadBinWithTempDb();
   try {

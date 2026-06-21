@@ -18,6 +18,7 @@ const {
   listUnresolvedAlerts,
   recordAlertResolved,
   incrementAlertClearTicks,
+  findUnresolvedAlertForRoundup,
   ALERT_CLEAR_TICKS,
   ALERT_FLICKER_RESET_MS,
 } = require('../../src/marta/alert/store');
@@ -122,4 +123,45 @@ test('new chapter after the flicker window clears the prior resolution reply', (
   const row = getAlertPost('a1');
   assert.equal(row.resolved_ts, null);
   assert.equal(row.resolved_reply_uri, null);
+});
+
+test('findUnresolvedAlertForRoundup matches an open same-line alert by mode + route', () => {
+  const now = 2_000_000_000_000;
+  // Open bus alert on route 55, open rail alert on the Gold line.
+  recordAlertSeen(
+    {
+      alertId: 'bus-55',
+      mode: 'bus',
+      routes: '55',
+      headline: 'Route 55 detour',
+      postUri: 'at://did/app.bsky.feed.post/bus55',
+    },
+    now,
+  );
+  recordAlertSeen(
+    {
+      alertId: 'rail-gold',
+      mode: 'rail',
+      routes: 'GOLD',
+      headline: 'Gold Line delays',
+      postUri: 'at://did/app.bsky.feed.post/railgold',
+    },
+    now,
+  );
+
+  // Bus roundup on 55 → the bus alert; rail roundup on GOLD → the rail alert.
+  assert.equal(
+    findUnresolvedAlertForRoundup({ kind: 'bus', line: '55' }),
+    'at://did/app.bsky.feed.post/bus55',
+  );
+  assert.equal(
+    findUnresolvedAlertForRoundup({ kind: 'rail', line: 'GOLD' }),
+    'at://did/app.bsky.feed.post/railgold',
+  );
+  // No cross-mode / cross-line bleed (BLUE has no open alert in this DB).
+  assert.equal(findUnresolvedAlertForRoundup({ kind: 'bus', line: 'GOLD' }), null);
+  assert.equal(findUnresolvedAlertForRoundup({ kind: 'rail', line: 'BLUE' }), null);
+  // A resolved alert no longer matches.
+  recordAlertResolved({ alertId: 'bus-55', replyUri: null }, now + 60_000);
+  assert.equal(findUnresolvedAlertForRoundup({ kind: 'bus', line: '55' }), null);
 });

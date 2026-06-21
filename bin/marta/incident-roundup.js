@@ -25,6 +25,7 @@ const {
   resolveReplyRef,
 } = require('../../src/marta/shared/bluesky');
 const { resolvedEventLink } = require('../../src/marta/shared/eventLink');
+const { findUnresolvedAlertForRoundup } = require('../../src/marta/alert/store');
 const { describeSignal } = require('../../src/shared/observationDescribe');
 const { lineTitle } = require('../../src/marta/rail/post');
 
@@ -220,8 +221,22 @@ async function processKind({ kind, identifiers, getName, agentGetter, now }) {
 
     try {
       const agent = await agentGetter();
-      const result = await postText(agent, text);
-      console.log(`Posted MARTA roundup ${label}: ${result.url}`);
+      // Thread the roundup UNDER an open official alert for the same line, if one
+      // exists, so the bot's "degraded service" post and MARTA's official word
+      // share one Bluesky thread (CTA parity). Standalone otherwise.
+      let replyRef = null;
+      const openAlertUri = findUnresolvedAlertForRoundup({ kind, line });
+      if (openAlertUri) {
+        try {
+          replyRef = await resolveReplyRef(agent, openAlertUri);
+        } catch (e) {
+          console.warn(`marta-roundup: ${label} could not resolve open-alert thread: ${e.message}`);
+        }
+      }
+      const result = replyRef ? await postText(agent, text, replyRef) : await postText(agent, text);
+      console.log(
+        `Posted MARTA roundup ${label}: ${result.url}${replyRef ? ' (threaded under open alert)' : ''}`,
+      );
       const earliestSignalTs = signals.reduce((m, s) => (s.ts < m ? s.ts : m), now);
       const bullets = pickBestBySource(signals).map((s) => {
         let detail = null;

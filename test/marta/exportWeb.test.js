@@ -58,7 +58,12 @@ test('converts at-uri posts to bsky.app URLs', () => {
   assert.equal(atUriToUrl('not-a-uri'), null);
 });
 
-test('pairs posted bot detections with matching official alerts', () => {
+test('a lone bot detector does NOT attach to an official alert (CTA alignment)', () => {
+  // A single gap/bunch/ghost is NOT in the alert pairing pool — only roundups +
+  // route-silence disruptions are (see the roundup-merge test below). So a lone
+  // same-line gap must NOT fold under the alert; the alert stays marta-only and
+  // the gap surfaces nowhere on the site. This is what stops a stray 2-car bunch
+  // from two hours earlier attaching to a later official alert.
   seedAlert();
   incidents.recordGap(
     {
@@ -85,15 +90,112 @@ test('pairs posted bot detections with matching official alerts', () => {
   assert.equal(incident.agency, 'marta');
   assert.equal(incident.mode, 'bus');
   assert.deepEqual(incident.routes, ['121']);
-  assert.deepEqual(incident.sources, ['marta', 'bot']);
+  // Marta-only: the lone gap was not folded in.
+  assert.deepEqual(incident.sources, ['marta']);
   assert.equal(incident.official_alert.id, 'alert-121');
-  assert.equal(incident.official_alert.post_url, atUriToUrl(ALERT_URI));
-  assert.equal(incident.detections.length, 1);
-  assert.equal(incident.detections[0].source, 'gap');
-  assert.equal(incident.detections[0].post_url, atUriToUrl(GAP_URI));
+  assert.equal(incident.detections.length, 0);
   assert.equal(incident.lifecycle.active, true);
-  // Official "delays" alert + a bot gap → producer-classified delay status.
+  // The lone gap surfaces nowhere as its own incident.
+  assert.equal(
+    out.incidents.some((i) => (i.detections || []).some((d) => d.post_url === atUriToUrl(GAP_URI))),
+    false,
+  );
+  // Official "delays" alert (effect SIGNIFICANT_DELAYS) → delay status.
   assert.equal(incident.status?.type, 'delay');
+});
+
+test('a roundup merges into a matching official alert, carrying its evidence', () => {
+  // The CTA-aligned positive path: bot evidence reaches an alert only through a
+  // multi-signal roundup. The roundup (and the raw detector it bundles) fold
+  // under the official alert as one official+bot incident.
+  seedAlert(
+    {
+      alertId: 'alert-220',
+      mode: 'bus',
+      routes: '220',
+      headline: 'Route 220 delays',
+      postUri: 'at://did:plc:alerts/app.bsky.feed.post/alert220',
+    },
+    NOW + 100 * 60_000,
+  );
+  incidents.recordRoundupAnchor({
+    kind: 'bus',
+    line: '220',
+    postUri: 'at://did:plc:martaalerts/app.bsky.feed.post/roundup220',
+    postCid: 'cid-roundup220',
+    ts: NOW + 101 * 60_000,
+    signals: ['gap', 'bunching'],
+    bullets: [{ source: 'gap', detail: { ratio: 3.1 } }],
+  });
+  incidents.recordGap(
+    {
+      kind: 'bus',
+      route: '220',
+      direction: 'shape-b',
+      gapFt: 30_000,
+      gapMin: 40,
+      expectedMin: 12,
+      ratio: 3.1,
+      nearStop: null,
+      posted: true,
+      postUri: 'at://did:plc:bus/app.bsky.feed.post/gap220',
+    },
+    NOW + 102 * 60_000,
+  );
+
+  const out = buildExport(storage.getDb(), NOW + 110 * 60_000);
+  const incident = out.incidents.find((i) => i.official_alert?.id === 'alert-220');
+  assert.ok(incident);
+  assert.deepEqual(incident.sources, ['marta', 'bot']);
+  // Roundup anchor + its evidence gap both fold under the alert.
+  assert.deepEqual(
+    incident.detections.map((d) => d.source),
+    ['roundup', 'gap'],
+  );
+  // The roundup did not also stand alone.
+  assert.equal(
+    out.incidents.some((i) => i.id === 'roundup220'),
+    false,
+  );
+  assert.equal(incident.status?.type, 'delay');
+});
+
+test('a roundup that cleared before the alert began is NOT merged (interval guard)', () => {
+  // Onset proximity alone is not enough — a roundup whose own interval ended
+  // well before the alert started must not attach (mirrors CTA's interval guard).
+  const roundupTs = NOW + 200 * 60_000;
+  incidents.recordRoundupAnchor({
+    kind: 'bus',
+    line: '230',
+    postUri: 'at://did:plc:martaalerts/app.bsky.feed.post/roundup230',
+    postCid: 'cid-roundup230',
+    ts: roundupTs,
+    signals: ['bunching'],
+    bullets: [{ source: 'bunching', detail: {} }],
+  });
+  // Resolve the roundup ~5 min after it fired, well before the alert is seen.
+  const r230 = incidents.listUnresolvedRoundupAnchors('bus').find((r) => r.line === '230');
+  incidents.markRoundupResolved(r230.id, null, roundupTs + 5 * 60_000);
+  // Alert begins ~90 min after the roundup cleared — inside the 2h proximity
+  // window but with no interval overlap.
+  seedAlert(
+    {
+      alertId: 'alert-230',
+      mode: 'bus',
+      routes: '230',
+      headline: 'Route 230 delays',
+      postUri: 'at://did:plc:alerts/app.bsky.feed.post/alert230',
+    },
+    roundupTs + 95 * 60_000,
+  );
+
+  const out = buildExport(storage.getDb(), roundupTs + 120 * 60_000);
+  const incident = out.incidents.find((i) => i.official_alert?.id === 'alert-230');
+  assert.ok(incident);
+  // The stale roundup did not attach; the alert is marta-only.
+  assert.deepEqual(incident.sources, ['marta']);
+  // The roundup stands on its own instead.
+  assert.ok(out.incidents.some((i) => i.id === 'roundup230'));
 });
 
 test('drops an unpaired single detector instead of making a standalone event', () => {
@@ -171,7 +273,7 @@ test('co-posted route-silence disruptions get distinct incident ids', () => {
   assert.notEqual(r21[0].id, r116[0].id);
 });
 
-test('reconciliation resolves a detector folded under an official alert', () => {
+test('reconciliation resolves a detector folded (via roundup) under an official alert', () => {
   const ts = NOW + 40 * 60_000;
   seedAlert(
     {
@@ -183,6 +285,16 @@ test('reconciliation resolves a detector folded under an official alert', () => 
     },
     ts - 60_000,
   );
+  // The gap reaches the alert only as evidence of a roundup (CTA alignment).
+  incidents.recordRoundupAnchor({
+    kind: 'bus',
+    line: '998',
+    postUri: 'at://did:plc:martaalerts/app.bsky.feed.post/roundup998',
+    postCid: 'cid-roundup998',
+    ts: ts - 30_000,
+    signals: ['gap'],
+    bullets: [{ source: 'gap', detail: { ratio: 3.2 } }],
+  });
   incidents.recordGap(
     {
       kind: 'bus',
@@ -305,6 +417,16 @@ test('reconciliation resolves the superseded detector but keeps the newest activ
     },
     NOW + 59 * 60_000,
   );
+  // Roundup carries the two gaps under the alert (CTA alignment).
+  incidents.recordRoundupAnchor({
+    kind: 'bus',
+    line: '997',
+    postUri: 'at://did:plc:martaalerts/app.bsky.feed.post/roundup997',
+    postCid: 'cid-roundup997',
+    ts: NOW + 59 * 60_000,
+    signals: ['gap'],
+    bullets: [{ source: 'gap', detail: { ratio: 4 } }],
+  });
   incidents.recordGap(
     {
       kind: 'bus',
@@ -354,7 +476,7 @@ test('reconciliation resolves the superseded detector but keeps the newest activ
   assert.equal(newer.lifecycle.active, true);
 });
 
-test('pairs rail bunching and ghosts with matching rail alerts', () => {
+test('a roundup folds rail bunching and ghosts under a matching rail alert', () => {
   seedAlert(
     {
       alertId: 'rail-blue',
@@ -365,6 +487,15 @@ test('pairs rail bunching and ghosts with matching rail alerts', () => {
     },
     NOW + 20 * 60_000,
   );
+  incidents.recordRoundupAnchor({
+    kind: 'rail',
+    line: 'BLUE',
+    postUri: 'at://did:plc:martaalerts/app.bsky.feed.post/roundupblue',
+    postCid: 'cid-roundupblue',
+    ts: NOW + 21 * 60_000,
+    signals: ['bunching', 'ghost'],
+    bullets: [{ source: 'bunching', detail: {} }],
+  });
   incidents.recordBunching(
     {
       kind: 'rail',
@@ -394,7 +525,13 @@ test('pairs rail bunching and ghosts with matching rail alerts', () => {
   assert.ok(rail);
   assert.equal(rail.mode, 'rail');
   assert.deepEqual(rail.routes, ['blue']);
-  assert.deepEqual(rail.detections.map((det) => det.source).sort(), ['bunching', 'ghost']);
+  assert.deepEqual(rail.sources, ['marta', 'bot']);
+  // Roundup anchor + its bunching/ghost evidence all fold under the rail alert.
+  assert.deepEqual(rail.detections.map((det) => det.source).sort(), [
+    'bunching',
+    'ghost',
+    'roundup',
+  ]);
 });
 
 test('a rail single-departure cancellation gets a status block and does NOT merge a same-line bunch', () => {
@@ -491,6 +628,189 @@ test('exports an ATLSC alert as streetcar; route A bunching is bus, not streetca
     out.incidents.some((incident) => incident.routes.includes('A')),
     false,
   );
+});
+
+test('consolidates a churned alert + its later "all clear" into one incident', () => {
+  // MARTA posts each update as a fresh alert_id; the delay and its "resumed"
+  // follow-up ~3 min later must collapse into ONE incident with official_alerts[].
+  const t0 = NOW + 300 * 60_000;
+  seedAlert(
+    {
+      alertId: 'sc-delay',
+      mode: 'streetcar',
+      routes: 'ATLSC',
+      headline: 'Streetcar delays',
+      description: 'Heavy traffic delays in Streetcar service.',
+      effect: null,
+      postUri: 'at://did:plc:alerts/app.bsky.feed.post/scdelay',
+    },
+    t0,
+  );
+  // First alert resolves (drops from feed) ~20 min later.
+  alerts.recordAlertResolved({ alertId: 'sc-delay', replyUri: null }, t0 + 20 * 60_000);
+  // The "all clear" follow-up appears ~3 min after the first resolved.
+  seedAlert(
+    {
+      alertId: 'sc-clear',
+      mode: 'streetcar',
+      routes: 'ATLSC',
+      headline: 'Streetcar service alert',
+      description: 'Update: Streetcars resumed normal schedule.',
+      effect: null,
+      postUri: 'at://did:plc:alerts/app.bsky.feed.post/scclear',
+    },
+    t0 + 23 * 60_000,
+  );
+
+  const out = buildExport(storage.getDb(), t0 + 60 * 60_000);
+  const merged = out.incidents.filter(
+    (i) => i.mode === 'streetcar' && (i.official_alerts || i.official_alert),
+  );
+  // Exactly one streetcar incident, anchored on the earliest (delay) post.
+  const sc = merged.find((i) => i.id === 'scdelay');
+  assert.ok(sc, 'merged incident keyed on the earliest alert rkey');
+  assert.equal(sc.official_alerts.length, 2);
+  assert.deepEqual(
+    sc.official_alerts.map((a) => a.id),
+    ['sc-delay', 'sc-clear'],
+  );
+  // The "all clear" did NOT stand up as its own incident.
+  assert.equal(
+    out.incidents.some((i) => i.id === 'scclear'),
+    false,
+  );
+  // Lifecycle spans both.
+  assert.equal(sc.lifecycle.first_seen_ts, t0);
+});
+
+test('does NOT consolidate two same-line alerts hours apart', () => {
+  const t0 = NOW + 500 * 60_000;
+  seedAlert(
+    {
+      alertId: 'gold-am',
+      mode: 'rail',
+      routes: 'GOLD',
+      headline: 'Gold Line delays',
+      postUri: 'at://did:plc:alerts/app.bsky.feed.post/goldam',
+    },
+    t0,
+  );
+  alerts.recordAlertResolved({ alertId: 'gold-am', replyUri: null }, t0 + 15 * 60_000);
+  // A genuinely separate Gold disruption 3h later.
+  seedAlert(
+    {
+      alertId: 'gold-pm',
+      mode: 'rail',
+      routes: 'GOLD',
+      headline: 'Gold Line delays',
+      postUri: 'at://did:plc:alerts/app.bsky.feed.post/goldpm',
+    },
+    t0 + 3 * 60 * 60_000,
+  );
+
+  const out = buildExport(storage.getDb(), t0 + 4 * 60 * 60_000);
+  assert.ok(out.incidents.find((i) => i.id === 'goldam'));
+  assert.ok(out.incidents.find((i) => i.id === 'goldpm'));
+  // Neither carries the other as an official_alerts member.
+  const am = out.incidents.find((i) => i.id === 'goldam');
+  assert.ok(!am.official_alerts || am.official_alerts.length <= 1);
+});
+
+test('an agency-wide (no-routes) alert does NOT absorb bot obs', () => {
+  // Empty alert routes match no bot obs (CTA alignment) — a system-wide notice
+  // must not vacuum up every roundup in the window.
+  const ts = NOW + 600 * 60_000;
+  alerts.recordAlertSeen(
+    {
+      alertId: 'agency-wide',
+      mode: 'general',
+      routes: null,
+      headline: 'System-wide service notice',
+      description: 'MARTA is experiencing delays.',
+      effect: 'SIGNIFICANT_DELAYS',
+      postUri: 'at://did:plc:alerts/app.bsky.feed.post/agencywide',
+    },
+    ts,
+  );
+  incidents.recordRoundupAnchor({
+    kind: 'bus',
+    line: '700',
+    postUri: 'at://did:plc:martaalerts/app.bsky.feed.post/roundup700',
+    postCid: 'cid-roundup700',
+    ts: ts + 60_000,
+    signals: ['gap', 'bunching'],
+    bullets: [{ source: 'gap', detail: { ratio: 3 } }],
+  });
+
+  const out = buildExport(storage.getDb(), ts + 10 * 60_000);
+  const alert = out.incidents.find((i) => i.official_alert?.id === 'agency-wide');
+  assert.ok(alert);
+  assert.deepEqual(alert.sources, ['marta'], 'agency-wide alert stays marta-only');
+  // The roundup stands on its own.
+  assert.ok(out.incidents.some((i) => i.id === 'roundup700'));
+});
+
+test('incident routes union every alert version (a narrowed multi-line alert keeps all lines)', () => {
+  const ts = NOW + 700 * 60_000;
+  // First seen as a Red+Gold alert…
+  alerts.recordAlertSeen(
+    {
+      alertId: 'multiline',
+      mode: 'rail',
+      routes: 'RED,GOLD',
+      headline: 'Red and Gold Line delays',
+      description: 'Delays on Red and Gold lines.',
+      postUri: 'at://did:plc:alerts/app.bsky.feed.post/multiline',
+    },
+    ts,
+  );
+  // …then edited (narrowed) to just Red before resolving. routes is overwritten
+  // last-write-wins, but the Gold chapter is preserved in alert_versions.
+  alerts.recordAlertSeen(
+    {
+      alertId: 'multiline',
+      mode: 'rail',
+      routes: 'RED',
+      headline: 'Red Line delays',
+      description: 'Delays continuing on the Red line.',
+    },
+    ts + 5 * 60_000,
+  );
+
+  const out = buildExport(storage.getDb(), ts + 10 * 60_000);
+  const inc = out.incidents.find((i) => i.official_alert?.id === 'multiline');
+  assert.ok(inc);
+  assert.deepEqual([...inc.routes].sort(), ['gold', 'red']);
+});
+
+test('a cold disruption back-dates incident onset from minutesSinceLastTrain', () => {
+  const ts = NOW + 800 * 60_000;
+  incidents.recordDisruption(
+    {
+      kind: 'rail',
+      line: 'BLUE',
+      direction: null,
+      source: 'observed',
+      posted: true,
+      postUri: 'at://did:plc:rail/app.bsky.feed.post/coldblue',
+      evidence: { minutesSinceLastTrain: 25, coldThresholdMin: 18 },
+    },
+    ts,
+  );
+
+  const out = buildExport(storage.getDb(), ts + 10 * 60_000);
+  const inc = out.incidents.find(
+    (i) =>
+      i.id?.startsWith('coldblue') || (i.detections || []).some((d) => d.source === 'pulse-cold'),
+  );
+  assert.ok(inc);
+  const onset = ts - 25 * 60_000;
+  // Bot-only incident: first_seen tracks the post ts; the back-dated start is
+  // carried separately as onset_ts.
+  assert.equal(inc.lifecycle.first_seen_ts, ts);
+  assert.equal(inc.lifecycle.onset_ts, onset, 'incident onset back-dated 25 min');
+  const det = inc.detections[0];
+  assert.equal(det.lifecycle.onset_ts, onset, 'detection onset surfaced');
 });
 
 test('bin writes the schema-v2 payload', () => {

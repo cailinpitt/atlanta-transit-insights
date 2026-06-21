@@ -19,6 +19,16 @@
 // queries span every mode.
 const storage = require('../storage');
 const { markWebPushPending } = require('../../shared/webPushTrigger');
+const { alertsChainable, CHAIN_WINDOW_MS } = require('./chain');
+const { routeMatchKey } = require('../routeKeys');
+
+// Split a stored comma-joined routes column into an array for chain matching.
+function splitRoutes(routes) {
+  return String(routes || '')
+    .split(',')
+    .map((r) => r.trim())
+    .filter(Boolean);
+}
 
 // Feed-drop resolution threshold: how many consecutive ticks an alert must be
 // absent from the feed before we post a "resolved" reply. Flicker-safe; the
@@ -62,7 +72,13 @@ function getDb() {
         -- alert scope so it ties to its /station/:slug pages.
         affected_from_station TEXT,
         affected_to_station TEXT,
-        mentioned_stations TEXT
+        mentioned_stations TEXT,
+        -- Bluesky thread root for a CHAIN of MARTA alert entities. MARTA's OTP
+        -- backend posts each update as a fresh alert_id; when a new alert is a
+        -- continuation of a recent one (src/marta/alert/chain.js), we reply under
+        -- the chain's first post instead of opening a new thread, and record that
+        -- root here so the whole chain stays one thread.
+        thread_root_uri TEXT
       );
       CREATE INDEX IF NOT EXISTS idx_alert_posts_mode ON alert_posts(mode);
       CREATE INDEX IF NOT EXISTS idx_alert_posts_resolved ON alert_posts(resolved_ts);
@@ -87,7 +103,12 @@ function getDb() {
         .all()
         .map((c) => c.name),
     );
-    for (const col of ['affected_from_station', 'affected_to_station', 'mentioned_stations']) {
+    for (const col of [
+      'affected_from_station',
+      'affected_to_station',
+      'mentioned_stations',
+      'thread_root_uri',
+    ]) {
       if (!alertCols.has(col)) db.exec(`ALTER TABLE alert_posts ADD COLUMN ${col} TEXT`);
     }
     _initedDb = db;
@@ -102,6 +123,59 @@ function getAlertPost(alertId) {
 // All alerts still considered active (no resolved_ts), across every mode.
 function listUnresolvedAlerts() {
   return getDb().prepare('SELECT * FROM alert_posts WHERE resolved_ts IS NULL').all();
+}
+
+// The thread an incoming alert should reply under, if it's a continuation of a
+// recent posted alert on the same mode + overlapping routes (per
+// src/marta/alert/chain.js). MARTA's OTP backend posts each update as a fresh
+// alert_id, so without this every "Update:"/"all clear" opens a new thread.
+// Returns { alertId, threadRootUri } (root = the matched alert's own thread root
+// if it already has one, else its post_uri) or null. Scans recent posted alerts
+// of the same mode, newest first.
+function findThreadableAlert({ mode, routes, now = Date.now() }, windowMs = CHAIN_WINDOW_MS) {
+  if (!mode) return null;
+  const candidates = getDb()
+    .prepare(`
+      SELECT alert_id, mode, routes, first_seen_ts, last_seen_ts, resolved_ts,
+             post_uri, thread_root_uri
+      FROM alert_posts
+      WHERE post_uri IS NOT NULL AND mode = ?
+      ORDER BY first_seen_ts DESC
+      LIMIT 50
+    `)
+    .all(mode);
+  const next = { mode, routes: routes || [], first_seen_ts: now };
+  for (const c of candidates) {
+    const prev = {
+      mode: c.mode,
+      routes: splitRoutes(c.routes),
+      first_seen_ts: c.first_seen_ts,
+      last_seen_ts: c.last_seen_ts,
+      resolved_ts: c.resolved_ts,
+    };
+    if (alertsChainable(prev, next, windowMs)) {
+      return { alertId: c.alert_id, threadRootUri: c.thread_root_uri || c.post_uri };
+    }
+  }
+  return null;
+}
+
+// True when another alert in the same Bluesky thread started AFTER `row` — i.e.
+// `row` is a non-tail member of a chain. Such members close SILENTLY (no public
+// "✅ resolved" reply); only the chain's tail posts the resolution, so the thread
+// gets one closer instead of one per churned entity.
+function hasLaterChainMember(row) {
+  const root = row.thread_root_uri || row.post_uri;
+  if (!root) return false;
+  const r = getDb()
+    .prepare(`
+      SELECT COUNT(*) AS c FROM alert_posts
+      WHERE alert_id != ?
+        AND (thread_root_uri = ? OR post_uri = ?)
+        AND first_seen_ts > ?
+    `)
+    .get(row.alert_id, root, root, row.first_seen_ts);
+  return (r?.c ?? 0) > 0;
 }
 
 // post_uri of the most-recent open official rail alert that names `line`
@@ -127,6 +201,35 @@ function findUnresolvedRailAlertForLine(line) {
       .map((s) => s.trim())
       .includes(key);
     if (routeMatch || routes.includes(key) || headline.includes(`${key} line`)) {
+      return r.post_uri;
+    }
+  }
+  return null;
+}
+
+// post_uri of the most-recent open official alert that covers a roundup's
+// kind+line, or null. The all-mode generalization of
+// findUnresolvedRailAlertForLine: a bus roundup matches an open `bus` alert on
+// the same route; a rail roundup matches an open `rail`/`streetcar` alert on the
+// same line (route-key match, with the rail headline "<Line> Line" fallback).
+// Lets the roundup post thread UNDER the open official alert (CTA parity) so the
+// two share one Bluesky thread.
+function findUnresolvedAlertForRoundup({ kind, line }) {
+  if (!line) return null;
+  const modes = kind === 'bus' ? ['bus'] : ['rail', 'streetcar'];
+  const key = routeMatchKey(line);
+  const rows = getDb()
+    .prepare(`
+      SELECT post_uri, routes, headline FROM alert_posts
+      WHERE resolved_ts IS NULL AND post_uri IS NOT NULL
+        AND mode IN (${modes.map(() => '?').join(',')})
+      ORDER BY first_seen_ts DESC
+    `)
+    .all(...modes);
+  const lineLower = String(line).toLowerCase();
+  for (const r of rows) {
+    if (splitRoutes(r.routes).map(routeMatchKey).includes(key)) return r.post_uri;
+    if (kind !== 'bus' && (r.headline || '').toLowerCase().includes(`${lineLower} line`)) {
       return r.post_uri;
     }
   }
@@ -167,6 +270,7 @@ function recordAlertSeen(
     affectedFromStation,
     affectedToStation,
     mentionedStations,
+    threadRootUri,
   },
   now = Date.now(),
 ) {
@@ -271,8 +375,9 @@ function recordAlertSeen(
       INSERT INTO alert_posts
         (alert_id, mode, routes, headline, description, cause, effect,
          active_start_ts, active_end_ts, first_seen_ts, last_seen_ts, post_uri,
-         affected_from_station, affected_to_station, mentioned_stations)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         affected_from_station, affected_to_station, mentioned_stations,
+         thread_root_uri)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `)
     .run(
       alertId,
@@ -290,6 +395,7 @@ function recordAlertSeen(
       afs,
       ats,
       ms,
+      threadRootUri ?? null,
     );
   markWebPushPending(); // a newly tracked alert is a new website incident
 }
@@ -350,6 +456,9 @@ module.exports = {
   getAlertVersions,
   listUnresolvedAlerts,
   findUnresolvedRailAlertForLine,
+  findUnresolvedAlertForRoundup,
+  findThreadableAlert,
+  hasLaterChainMember,
   recordAlertSeen,
   recordAlertResolved,
   incrementAlertClearTicks,

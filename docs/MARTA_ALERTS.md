@@ -126,6 +126,18 @@ bot-detection incident store; both are read by the eventual `alerts.json` export
 - Flicker handling: a short drop-then-reappear reopens the same incident (keeps
   the resolution reply URI to avoid a duplicate clear); a reappearance after
   `ALERT_FLICKER_RESET_MS` (30 min) starts a fresh chapter under the same id.
+- Entity chaining (`thread_root_uri` + `src/marta/alert/chain.js`): MARTA's OTP
+  backend posts each update as a **new** `alert_id` ("Streetcar delays" →
+  "Update: resumed normal schedule"), so one disruption arrives as several
+  `alert_posts`. `findThreadableAlert` matches an incoming alert to a recent
+  posted one on the same mode + overlapping routes within `CHAIN_WINDOW_MS`
+  (45 min of the prior alert's last activity — `resolved_ts`, else `last_seen_ts`,
+  so a stuck "active" row can't absorb forever). When it matches, the bin posts
+  the update as a **reply under the chain's root** (recorded in `thread_root_uri`)
+  instead of opening a new thread, keeping the whole chain one Bluesky thread.
+  `hasLaterChainMember` + `isAllClearText` make non-tail members and "all clear"
+  entities close **silently**, so the chain gets one closer rather than one
+  "✅ resolved" per churned entity.
 - Station fields: `affected_from_station`, `affected_to_station`, and
   `mentioned_stations` (JSON array) are filled at ingest for **rail** alerts by
   `src/marta/alert/stations.js`, which resolves the station names in the alert
@@ -257,6 +269,30 @@ detour is more specific than the generic "delays" status, and a cancellation
 (terminal) still wins over both. Bot-only roundups never carry detour
 semantics. MARTA posts detours in bulk, so the website lifts these into a
 collapsed band rather than mixing them into the live disruptions.
+
+## Incident assembly — `bin/marta/export-web.js`
+
+How `buildIncidents` turns `alert_posts` + bot detectors into the published
+`incidents[]`, aligned with the CTA export (`cta-insights/bin/export-web.js`):
+
+- **Alert ↔ bot pairing pool is roundups + route-silence disruptions only** —
+  never raw single detectors. Each posted `gap`/`bunching`/`ghost` is first
+  folded into the `roundup` it corroborates (interval-guarded), surviving only as
+  that roundup's evidence. A matched roundup/disruption then **merges into** the
+  official-alert incident (`sources: ['marta','bot']`); unmatched ones stand
+  alone. A lone single detector with no roundup attaches to **nothing** — this is
+  what stops a stray 2-car bunch from two hours earlier joining a later official
+  alert. Every match also requires real interval overlap (a detection that
+  cleared before the alert began is rejected), mirroring CTA's `timeMatches`.
+- **Alert-entity consolidation (`consolidateAlertChains`)** collapses a churned
+  chain (see `thread_root_uri` above) into ONE incident: grouped by mode +
+  overlapping routes + `alertsChainable` (transitive, 45-min window), it emits
+  `official_alert` = the earliest entity and `official_alerts` = every member
+  oldest-first, with a lifecycle spanning the chain and union of routes/sources/
+  detections. Terminal cancellations are excluded from chaining. The website
+  keys the incident on the primary alert's post rkey and aliases every member's
+  rkey, so existing shared URLs keep resolving; the event page renders the full
+  "Per MARTA" update timeline from `official_alerts[]`.
 
 ## Known limitations / follow-ups
 

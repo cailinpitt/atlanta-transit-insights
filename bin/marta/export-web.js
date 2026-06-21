@@ -12,6 +12,7 @@ const { describeBotEvidenceBullets } = require('../../src/shared/observationDesc
 const { classifyRailCancellation } = require('../../src/marta/alert/cancellation');
 const { ensureSchema: ensureAlertSchema } = require('../../src/marta/alert/store');
 const { buildAlertDisplayName, alertNature } = require('../../src/marta/alert/displayName');
+const { alertsChainable } = require('../../src/marta/alert/chain');
 
 const DB_PATH =
   process.env.MARTA_HISTORY_DB_PATH || Path.join(__dirname, '..', '..', 'state', 'marta.sqlite');
@@ -56,18 +57,56 @@ function modeForKind(kind) {
   return kind === 'rail' ? 'rail' : kind;
 }
 
+// Absence-style sources whose start we back-date: a cold stretch / thin-service
+// gap was already happening for some minutes before we posted. Mirrors CTA's
+// onset back-dating (other sources start at their post ts).
+const COLD_ONSET_SOURCES = new Set(['pulse-cold', 'thin-gap']);
+
+// Minutes-since-last-vehicle to back-date by, from a cold-source evidence object
+// (rail pulse carries minutesSinceLastTrain / coldThresholdMin). Null otherwise.
+function coldBackdateMin(evidence) {
+  if (!evidence || typeof evidence !== 'object') return null;
+  const m = evidence.minutesSinceLastTrain ?? evidence.coldThresholdMin ?? null;
+  return typeof m === 'number' && Number.isFinite(m) ? m : null;
+}
+
+// Back-dated onset for a disruption row, or null when its source/evidence gives
+// no earlier start (consumers then fall back to the post ts).
+function onsetTsForDisruption(webSource, evidence, ts) {
+  if (!COLD_ONSET_SOURCES.has(webSource)) return null;
+  const min = coldBackdateMin(evidence);
+  return min != null ? ts - min * 60_000 : null;
+}
+
+// Back-dated onset for a roundup, taken from the earliest-starting cold-source
+// bullet it bundles (max minutes-since-last). Null when no cold signal — most
+// MARTA roundups (gap/bunch/ghost) have none, and start at their post ts.
+function onsetTsFromBullets(rawBullets, ts) {
+  let backdateMin = null;
+  for (const b of rawBullets || []) {
+    if (!COLD_ONSET_SOURCES.has(b?.source)) continue;
+    const m = coldBackdateMin(b?.detail);
+    if (m != null && (backdateMin == null || m > backdateMin)) backdateMin = m;
+  }
+  return backdateMin != null ? ts - backdateMin * 60_000 : null;
+}
+
 function canonicalRoutes(routes) {
   return (routes || []).map(canonicalRoute);
 }
 
-function lifecycleBlock({ firstSeenTs, resolvedTs, active, durationMs }) {
+function lifecycleBlock({ firstSeenTs, onsetTs = null, resolvedTs, active, durationMs }) {
+  // duration reconciles with the published start: resolved - (onset ?? first_seen),
+  // so a consumer subtracting the displayed start gets the same number.
+  const startTs = onsetTs ?? firstSeenTs;
   return {
     first_seen_ts: firstSeenTs ?? null,
+    onset_ts: onsetTs ?? null,
     resolved_ts: resolvedTs ?? null,
     active,
     duration_ms:
       durationMs ??
-      (resolvedTs != null && firstSeenTs != null ? Math.max(0, resolvedTs - firstSeenTs) : null),
+      (resolvedTs != null && startTs != null ? Math.max(0, resolvedTs - startTs) : null),
   };
 }
 
@@ -172,6 +211,7 @@ function detectionBlock(det) {
     scope: detectionScope(det),
     lifecycle: lifecycleBlock({
       firstSeenTs: det.ts,
+      onsetTs: det.onset_ts ?? null,
       resolvedTs: det.resolved_ts ?? null,
       active: det.resolved_ts == null,
     }),
@@ -230,6 +270,7 @@ function roundupDetection(row) {
     direction: null,
     near_stop: null,
     ts: row.ts,
+    onset_ts: onsetTsFromBullets(rawBullets, row.ts),
     resolved_ts: row.resolved_ts ?? null,
     post_url: atUriToUrl(row.post_uri),
     resolved_post_url: atUriToUrl(row.resolution_post_uri),
@@ -450,7 +491,11 @@ function delayStatus({ alert = null, records = [] }) {
 }
 
 function routeMatches(alert, det) {
-  if (!alert.routes || alert.routes.length === 0) return true;
+  // An alert with no scoped routes (agency-wide / general notice) matches NO bot
+  // obs — mirrors CTA's `alert.routes.includes(obs.line)`. Otherwise a single
+  // system-wide alert would vacuum up every roundup/disruption in the window
+  // across all lines. Unscoped bot incidents stand alone instead.
+  if (!alert.routes || alert.routes.length === 0) return false;
   const detRoute = normalizeRoute(det.route);
   return alert.routes.some((r) => normalizeRoute(r) === detRoute);
 }
@@ -465,6 +510,12 @@ function timeMatches(alert, det) {
   if (Math.abs(det.ts - alert.first_seen_ts) > PAIR_BUFFER_MS) return false;
   const alertEnd = alert.resolved_ts ?? Number.POSITIVE_INFINITY;
   if (alertEnd + PAIR_GRACE_MS < det.ts) return false;
+  // Interval-overlap guard (mirrors CTA's buildIncidents): a detection whose own
+  // interval ENDED before the alert began can't merge on proximity alone — this
+  // is what stops a bunch that cleared two hours earlier from attaching to a
+  // later official alert.
+  const detEnd = det.resolved_ts ?? det.ts;
+  if (detEnd + PAIR_GRACE_MS < alert.first_seen_ts) return false;
   return true;
 }
 
@@ -479,14 +530,37 @@ function findMatches(alert, detections, usedIds) {
     .sort((a, b) => Math.abs(a.ts - alert.first_seen_ts) - Math.abs(b.ts - alert.first_seen_ts));
 }
 
-function buildIncidentFromAlert(alert, matches, status = null) {
+// Detection blocks for one matched observation. A roundup expands into its own
+// block plus its interval-guarded raw-detector evidence (so the website still
+// shows the underlying gap/bunch/ghost signals it bundles); a disruption is a
+// single block. Mirrors how buildIncidentFromRoundup lays out [anchor, …evidence].
+function obsDetectionBlocks(obs, roundupEvidence) {
+  if (obs.source === 'roundup') {
+    const evidence = roundupEvidence.get(obs.id) || [];
+    return [detectionBlock(obs), ...evidence.map(detectionBlock)];
+  }
+  return [detectionBlock(obs)];
+}
+
+function buildIncidentFromAlert(alert, matches, status = null, roundupEvidence = new Map()) {
   const active = alert.resolved_ts == null || matches.some((det) => det.resolved_ts == null);
+  // Union routes from the alert's current value AND every text version's routes
+  // (alert_posts.routes is overwritten last-write-wins, so a multi-line alert
+  // narrowed before resolving would otherwise drop the dropped lines) plus the
+  // matched detector lines. Mirrors CTA's incident-route re-derivation.
   const routeSet = new Set(canonicalRoutes(alert.routes));
+  for (const v of alert.versions || []) {
+    for (const r of canonicalRoutes(v.routes || [])) routeSet.add(r);
+  }
   for (const det of matches) routeSet.add(det.route);
   const routes = [...routeSet];
+  // Incident onset prefers a paired bot detection's back-dated onset — a
+  // pulse/thin-gap can catch a problem before MARTA posts, and the incident's
+  // "first seen" should reflect that lead (mirrors CTA's earliestObs). onset_ts
+  // falls back to the detection's post ts.
   const firstSeen = Math.min(
     alert.first_seen_ts,
-    ...matches.map((det) => det.ts).filter((ts) => ts != null),
+    ...matches.map((det) => det.onset_ts ?? det.ts).filter((ts) => ts != null),
   );
   const primaryPost = alert.post_url || matches[0]?.post_url || null;
   const incident = {
@@ -497,13 +571,19 @@ function buildIncidentFromAlert(alert, matches, status = null) {
     sources: matches.length > 0 ? ['marta', 'bot'] : ['marta'],
     lifecycle: lifecycleBlock({
       firstSeenTs: Number.isFinite(firstSeen) ? firstSeen : alert.first_seen_ts,
-      resolvedTs: active ? null : alert.resolved_ts,
+      // While active, report no resolution. Once inactive, fall back to a paired
+      // obs's resolution if the alert itself carries none (CTA parity).
+      resolvedTs: active ? null : (alert.resolved_ts ?? matches[0]?.resolved_ts ?? null),
       active,
     }),
     official_alert: officialAlertBlock(alert),
-    detections: matches.map(detectionBlock),
+    detections: matches.flatMap((m) => obsDetectionBlocks(m, roundupEvidence)),
   };
   if (status) incident.status = status;
+  // Internal-only: the alert's last feed sighting, used by consolidateAlertChains
+  // to bound how long an unresolved alert can absorb follow-ups. Stripped before
+  // the payload is written (see consolidateAlertChains).
+  incident._last_seen_ts = alert.last_seen_ts ?? null;
   return incident;
 }
 
@@ -707,6 +787,7 @@ function disruptionDetection(row) {
     direction: row.direction ?? null,
     near_stop: nearStop,
     ts: row.ts,
+    onset_ts: onsetTsForDisruption(webSource, evidence, row.ts),
     resolved_ts: row.resolved_ts ?? null,
     post_url: atUriToUrl(row.post_uri),
     resolved_post_url: null,
@@ -733,6 +814,7 @@ function buildIncidentFromDisruption(det) {
     sources: ['bot'],
     lifecycle: lifecycleBlock({
       firstSeenTs: det.ts,
+      onsetTs: det.onset_ts ?? null,
       resolvedTs: det.resolved_ts ?? null,
       active: det.resolved_ts == null,
     }),
@@ -758,6 +840,10 @@ function detectorMatchesRoundup(roundup, det) {
   if (Math.abs(det.ts - roundup.ts) > PAIR_BUFFER_MS) return false;
   const roundupEnd = roundup.resolved_ts ?? Number.POSITIVE_INFINITY;
   if (roundupEnd + PAIR_GRACE_MS < det.ts) return false;
+  // Same interval-overlap guard as timeMatches: a detector that cleared before
+  // the roundup anchor's tick isn't evidence for it.
+  const detEnd = det.resolved_ts ?? det.ts;
+  if (detEnd + PAIR_GRACE_MS < roundup.ts) return false;
   return true;
 }
 
@@ -768,6 +854,8 @@ function buildIncidentFromRoundup(roundup, matches, status = null) {
   // — their individual lifecycles must NOT gate the incident, or a single detector
   // that never reconciles would pin the event active long after the anchor cleared.
   const active = roundup.resolved_ts == null;
+  // first_seen tracks post time (matching how bot incidents sort/filter); the
+  // back-dated start is carried separately as onset_ts (CTA's bot-only model).
   const firstSeen = Math.min(
     roundup.ts,
     ...matches.map((det) => det.ts).filter((ts) => ts != null),
@@ -781,6 +869,7 @@ function buildIncidentFromRoundup(roundup, matches, status = null) {
     sources: ['bot'],
     lifecycle: lifecycleBlock({
       firstSeenTs: Number.isFinite(firstSeen) ? firstSeen : roundup.ts,
+      onsetTs: roundup.onset_ts ?? null,
       resolvedTs: resolved || null,
       active,
     }),
@@ -790,52 +879,175 @@ function buildIncidentFromRoundup(roundup, matches, status = null) {
   };
 }
 
+// Merge several incidents' lifecycles into one spanning block: earliest onset,
+// latest resolution, active if any member is still active. Mirrors CTA's
+// mergeLifecycle (cta-insights/bin/export-web.js).
+function mergeLifecycle(lifecycles) {
+  const firstSeen = Math.min(...lifecycles.map((l) => l?.first_seen_ts).filter((ts) => ts != null));
+  const active = lifecycles.some((l) => l?.active);
+  const resolvedValues = lifecycles.map((l) => l?.resolved_ts).filter((ts) => ts != null);
+  const resolvedTs = active || resolvedValues.length === 0 ? null : Math.max(...resolvedValues);
+  return lifecycleBlock({
+    firstSeenTs: Number.isFinite(firstSeen) ? firstSeen : null,
+    resolvedTs,
+    active,
+  });
+}
+
+// An incident eligible to chain: it carries an official alert and is not a
+// terminal single-departure cancellation (those are point-in-time facts that
+// must not swallow a neighbouring delay — same spirit as the planned-Metra
+// guard).
+function chainableIncident(inc) {
+  return !!inc.official_alert && inc.status?.type !== 'cancellation';
+}
+
+// The minimal shape alertsChainable() reads, pulled from a built incident.
+function chainKey(inc) {
+  return {
+    mode: inc.official_alert.mode,
+    routes: inc.official_alert.routes,
+    first_seen_ts: inc.lifecycle.first_seen_ts,
+    resolved_ts: inc.lifecycle.resolved_ts ?? null,
+    last_seen_ts: inc._last_seen_ts ?? null,
+  };
+}
+
+// Collapse MARTA's churned official-alert entities into one incident. MARTA's
+// OTP backend posts each update as a fresh alert_id ("Streetcar delays" →
+// "Update: resumed normal schedule"), so one disruption arrives as several
+// alert_posts → several incidents. Group same-mode/overlapping-route official
+// incidents whose onsets chain within CHAIN_WINDOW_MS (transitively) into one
+// incident with `official_alert` = earliest + `official_alerts` = the chain. The
+// frontend already renders official_alerts[] and aliases every member's post
+// rkey, so old shared URLs keep resolving. Modeled on CTA's
+// consolidateMetraPlannedWorkIncidents.
+function consolidateAlertChains(incidents) {
+  const candidates = [];
+  const passthrough = [];
+  for (const inc of incidents) {
+    (chainableIncident(inc) ? candidates : passthrough).push(inc);
+  }
+  // Ascending by onset so a group's last member is always its latest; link each
+  // candidate onto the first existing group whose tail it continues.
+  candidates.sort((a, b) => (a.lifecycle.first_seen_ts ?? 0) - (b.lifecycle.first_seen_ts ?? 0));
+  const groups = [];
+  for (const inc of candidates) {
+    let placed = false;
+    for (const g of groups) {
+      if (alertsChainable(chainKey(g[g.length - 1]), chainKey(inc))) {
+        g.push(inc);
+        placed = true;
+        break;
+      }
+    }
+    if (!placed) groups.push([inc]);
+  }
+
+  const out = [...passthrough];
+  for (const group of groups) {
+    if (group.length === 1) {
+      out.push(group[0]);
+      continue;
+    }
+    const primary = group[0]; // earliest onset
+    const officialAlerts = group
+      .map((inc) => inc.official_alert)
+      .filter(Boolean)
+      .sort(
+        (a, b) =>
+          (a.lifecycle?.first_seen_ts ?? Number.MAX_SAFE_INTEGER) -
+            (b.lifecycle?.first_seen_ts ?? Number.MAX_SAFE_INTEGER) ||
+          String(a.id).localeCompare(String(b.id)),
+      );
+    out.push({
+      ...primary,
+      id: primary.id,
+      routes: [...new Set(group.flatMap((inc) => inc.routes || []))],
+      sources: [...new Set(group.flatMap((inc) => inc.sources || []))],
+      lifecycle: mergeLifecycle(group.map((inc) => inc.lifecycle)),
+      official_alert: primary.official_alert,
+      official_alerts: officialAlerts,
+      detections: group.flatMap((inc) => inc.detections || []),
+      // status carried from `...primary` (the earliest "delays" entity), which
+      // is the right incident-level classification for the whole chain.
+    });
+  }
+  out.sort(
+    (a, b) =>
+      (b.lifecycle.first_seen_ts ?? 0) - (a.lifecycle.first_seen_ts ?? 0) ||
+      String(a.id).localeCompare(String(b.id)),
+  );
+  // Drop the internal chaining helper so it never reaches the published payload.
+  for (const inc of out) delete inc._last_seen_ts;
+  return out;
+}
+
 function buildIncidents(alerts, detections, roundups = [], disruptions = [], now = Date.now()) {
+  // Raw single detectors (gap/bunch/ghost) are NEVER standalone incidents and
+  // NEVER attach directly to an official alert — matching CTA, whose alert
+  // pairing pool is roundups + route-silence disruptions only. First fold each
+  // raw detector into the roundup it corroborates (interval-guarded). These
+  // become the roundup's evidence and ride along wherever that roundup lands
+  // (standalone, or merged into an alert).
   const usedDetections = new Set();
+  const roundupEvidence = new Map();
+  for (const roundup of roundups) {
+    const evidence = detections
+      .filter((det) => !usedDetections.has(det.id) && detectorMatchesRoundup(roundup, det))
+      .sort((a, b) => Math.abs(a.ts - roundup.ts) - Math.abs(b.ts - roundup.ts));
+    for (const det of evidence) usedDetections.add(det.id);
+    roundupEvidence.set(roundup.id, evidence);
+  }
+
+  // The pool an official alert pairs against: roundups + disruptions (NOT raw
+  // detectors). A matched observation MERGES into the alert incident; leftovers
+  // stand alone below. A lone gap/bunch/ghost with no roundup can no longer
+  // attach to an alert — exactly the stale-bunch bug this fixes.
+  const observations = [...roundups, ...disruptions];
+  const usedObs = new Set();
   const incidents = [];
+
   for (const alert of alerts) {
     const cancellation = cancellationStatus(alert, now);
     // A single-departure cancellation is a point-in-time fact, not an open
-    // disruption — it must NOT absorb unrelated same-line gap/bunch/ghost
-    // detections that merely fall in the time window (mirrors the CTA export's
-    // planned-Metra merge guard). Leave it a marta-only incident.
+    // disruption — it must NOT absorb same-line bot observations that merely
+    // fall in the window (mirrors the CTA export's planned-Metra merge guard).
+    // Leave it a marta-only incident.
     const matches =
-      cancellation?.type === 'cancellation' ? [] : findMatches(alert, detections, usedDetections);
-    for (const det of matches) usedDetections.add(det.id);
+      cancellation?.type === 'cancellation' ? [] : findMatches(alert, observations, usedObs);
+    for (const obs of matches) usedObs.add(obs.id);
     // Cancellation (terminal) wins; then a detour (more specific than delays);
     // otherwise classify a "delays" status from the alert's nature or a paired
     // bot gap.
     const status =
       cancellation ?? detourStatus({ alert }) ?? delayStatus({ alert, records: matches });
-    incidents.push(buildIncidentFromAlert(alert, matches, status));
+    incidents.push(buildIncidentFromAlert(alert, matches, status, roundupEvidence));
   }
+
+  // Roundups not absorbed by an alert stand alone, carrying their evidence.
   for (const roundup of roundups) {
-    const matches = detections
-      .filter((det) => !usedDetections.has(det.id) && detectorMatchesRoundup(roundup, det))
-      .sort((a, b) => Math.abs(a.ts - roundup.ts) - Math.abs(b.ts - roundup.ts));
-    for (const det of matches) usedDetections.add(det.id);
-    // A roundup is a "delays" incident when its own signals or any paired
+    if (usedObs.has(roundup.id)) continue;
+    const evidence = roundupEvidence.get(roundup.id) || [];
+    // A roundup is a "delays" incident when its own signals or any evidence
     // detector include a headway gap.
-    const status = delayStatus({ records: [roundup, ...matches] });
-    incidents.push(buildIncidentFromRoundup(roundup, matches, status));
+    const status = delayStatus({ records: [roundup, ...evidence] });
+    incidents.push(buildIncidentFromRoundup(roundup, evidence, status));
   }
-  // Route-silence disruptions stand alone (see readDisruptions) — they have no
-  // co-occurring signal to pair into a roundup or alert.
+  // Route-silence disruptions not absorbed by an alert stand alone — they have
+  // no co-occurring signal to fold into a roundup.
   for (const det of disruptions) {
+    if (usedObs.has(det.id)) continue;
     incidents.push(buildIncidentFromDisruption(det));
   }
-  // Unpaired single detectors do NOT become their own incidents — matching CTA,
-  // where website events come only from official alerts and multi-signal
-  // roundups. A lone gap/bunch/ghost still posts to Bluesky from the insights
-  // account, but it only surfaces on the site as evidence once it's folded into
-  // a roundup or an official alert above. This is what keeps a single detector
-  // from spawning a standalone event page.
   incidents.sort(
     (a, b) =>
       (b.lifecycle.first_seen_ts ?? 0) - (a.lifecycle.first_seen_ts ?? 0) ||
       String(a.id).localeCompare(String(b.id)),
   );
-  return incidents;
+  // Collapse MARTA's churned official-alert entities (delay → "Update: cleared"
+  // → "all clear", each a fresh alert_id) into ONE incident with official_alerts[].
+  return consolidateAlertChains(incidents);
 }
 
 function buildExport(db, now = Date.now()) {
@@ -897,5 +1109,6 @@ module.exports = {
   atUriToUrl,
   buildExport,
   buildIncidents,
+  consolidateAlertChains,
   postUrlRkey,
 };

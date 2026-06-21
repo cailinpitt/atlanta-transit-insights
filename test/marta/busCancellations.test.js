@@ -5,9 +5,11 @@ const Fs = require('node:fs');
 const Os = require('node:os');
 const {
   extractCanceledTrips,
+  filterScheduledInTrailingHour,
   summarizeByRoute,
   buildCancellationDigest,
 } = require('../../src/marta/bus/cancellations');
+const { hourFor } = require('../../src/marta/bus/schedule');
 const { graphemeLength } = require('../../src/shared/post');
 
 test('extractCanceledTrips dedups by (trip_id, service_date) and ignores non-CANCELED', () => {
@@ -21,6 +23,21 @@ test('extractCanceledTrips dedups by (trip_id, service_date) and ignores non-CAN
   ];
   const canceled = extractCanceledTrips(rows);
   assert.equal(canceled.length, 4);
+});
+
+test('filterScheduledInTrailingHour keeps only the current + previous clock hour', () => {
+  // 18:21 UTC = 14:21 America/New_York (EDT) → trailing window is hours 14 & 13.
+  const now = new Date('2026-06-21T18:21:00Z');
+  const trips = [
+    { tripId: 'prev', startTime: '13:40:00' }, // previous hour → keep
+    { tripId: 'cur', startTime: '14:50:00' }, // current hour → keep
+    { tripId: 'future', startTime: '15:25:00' }, // later today → drop
+    { tripId: 'evening', startTime: '23:30:00' }, // whole-day batch tail → drop
+    { tripId: 'earlier', startTime: '12:00:00' }, // older than the window → drop
+    { tripId: 'no-time', startTime: null }, // near-real-time fallback → keep
+  ];
+  const kept = filterScheduledInTrailingHour(trips, now).map((t) => t.tripId);
+  assert.deepEqual(kept.sort(), ['cur', 'no-time', 'prev']);
 });
 
 test('summarizeByRoute counts per route, sorted by count then numeric route', () => {
@@ -81,9 +98,17 @@ function loadBinWithTempDb() {
   const db = storage.getDb();
   const seed = (rows, ts) => {
     const stmt = db.prepare(
-      'INSERT INTO bus_trip_status (ts, trip_id, route, trip_relationship, start_date) VALUES (?,?,?,?,?)',
+      'INSERT INTO bus_trip_status (ts, trip_id, route, trip_relationship, start_date, start_time) VALUES (?,?,?,?,?,?)',
     );
-    for (const r of rows) stmt.run(ts, r.tripId, r.route, r.rel || 'CANCELED', r.day || '20260617');
+    for (const r of rows)
+      stmt.run(
+        ts,
+        r.tripId,
+        r.route,
+        r.rel || 'CANCELED',
+        r.day || '20260617',
+        r.startTime || null,
+      );
   };
   return { bin, posts, seed };
 }
@@ -122,6 +147,32 @@ test('bin posts ONE digest of new cancellations and dedups across runs', async (
   assert.equal(posts.length, 2);
   assert.match(posts[1].text, /1 trip across 1 route/);
   assert.match(posts[1].text, /Route 12/);
+});
+
+test('bin reports only cancellations scheduled in the trailing hour, not the whole-day batch', async () => {
+  const { bin, posts, seed } = loadBinWithTempDb();
+  // Anchor to real now (setup() rolls off bus_trip_status on the 7-day clock),
+  // then derive which scheduled hours fall in the trailing window from it.
+  const now = Date.now();
+  const cur = hourFor(new Date(now));
+  const prev = (cur + 23) % 24;
+  const far = (cur + 6) % 24; // outside {cur, prev} for any cur (6 ≢ 0, 23 mod 24)
+  const at = (h) => `${String(h).padStart(2, '0')}:30:00`;
+
+  // One snapshot listing the whole day's annulments at once — only the two
+  // scheduled in the trailing hour should post.
+  seed(
+    [
+      { tripId: 'cur', route: '104', startTime: at(cur) },
+      { tripId: 'prev', route: '104', startTime: at(prev) },
+      { tripId: 'later', route: '104', startTime: at(far) },
+    ],
+    now - 60_000,
+  );
+  await bin.main({ now });
+  assert.equal(posts.length, 1);
+  assert.match(posts[0].text, /2 trips across 1 route/);
+  assert.match(posts[0].text, /Route 104 \(2\)/);
 });
 
 test('bin stays silent when there are no cancellations', async () => {

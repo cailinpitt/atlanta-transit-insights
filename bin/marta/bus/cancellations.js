@@ -15,6 +15,7 @@ const { setup, runBin } = require('../../../src/marta/shared/runBin');
 const storage = require('../../../src/marta/storage');
 const {
   extractCanceledTrips,
+  filterScheduledInTrailingHour,
   summarizeByRoute,
   buildCancellationDigest,
 } = require('../../../src/marta/bus/cancellations');
@@ -38,9 +39,14 @@ const io = { loginAlerts, postText };
 async function main({ now = Date.now() } = {}) {
   setup();
 
-  // 1. Distinct canceled trips currently in the read window.
+  // 1. Distinct canceled trips currently in the read window, restricted to those
+  //    SCHEDULED to depart in the trailing hour. MARTA lists the whole remaining
+  //    day's CANCELED trips in every snapshot, so without this the digest would
+  //    dump the entire day under a "past hour" header on the batch-arrival tick;
+  //    the filter drips each cancellation out in its scheduled hour instead, and
+  //    the ledger still posts each exactly once. See cancellations.js.
   const statuses = storage.getRecentBusTripStatuses(now - WINDOW_MS);
-  const canceled = extractCanceledTrips(statuses);
+  const canceled = filterScheduledInTrailingHour(extractCanceledTrips(statuses), new Date(now));
 
   if (DRY_RUN) {
     const summary = summarizeByRoute(canceled);

@@ -25,7 +25,11 @@ const {
   hourOfSec,
   hourFor,
 } = require('../../../src/marta/bus/schedule');
-const { extractCanceledTrips, summarizeByRoute } = require('../../../src/marta/bus/cancellations');
+const {
+  extractCanceledTrips,
+  filterScheduledInTrailingHour,
+  summarizeByRoute,
+} = require('../../../src/marta/bus/cancellations');
 const { detectCancellationSurges } = require('../../../src/marta/bus/cancellationSurge');
 
 const DRY_RUN = process.argv.includes('--dry-run');
@@ -46,7 +50,12 @@ async function main({ now = Date.now(), idx = null } = {}) {
   const nowDate = new Date(now);
 
   const statuses = storage.getRecentBusTripStatuses(now - WINDOW_MS);
-  const canceled = extractCanceledTrips(statuses);
+  // The read window bounds which SNAPSHOTS we scan, but MARTA's TripUpdates feed
+  // lists the whole remaining day's CANCELED trips in every snapshot — so we
+  // further restrict to trips SCHEDULED to depart in the trailing hour, or a
+  // late-afternoon batch announcement reads as a 1-hour collapse spanning the
+  // whole evening (the 3moszdwrgug2u false incident). See cancellations.js.
+  const canceled = filterScheduledInTrailingHour(extractCanceledTrips(statuses), nowDate);
   const { perRoute } = summarizeByRoute(canceled);
 
   // Bucket each route's canceled trips by their scheduled departure hour. The

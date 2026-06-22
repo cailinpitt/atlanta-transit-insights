@@ -67,10 +67,44 @@ test('buildAltText describes the map', () => {
   assert.match(alt, /20 min gap/);
 });
 
-test('video reply text and alt text describe recent bus gap movement', () => {
+test('video reply text falls back to generic movement when no midpoint stop', () => {
   assert.match(buildVideoPostText({ elapsedSec: 360 }, gap), /6 min of recent movement/);
   assert.match(buildVideoPostText({ elapsedSec: 360 }, gap), /20 min bus gap/);
   assert.match(buildVideoAltText(gap, ctx), /Timelapse map of Route 20 \(Peachtree St\)/);
+});
+
+test('video reply text names the midpoint stop and remaining distance', () => {
+  const video = {
+    elapsedSec: 600,
+    gapMin: 20,
+    stopName: 'Peachtree St NE @ 12th St',
+    endDistFt: 5069,
+    reached: false,
+  };
+  const text = buildVideoPostText(video, gap, ctx);
+  assert.match(text, /^~20 min Route 20 \(Peachtree St\) gap\./);
+  assert.match(text, /the next bus \(#1002\) had closed to within ~0\.96 mi of/);
+  assert.match(text, /Peachtree St NE @ 12th St — the middle of the gap/);
+  const alt = buildVideoAltText(gap, ctx, video);
+  assert.match(
+    alt,
+    /the next bus closing on Peachtree St NE @ 12th St, the middle of the gap, over 10 min/,
+  );
+});
+
+test('video reply text reports the bus reaching the midpoint stop', () => {
+  const video = {
+    elapsedSec: 540,
+    gapMin: 18,
+    stopName: 'Peachtree St NE @ 12th St',
+    endDistFt: 0,
+    reached: true,
+  };
+  const text = buildVideoPostText(video, gap, ctx);
+  assert.match(
+    text,
+    /The next bus \(#1002\) reached Peachtree St NE @ 12th St — the middle of the gap — 9 minutes later/,
+  );
 });
 
 test('daily cap blocks a 4th equal-ratio gap but lets a worse one through', () => {

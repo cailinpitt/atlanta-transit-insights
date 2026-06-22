@@ -10,19 +10,12 @@
 // footer says so.
 
 const { lineTitle } = require('./post');
-
-const POST_GRAPHEME_LIMIT = 300;
-
 // rail-stations.json names are SCREAMING with a "Station" suffix ("LENOX
 // Station"); present them rider-facing in post text ("Lenox"). The canonical
 // name stays in the disruption/evidence for /station/:slug matching downstream.
-function displayStation(name) {
-  return String(name || '')
-    .replace(/\s+station\s*$/i, '')
-    .toLowerCase()
-    .replace(/\b([a-z])/g, (m) => m.toUpperCase())
-    .trim();
-}
+const { displayStationName: displayStation } = require('./stations');
+
+const POST_GRAPHEME_LIMIT = 300;
 
 function seg(d) {
   return {

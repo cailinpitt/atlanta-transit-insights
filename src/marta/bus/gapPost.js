@@ -1,5 +1,10 @@
 const { formatCallouts } = require('../shared/incidents');
-const { formatMinutes, formatDeviation } = require('../shared/format');
+const {
+  formatMinutes,
+  formatDeviation,
+  formatDistance,
+  elapsedMinutesLabel,
+} = require('../shared/format');
 
 function buildPostText(gap, ctx = {}, callouts = [], opts = {}) {
   const routeTitle = ctx.routeTitle || `Route ${gap.route}`;
@@ -56,16 +61,46 @@ function buildAltText(gap, ctx = {}) {
   return `Map of ${routeTitle}${direction} showing a ${formatMinutes(gap.gapMin)} gap${where}.`;
 }
 
-function buildVideoPostText(video, gap) {
-  const elapsed = video?.elapsedSec
-    ? `${Math.max(1, Math.round(video.elapsedSec / 60))} min`
-    : 'Several minutes';
-  return `${elapsed} of recent movement around this ~${formatMinutes(gap.gapMin)} bus gap.`;
+// Timelapse reply text. The clip is framed on the gap *midpoint* wait stop
+// (video.stopName) with the "Next up" bus filmed closing on it, so the reply
+// names that stop and flags it as "the middle of the gap" — which explains why
+// the bus still has distance to cover (it's only crossing the back half). When
+// no midpoint stop resolves (no on-route stop near the gap center) it falls back
+// to the older generic "recent movement" line. Ported from cta-insights
+// src/bus/gapPost.js buildGapVideoPostText.
+function buildVideoPostText(video, gap, ctx = {}) {
+  const hasMidpoint = video?.reached || video?.endDistFt != null;
+  if (!hasMidpoint) {
+    const elapsed = video?.elapsedSec
+      ? `${Math.max(1, Math.round(video.elapsedSec / 60))} min`
+      : 'Several minutes';
+    return `${elapsed} of recent movement around this ~${formatMinutes(gap.gapMin)} bus gap.`;
+  }
+  const routeTitle = ctx.routeTitle || `Route ${gap.route}`;
+  const gapMin = video.gapMin ?? Math.round(gap.gapMin);
+  const lead = `~${gapMin} min ${routeTitle} gap.`;
+  const run = gap.trailing?.vehicleId ? ` (#${gap.trailing.vehicleId})` : '';
+  const elapsed = elapsedMinutesLabel(video.elapsedSec || 0);
+  const station = video.stopName;
+  if (video.reached) {
+    const where = station ? `${station} — the middle of the gap —` : 'the middle of the gap';
+    return `${lead} The next bus${run} reached ${where} ${elapsed} later.`;
+  }
+  const remaining = formatDistance(Math.max(0, video.endDistFt || 0));
+  const where = station ? `${station} — the middle of the gap` : 'the middle of the gap';
+  return `${lead} ${elapsed} later, the next bus${run} had closed to within ~${remaining} of ${where}.`;
 }
 
-function buildVideoAltText(gap, ctx = {}) {
+function buildVideoAltText(gap, ctx = {}, video = null) {
   const routeTitle = ctx.routeTitle || `Route ${gap.route}`;
   const direction = ctx.direction ? ` ${String(ctx.direction).toLowerCase()}` : '';
+  const hasMidpoint = video?.reached || video?.endDistFt != null;
+  if (hasMidpoint) {
+    const station = video.stopName;
+    const where = station ? `${station}, the middle of the gap,` : 'the middle of the gap';
+    const over = video.elapsedSec ? ` over ${formatMinutes(video.elapsedSec / 60)}` : '';
+    return `Timelapse map of ${routeTitle}${direction}: the next bus closing on ${where}${over}.`;
+  }
   return `Timelapse map of ${routeTitle}${direction} showing recent movement of the buses flanking a ${formatMinutes(gap.gapMin)} gap.`;
 }
 

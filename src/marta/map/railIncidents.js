@@ -14,6 +14,7 @@ const {
   buildDashedGapSvg,
   buildDirectionArrow,
   buildClipProgress,
+  buildReadoutPill,
   markerLabelChip,
   fitTitlePill,
   xmlEscape,
@@ -26,6 +27,7 @@ const {
   bboxOf,
   measureTextWidth,
 } = require('./common');
+const { displayStationName } = require('../rail/stations');
 
 const LINE_COLORS = {
   RED: 'CE242B',
@@ -34,6 +36,7 @@ const LINE_COLORS = {
   GREEN: '009D4B',
 };
 const TRAIN_RADIUS = 32;
+const HIGHLIGHT_COLOR = '#ffb020';
 const GAP_CONTEXT_FT = 3500;
 const BUNCH_CONTEXT_FT = 3500; // feet of line context on each side of a bunch
 
@@ -147,7 +150,15 @@ function gapViewFor(line, gap, { contextFt = GAP_CONTEXT_FT, travelSign } = {}) 
 
   const trains = [gap.trailing, gap.leading];
   const framePts = framing.length >= 2 ? framing : line.points;
-  const trainPts = trains.filter((p) => Number.isFinite(p.lat) && Number.isFinite(p.lon));
+  // Pull the flanking stations into the bbox so their name labels stay on-frame:
+  // a flank sits just outside its train and would otherwise fall to the very edge
+  // (its label then forced onto the train disc). Mirrors the bus gap view.
+  const flankPts = [gap.flankBefore, gap.flankAfter, gap.midStation].filter(
+    (s) => Number.isFinite(s?.lat) && Number.isFinite(s?.lon),
+  );
+  const trainPts = [...trains, ...flankPts].filter(
+    (p) => Number.isFinite(p.lat) && Number.isFinite(p.lon),
+  );
   const pts = trainPts.length > 0 ? trainPts : framePts;
   const bbox = {
     minLat: Math.min(...pts.map((p) => p.lat)),
@@ -203,6 +214,98 @@ async function renderRailFrame(view, baseMap, trains, opts = {}) {
     gapDash = buildDashedGapSvg(gapPixels, view.color, { coreStroke: ROUTE_CORE_STROKE });
   }
 
+  // White station dots + name pills for the stations flanking the gap, so the
+  // map names the same "between A and B" stretch the post does. A flank sits
+  // right at its flanking train, so — like the bus gap map — push the dot and
+  // label PERPENDICULAR off the route, riding the label outward past the L/N
+  // disc, rather than centering on the line where the train would bury it.
+  const stationLabelElements = [];
+  for (const s of opts.stationLabels || []) {
+    if (!Number.isFinite(s?.lat) || !Number.isFinite(s?.lon)) continue;
+    const { x, y } = project(
+      s.lat,
+      s.lon,
+      view.centerLat,
+      view.centerLon,
+      view.zoom,
+      WIDTH,
+      HEIGHT,
+    );
+    if (x < 0 || x > WIDTH || y < 0 || y > HEIGHT) continue;
+    const perp = perpendicularFromBearing(view.bearingDeg);
+    const dx = x + perp.x * (TRAIN_RADIUS + 6);
+    const dy = y + perp.y * (TRAIN_RADIUS + 6);
+    stationLabelElements.push(
+      `<circle cx="${dx.toFixed(1)}" cy="${dy.toFixed(1)}" r="12" fill="#fff" stroke="#000" stroke-width="4"/>`,
+    );
+    const name = displayStationName(s.name || '');
+    if (!name) continue;
+    const fontSize = 18;
+    const labelH = 28;
+    const tw = await measureTextWidth(name, fontSize, { bold: true });
+    const boxW = tw + 16;
+    const labelOff = TRAIN_RADIUS + 6 + 12 + labelH / 2;
+    const cx = x + perp.x * labelOff;
+    const cy = y + perp.y * labelOff;
+    const lx = Math.max(4, Math.min(WIDTH - boxW - 4, cx - boxW / 2));
+    const ly = Math.max(4, Math.min(HEIGHT - labelH - 4, cy - labelH / 2));
+    stationLabelElements.push(
+      `<rect x="${lx.toFixed(1)}" y="${ly.toFixed(1)}" width="${boxW.toFixed(1)}" height="${labelH}" fill="#000" fill-opacity="0.82" rx="3"/>`,
+      `<text x="${(lx + boxW / 2).toFixed(1)}" y="${(ly + 19).toFixed(1)}" fill="#fff" text-anchor="middle" font-family="Inter, Helvetica, Arial, sans-serif" font-size="${fontSize}" font-weight="600">${xmlEscape(name)}</text>`,
+    );
+  }
+  const stationLabelEls = stationLabelElements.join('\n');
+
+  // Wait-stop highlight (gap timelapse): amber target ring + amber name label
+  // marking the gap midpoint the "Next up" train is closing on. Same language as
+  // the bus gap timelapse.
+  const highlightElements = [];
+  if (opts.highlightStop?.lat != null) {
+    const { x, y } = project(
+      opts.highlightStop.lat,
+      opts.highlightStop.lon,
+      view.centerLat,
+      view.centerLon,
+      view.zoom,
+      WIDTH,
+      HEIGHT,
+    );
+    if (x >= 0 && x <= WIDTH && y >= 0 && y <= HEIGHT) {
+      highlightElements.push(
+        `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="22" fill="none" stroke="${HIGHLIGHT_COLOR}" stroke-width="3" opacity="0.45"/>`,
+        `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="14" fill="none" stroke="${HIGHLIGHT_COLOR}" stroke-width="4"/>`,
+        `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="4" fill="${HIGHLIGHT_COLOR}"/>`,
+      );
+      const name = displayStationName(opts.highlightStop.name || '');
+      if (name) {
+        const fontSize = 18;
+        const labelH = 28;
+        const tw = await measureTextWidth(name, fontSize, { bold: true });
+        const boxW = tw + 16;
+        const perp = perpendicularFromBearing(view.bearingDeg);
+        const off = TRAIN_RADIUS + labelH / 2 + 10;
+        const overlapsTrain = (px, py) =>
+          placed.some(
+            (m) =>
+              Math.abs(m.x - px) < TRAIN_RADIUS + boxW / 2 &&
+              Math.abs(m.y - py) < TRAIN_RADIUS + labelH / 2,
+          );
+        let cx = x + perp.x * off;
+        let cy = y + perp.y * off;
+        if (overlapsTrain(cx, cy)) {
+          cx = x - perp.x * off;
+          cy = y - perp.y * off;
+        }
+        const lx = Math.max(4, Math.min(WIDTH - boxW - 4, cx - boxW / 2));
+        const ly = Math.max(4, Math.min(HEIGHT - labelH - 4, cy - labelH / 2));
+        highlightElements.push(
+          `<rect x="${lx.toFixed(1)}" y="${ly.toFixed(1)}" width="${boxW.toFixed(1)}" height="${labelH}" fill="${HIGHLIGHT_COLOR}" rx="3"/>`,
+          `<text x="${(lx + boxW / 2).toFixed(1)}" y="${(ly + fontSize + 5).toFixed(1)}" fill="#1c1c1c" text-anchor="middle" font-family="Inter, Helvetica, Arial, sans-serif" font-size="${fontSize}" font-weight="700">${xmlEscape(name)}</text>`,
+        );
+      }
+    }
+  }
+
   const titleElements = [];
   if (opts.title) {
     const { fontSize, pillWidth } = await fitTitlePill(opts.title, 40, WIDTH - 80, { padding: 44 });
@@ -213,17 +316,37 @@ async function renderRailFrame(view, baseMap, trains, opts = {}) {
     );
   }
 
+  // Live "~N-min gap · next train ~M min to X" HUD pill (gap timelapse), top-left.
+  const readoutElements = opts.readout
+    ? [
+        buildReadoutPill(opts.readout, {
+          textWidth: await measureTextWidth(opts.readout, 26, { bold: true }),
+        }),
+      ]
+    : [];
+
   // Clip-progress scrubber along the bottom edge (video frames pass opts.clock).
   const progress = opts.clock
     ? buildClipProgress({ ...opts.clock, width: WIDTH, height: HEIGHT })
     : '';
 
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${WIDTH}" height="${HEIGHT}">${gapDash}${trainLayer.join('\n')}${chipLayer.join('\n')}${buildDirectionArrow(WIDTH - 220, 180, view.bearingDeg)}${titleElements.join('\n')}${progress}</svg>`;
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${WIDTH}" height="${HEIGHT}">${gapDash}${stationLabelEls}${highlightElements.join('\n')}${trainLayer.join('\n')}${chipLayer.join('\n')}${buildDirectionArrow(WIDTH - 220, 180, view.bearingDeg)}${titleElements.join('\n')}${readoutElements.join('\n')}${progress}</svg>`;
   return sharp(baseMap)
     .resize(WIDTH, HEIGHT)
     .composite([{ input: Buffer.from(svg), top: 0, left: 0 }])
     .jpeg({ quality: 85 })
     .toBuffer();
+}
+
+// Stations to label on the still gap map: the pair flanking the gap so the map
+// names the same "between A and B" stretch as the post. Falls back to the
+// midpoint station when a flank is missing (gap reaching a terminal).
+function gapStationLabels(gap) {
+  const flanks = [gap.flankBefore, gap.flankAfter].filter(
+    (s) => Number.isFinite(s?.lat) && Number.isFinite(s?.lon),
+  );
+  if (flanks.length) return flanks;
+  return Number.isFinite(gap.midStation?.lat) ? [gap.midStation] : [];
 }
 
 async function renderRailGapMap(gap, line, opts = {}) {
@@ -233,7 +356,10 @@ async function renderRailGapMap(gap, line, opts = {}) {
   ];
   const view = gapViewFor(line, gap);
   const baseMap = await fetchBaseMap(view);
-  return renderRailFrame(view, baseMap, trains, opts);
+  return renderRailFrame(view, baseMap, trains, {
+    ...opts,
+    stationLabels: opts.stationLabels || gapStationLabels(gap),
+  });
 }
 
 // Dead-segment ("pulse") framing, mirroring cta-insights renderDisruption: the
@@ -388,15 +514,6 @@ async function pairedStationLabels(stationPts) {
       ].join('');
     })
     .join('\n');
-}
-
-// rail-stations.json names are SCREAMING + "Station"; present rider-facing.
-function displayStationName(name) {
-  return String(name || '')
-    .replace(/\s+station\s*$/i, '')
-    .toLowerCase()
-    .replace(/\b([a-z])/g, (m) => m.toUpperCase())
-    .trim();
 }
 
 // Distance window around a rail bunch (min→max train distFt) with context on

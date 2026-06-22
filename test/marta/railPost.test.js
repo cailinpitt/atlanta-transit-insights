@@ -55,6 +55,55 @@ test('rail gap post text and alt text describe line, direction, and headway', ()
   assert.match(buildGapAltText(gap), /Red Line northbound to North Springs/);
 });
 
+test('rail gap post names flanking stations and the two trains', () => {
+  const gap = {
+    line: 'RED',
+    direction: 'N',
+    terminus: 'North Springs',
+    gapFt: 40_000,
+    gapMin: 15.2,
+    expectedMin: 5,
+    ratio: 3.04,
+    leading: { trainId: '303', distFt: 60_000 },
+    trailing: { trainId: '408', distFt: 20_000 },
+    flankBefore: { name: 'LINDBERGH CENTER Station', distFt: 19_000 },
+    flankAfter: { name: 'MEDICAL CENTER Station', distFt: 61_000 },
+    midStation: { name: 'BUCKHEAD Station', distFt: 40_000 },
+  };
+  const text = buildGapPostText(gap);
+  assert.match(text, /No trains between Lindbergh Center and Medical Center/);
+  assert.doesNotMatch(text, /across ~/);
+  assert.match(text, /Last seen: #303 · Next up: #408/);
+  assert.match(buildGapAltText(gap), /with no trains between Lindbergh Center and Medical Center/);
+});
+
+test('rail gap video reply names the midpoint station and remaining distance', () => {
+  const gap = {
+    line: 'RED',
+    direction: 'N',
+    terminus: 'North Springs',
+    gapMin: 18,
+    trailing: { trainId: '408' },
+  };
+  const video = {
+    elapsedSec: 600,
+    gapMin: 18,
+    stationName: 'BUCKHEAD Station',
+    endDistFt: 7920,
+    reached: false,
+  };
+  const text = buildGapVideoPostText(video, gap);
+  assert.match(text, /^~18 min Red Line gap\./);
+  assert.match(
+    text,
+    /the next train \(#408\) had closed to within ~1\.50 mi of Buckhead — the middle of the gap/,
+  );
+  assert.match(
+    buildGapVideoAltText(gap, video),
+    /the next train closing on Buckhead, the middle of the gap, over 10 min/,
+  );
+});
+
 test('rail bunching post text and alt text include train count and labels', () => {
   const bunch = {
     line: 'BLUE',

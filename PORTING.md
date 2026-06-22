@@ -302,8 +302,12 @@ CTA tree keeps working as a reference until each analog is proven. Done so far
 - `src/marta/bus/{ghostPost,speedmapPost}.js` — post text helpers for ghost
   rollups and speedmaps.
 - `src/marta/rail/post.js` — post text + alt text helpers for rail gaps and
-  rail bunching.
+  rail bunching. Rail gaps name the flanking stations ("between X and Y") and the
+  midpoint "middle of the gap" timelapse, at parity with bus gaps and CTA.
 - `src/marta/bus/stops.js` — stop lookup helpers used by bus bunching maps/posts.
+- `src/marta/rail/stations.js` — rail station-along-line projection + gap flank/
+  midpoint context + the rider-facing station-name formatter (`displayStationName`,
+  consolidated from railIncidents.js + disruptionPost.js).
 - `src/marta/map/{common,busBunching,busGap,busSpeedmap}.js` — Sharp-backed
   static map renderers for bus bunching, bus gap, and speedmap images.
 - `src/marta/map/railIncidents.js` — Sharp-backed rail incident map renderer for

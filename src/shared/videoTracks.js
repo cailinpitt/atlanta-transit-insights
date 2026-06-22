@@ -228,6 +228,10 @@ function vehicleStateAt(series, t, opts = {}) {
   let opacity;
   let ghost = false;
   let payload = a.payload;
+  // Interpolated along-route distance for this frame, when available. Surfaced
+  // on the render state so callers (e.g. the bus gap timelapse readout) can read
+  // a vehicle's live position along the shape without re-projecting lat/lon.
+  let track = null;
   if (gap > MAX_BRIDGE_MS) {
     // Too long to bridge: ghost out from the near endpoint, draw nothing through
     // the middle, ghost back in approaching the far endpoint.
@@ -236,7 +240,8 @@ function vehicleStateAt(series, t, opts = {}) {
     if (sinceA <= EDGE_FADE_MS) {
       let p = { lat: a.lat, lon: a.lon };
       if (opts.pointAlong && a.track != null) {
-        const q = opts.pointAlong(a.track + a.speed * (sinceA / 1000));
+        track = a.track + a.speed * (sinceA / 1000);
+        const q = opts.pointAlong(track);
         if (q) p = q;
       }
       lat = p.lat;
@@ -246,6 +251,7 @@ function vehicleStateAt(series, t, opts = {}) {
     } else if (untilB <= EDGE_FADE_MS) {
       lat = b.lat;
       lon = b.lon;
+      track = b.track;
       opacity = GHOST_OPACITY * (1 - untilB / EDGE_FADE_MS);
       ghost = true;
       payload = b.payload;
@@ -257,6 +263,7 @@ function vehicleStateAt(series, t, opts = {}) {
     const p = interpPos(a, b, f, opts.pointAlong);
     lat = p.lat;
     lon = p.lon;
+    if (a.track != null && b.track != null) track = a.track + (b.track - a.track) * f;
     opacity = bridgeOpacity(Math.min(t - a.t, b.t - t));
   }
 
@@ -268,7 +275,7 @@ function vehicleStateAt(series, t, opts = {}) {
   const lead = t - first;
   if (lead < EDGE_FADE_MS) opacity *= lead / EDGE_FADE_MS;
 
-  return { ...payloadFields(payload), lat, lon, opacity, ghost };
+  return { ...payloadFields(payload), lat, lon, opacity, ghost, track };
 }
 
 // Real-terminal endpoints of a polyline, minus Loop-trunk apexes (disappearances

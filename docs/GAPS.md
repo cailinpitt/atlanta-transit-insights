@@ -71,7 +71,7 @@ The number is intentionally crude. It's only used as a *ratio* against the sched
 
 ### Trains — `src/marta/rail/gaps.js`
 
-Same idea on the per-line geometry, with `ABSOLUTE_MIN_MIN = 12` (rail headways are tighter) and `headwayForLine` for the expected value. The post (`src/marta/rail/post.js`) names the flanking stations and renders the gap onto a line map (`src/marta/map/railIncidents.js`).
+Same idea on the per-line geometry, with `ABSOLUTE_MIN_MIN = 12` (rail headways are tighter) and `headwayForLine` for the expected value. The detector itself only returns the spacing gap; the flanking + midpoint **stations** are attached afterward by the bin (`bin/marta/rail/gaps.js`) via `gapStationContext(stationsOnLine(line, gap.line), gap)` (`src/marta/rail/stations.js`), which projects the static `rail-stations.json` roster onto the line's geometry. The post (`src/marta/rail/post.js`) names the flanking stations and renders the gap onto a line map (`src/marta/map/railIncidents.js`) — white station dots + name pills on the flanks, pushed perpendicular off the line so the L/N train discs don't bury them.
 
 ### Why a ratio, not a literal ETA
 
@@ -79,7 +79,7 @@ Gap times computed this way are wrong in absolute terms — a real bus at PM pea
 
 ## Timelapse reply
 
-After the still gap post goes out, the bot threads a ~10-minute timelapse (`src/marta/bus/video.js` / `src/marta/rail/video.js`, via the maps in `src/marta/map/{busGap,railIncidents}.js`), built from the observe-loop DB history. The clip follows the trailing ("Next up") vehicle approaching the wait stop so the camera holds still while the next vehicle advances across the empty stretch — the motion *is* the story. Motion + dropout handling go through the shared `src/shared/videoTracks.js` kernel (see [BUNCHING.md](./BUNCHING.md#timelapse-video)).
+After the still gap post goes out, the bot threads a ~10-minute timelapse (`src/marta/bus/video.js` / `src/marta/rail/video.js`, via the maps in `src/marta/map/{busGap,railIncidents}.js`), built from the observe-loop DB history. The clip frames the **gap midpoint** — the stop/station nearest the center of the empty stretch — with an amber target ring + label, and films the trailing ("Next up") vehicle advancing across the empty stretch toward it, so the camera holds still while the next vehicle closes the back half — the motion *is* the story. A top-left HUD readout (`buildReadoutPill`) ticks the next vehicle's live distance/time to that midpoint each frame (bus `gapReadout` / rail `gapReadout`), and the reply text (`buildVideoPostText` / `buildGapVideoPostText`) names the midpoint stop and reports how close the next vehicle got — "had closed to within ~0.9 mi of X — the middle of the gap" (or "reached X" when it arrives). The midpoint is used rather than the far flank because a vehicle can't cross a whole 15+ min gap in a 10-min clip; the back half is half the distance and reachable. Both modes share this framing — the bus side anchors on the midpoint stop, the rail side on `gap.midStation`. Motion + dropout handling go through the shared `src/shared/videoTracks.js` kernel (see [BUNCHING.md](./BUNCHING.md#timelapse-video)), which now also surfaces each frame's interpolated along-route `track` so the readout can read a vehicle's live position without re-projecting.
 
 ## Why this approach
 
@@ -93,11 +93,12 @@ Gap posting reuses the `src/marta/shared/incidents.js` lifecycle: per-shape/rout
 
 - `src/marta/bus/shapes.js` — projection to `distFt` (the `pdist` analog).
 - `src/marta/bus/schedule.js` — schedule index loader + `headwayForShape` / `headwayForRoute` / `headwayForLine`.
-- `src/marta/bus/gaps.js` — bus gap detection (`detectBusGaps`, `gapsFromObservations`).
+- `src/marta/bus/gaps.js` — bus gap detection (`detectBusGaps`, `gapsFromObservations`); attaches flank stops via `stopsNearShape`.
 - `src/marta/rail/gaps.js` — rail gap detection (line-level headways).
-- `src/marta/bus/gapPost.js`, `src/marta/rail/post.js` — post + alt + video reply text.
-- `src/marta/map/{busGap,railIncidents}.js` — still gap maps + timelapse framing.
-- `src/marta/{bus,rail}/video.js`, `src/shared/videoTracks.js` — timelapse capture + dropout kernel.
+- `src/marta/bus/stops.js`, `src/marta/rail/stations.js` — flank + midpoint stop/station context (`stopsNearShape` / `stationsOnLine` + `gapStationContext`) and the rider-facing name formatter.
+- `src/marta/bus/gapPost.js`, `src/marta/rail/post.js` — post + alt + video reply text (flank-station range + midpoint "middle of the gap").
+- `src/marta/map/{busGap,railIncidents}.js` — still gap maps (flank pins + labels) + timelapse framing (amber midpoint highlight + readout HUD).
+- `src/marta/{bus,rail}/video.js`, `src/shared/videoTracks.js` — timelapse capture (midpoint tracking) + dropout kernel (surfaces interpolated `track`).
 - `src/shared/geo.js` — terminal-zone helper (`terminalZoneFt`).
 - `src/marta/shared/incidents.js` — cooldown / cap / escalation.
 - `scripts/marta/build-schedule-index.js` — nightly schedule-index build.

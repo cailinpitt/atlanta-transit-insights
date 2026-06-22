@@ -383,6 +383,24 @@ function buildClipProgress({ elapsedSec, totalSec, width, height }) {
   ].join('');
 }
 
+// Top-left HUD pill for gap timelapses: a live line like "~20-min gap · next bus
+// ~6 min to Peachtree St" that ticks down as the trailing bus approaches the
+// midpoint wait stop. Styled to match the clip-clock pill so the two HUD
+// elements read as a set. Pass `textWidth` (measured via measureTextWidth) so
+// the pill hugs the text. Ported from cta-insights src/map/common.js.
+function buildReadoutPill(text, { x = 20, y = 20, textWidth = null } = {}) {
+  const fontSize = 26;
+  const padX = 16;
+  const padY = 9;
+  const innerW = textWidth != null ? textWidth : text.length * (fontSize * 0.6);
+  const w = innerW + padX * 2;
+  const h = fontSize + padY * 2;
+  return [
+    `<rect x="${x}" y="${y}" width="${w.toFixed(1)}" height="${h}" rx="8" fill="#000" fill-opacity="0.6"/>`,
+    `<text x="${(x + w / 2).toFixed(1)}" y="${y + h / 2 + fontSize * 0.35}" text-anchor="middle" font-family="Inter, Helvetica, Arial, sans-serif" font-size="${fontSize}" font-weight="600" fill="#fff">${xmlEscape(text)}</text>`,
+  ].join('');
+}
+
 module.exports = {
   STYLE,
   WIDTH,
@@ -409,6 +427,7 @@ module.exports = {
   buildStopMarker,
   buildStopDot,
   buildClipProgress,
+  buildReadoutPill,
   xmlEscape,
   requireMapboxToken,
   fetchMapboxStatic,

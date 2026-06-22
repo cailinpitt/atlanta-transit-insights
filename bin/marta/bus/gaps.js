@@ -199,6 +199,7 @@ async function main() {
   try {
     image = await renderGapMap(gap, shape, stops, {
       title: direction ? `${routeTitle} - ${direction}` : routeTitle,
+      nearStop,
     });
   } catch (e) {
     console.warn(`Map render failed (${e.message}); will post text-only`);
@@ -213,6 +214,20 @@ async function main() {
     const fname = `gap-${gap.route}-${gap.shapeId}-${Date.now()}.jpg`;
     const out = image ? writeDryRunAsset(image, fname) : '(render failed - text only)';
     console.log(`\n--- DRY RUN ---\n${text}\n\nAlt: ${alt}\nImage: ${out}`);
+    if (argv.video) {
+      console.log('\nBuilding gap timelapse from recent observations...');
+      const videoRows = storage.getRecentBusObservationsAll(Date.now() - VIDEO_WINDOW_MS);
+      const video = await captureBusGapHistoryVideo(gap, shape, videoRows, { gtfs, shapes, stops });
+      if (!video) {
+        console.log('Gap timelapse skipped (<2 frames in window)');
+      } else {
+        const videoPath = writeDryRunAsset(
+          video.buffer,
+          `gap-${gap.route}-${gap.shapeId}-${Date.now()}.mp4`,
+        );
+        console.log(`Video: ${videoPath}\n${buildVideoPostText(video, gap, ctx)}`);
+      }
+    }
     return;
   }
 
@@ -272,9 +287,9 @@ async function main() {
       };
       const reply = await postWithVideo(
         posted.agent,
-        buildVideoPostText(video, gap),
+        buildVideoPostText(video, gap, ctx),
         video.buffer,
-        buildVideoAltText(gap, ctx),
+        buildVideoAltText(gap, ctx, video),
         replyRef,
       );
       console.log(`Timelapse reply: ${reply.url}`);

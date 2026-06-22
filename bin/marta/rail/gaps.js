@@ -34,6 +34,7 @@ const {
   buildGapVideoAltText,
 } = require('../../../src/marta/rail/post');
 const { VIDEO_WINDOW_MS, captureRailGapHistoryVideo } = require('../../../src/marta/rail/video');
+const { stationsOnLine, gapStationContext } = require('../../../src/marta/rail/stations');
 
 const GTFS_DIR = Path.join(__dirname, '..', '..', '..', 'data', 'marta', 'gtfs');
 const WINDOW_MS = 3 * 60 * 1000;
@@ -137,6 +138,9 @@ async function main() {
 
   gap.terminus = terminusFor(termini, gap.line, gap.direction);
   const line = lineGeom.get(gap.line);
+  // Flank + midpoint stations for the gap stretch — names the post's "between X
+  // and Y", labels the still map's flanks, and aims the timelapse's wait stop.
+  Object.assign(gap, gapStationContext(stationsOnLine(line, gap.line), gap));
   const callouts = incidents.gapCallouts({
     kind: 'rail',
     route: gap.line,
@@ -160,6 +164,20 @@ async function main() {
       ? writeDryRunAsset(image, `rail-gap-${gap.line}-${gap.direction}-${Date.now()}.jpg`)
       : '(render failed - text only)';
     console.log(`\n--- DRY RUN ---\n${text}\n\nAlt: ${alt}\nImage: ${out}`);
+    if (argv.video) {
+      console.log('\nBuilding rail gap timelapse from recent observations...');
+      const videoRows = storage.getRecentRailObservationsAll(Date.now() - VIDEO_WINDOW_MS);
+      const video = await captureRailGapHistoryVideo(gap, line, videoRows, { lineGeom });
+      if (!video) {
+        console.log('Rail gap timelapse skipped (<2 frames in window)');
+      } else {
+        const videoPath = writeDryRunAsset(
+          video.buffer,
+          `rail-gap-${gap.line}-${gap.direction}-${Date.now()}.mp4`,
+        );
+        console.log(`Video: ${videoPath}\n${buildGapVideoPostText(video, gap)}`);
+      }
+    }
     return;
   }
 
@@ -212,7 +230,7 @@ async function main() {
         posted.agent,
         buildGapVideoPostText(video, gap),
         video.buffer,
-        buildGapVideoAltText(gap),
+        buildGapVideoAltText(gap, video),
         replyRef,
       );
       console.log(`Timelapse reply: ${reply.url}`);

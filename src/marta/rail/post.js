@@ -1,6 +1,13 @@
 const { formatCallouts } = require('../shared/incidents');
 const { describeGhost } = require('../../shared/ghostFormat');
-const { formatDistance, formatMinutes, formatTimeET, keycapNumber } = require('../shared/format');
+const {
+  formatDistance,
+  formatMinutes,
+  formatTimeET,
+  elapsedMinutesLabel,
+  keycapNumber,
+} = require('../shared/format');
+const { displayStationName } = require('./stations');
 
 function lineTitle(line) {
   // Feed line names are SCREAMING (RED/GOLD/BLUE/GREEN); present them cleanly.
@@ -21,10 +28,36 @@ function directionLabel(direction, terminus = null, { lower = false } = {}) {
   return terminus ? `${dir} to ${terminus}` : dir;
 }
 
+// Name the empty stretch as a range between the stations flanking it, like the
+// bus gap post and cta-insights src/train. A long gap can span several stations,
+// so "near <midpoint>" both under-states the hole and disagrees with the map
+// (which labels the flanks). Fall back to the midpoint station when a flank is
+// missing (gap reaching a terminal), and to the bare mileage when we have
+// neither.
+function gapWhereClause(gap) {
+  const before = gap.flankBefore?.name ? displayStationName(gap.flankBefore.name) : null;
+  const after = gap.flankAfter?.name ? displayStationName(gap.flankAfter.name) : null;
+  const mid = gap.midStation?.name ? displayStationName(gap.midStation.name) : null;
+  if (before && after) return ` between ${before} and ${after}`;
+  if (before || after) return ` past ${before || after}`;
+  if (mid) return ` near ${mid}`;
+  return ` across ~${formatDistance(gap.gapFt)}`;
+}
+
 function buildGapPostText(gap, callouts = []) {
   const dir = directionLabel(gap.direction, gap.terminus);
   const where = dir ? ` - ${dir}` : '';
-  const base = `🚇 ${lineTitle(gap.line)}${where}\n\nNo trains across ~${formatDistance(gap.gapFt)} - a ~${formatMinutes(gap.gapMin)} gap, scheduled around every ${formatMinutes(gap.expectedMin)} this hour`;
+  // `leading` is the train already past the gap (last seen); `trailing` is the
+  // next one a rider is waiting for — spelled out, matching the map's L/N chips.
+  const lastSeen = gap.leading?.trainId ? `#${gap.leading.trainId}` : null;
+  const nextUp = gap.trailing?.trainId ? `#${gap.trailing.trainId}` : null;
+  const trainsLine =
+    lastSeen || nextUp
+      ? `\n\n${[lastSeen && `Last seen: ${lastSeen}`, nextUp && `Next up: ${nextUp}`]
+          .filter(Boolean)
+          .join(' · ')}`
+      : '';
+  const base = `🚇 ${lineTitle(gap.line)}${where}\n\nNo trains${gapWhereClause(gap)} - a ~${formatMinutes(gap.gapMin)} gap, scheduled around every ${formatMinutes(gap.expectedMin)} this hour${trainsLine}`;
   const tail = formatCallouts(callouts);
   return tail ? `${base}\n\n${tail}` : base;
 }
@@ -32,7 +65,13 @@ function buildGapPostText(gap, callouts = []) {
 function buildGapAltText(gap) {
   const dir = directionLabel(gap.direction, gap.terminus, { lower: true });
   const suffix = dir ? ` ${dir}` : '';
-  return `Map of the ${lineTitle(gap.line)}${suffix} showing a ${formatMinutes(gap.gapMin)} rail gap across about ${formatDistance(gap.gapFt)}.`;
+  const before = gap.flankBefore?.name ? displayStationName(gap.flankBefore.name) : null;
+  const after = gap.flankAfter?.name ? displayStationName(gap.flankAfter.name) : null;
+  const mid = gap.midStation?.name ? displayStationName(gap.midStation.name) : null;
+  let where = ` across about ${formatDistance(gap.gapFt)}`;
+  if (before && after) where = ` with no trains between ${before} and ${after}`;
+  else if (mid) where = ` between trains near ${mid}`;
+  return `Map of the ${lineTitle(gap.line)}${suffix} showing a ${formatMinutes(gap.gapMin)} rail gap${where}.`;
 }
 
 function buildBunchingPostText(bunch, callouts = []) {
@@ -66,16 +105,43 @@ function buildBunchingVideoAltText(bunch) {
   return `Timelapse map of the ${lineTitle(bunch.line)}${suffix} showing recent movement of ${bunch.trains.length} bunched trains.`;
 }
 
+// Timelapse reply text. The clip is framed on the gap *midpoint* station
+// (video.stationName) with the "Next up" train filmed closing on it, so the
+// reply names that station and flags it as "the middle of the gap" — explaining
+// why the train still has distance to cover (it's crossing only the back half).
+// Falls back to the generic "recent movement" line when no midpoint resolves.
 function buildGapVideoPostText(video, gap) {
-  const elapsed = video?.elapsedSec
-    ? `${Math.max(1, Math.round(video.elapsedSec / 60))} min`
-    : 'Several minutes';
-  return `${elapsed} of recent movement around this ~${formatMinutes(gap.gapMin)} rail gap.`;
+  const hasMidpoint = video?.reached || video?.endDistFt != null;
+  if (!hasMidpoint) {
+    const elapsed = video?.elapsedSec
+      ? `${Math.max(1, Math.round(video.elapsedSec / 60))} min`
+      : 'Several minutes';
+    return `${elapsed} of recent movement around this ~${formatMinutes(gap.gapMin)} rail gap.`;
+  }
+  const gapMin = video.gapMin ?? Math.round(gap.gapMin);
+  const lead = `~${gapMin} min ${lineTitle(gap.line)} gap.`;
+  const run = gap.trailing?.trainId ? ` (#${gap.trailing.trainId})` : '';
+  const elapsed = elapsedMinutesLabel(video.elapsedSec || 0);
+  const station = video.stationName ? displayStationName(video.stationName) : null;
+  if (video.reached) {
+    const where = station ? `${station} — the middle of the gap —` : 'the middle of the gap';
+    return `${lead} The next train${run} reached ${where} ${elapsed} later.`;
+  }
+  const remaining = formatDistance(Math.max(0, video.endDistFt || 0));
+  const where = station ? `${station} — the middle of the gap` : 'the middle of the gap';
+  return `${lead} ${elapsed} later, the next train${run} had closed to within ~${remaining} of ${where}.`;
 }
 
-function buildGapVideoAltText(gap) {
+function buildGapVideoAltText(gap, video = null) {
   const dir = directionLabel(gap.direction, gap.terminus, { lower: true });
   const suffix = dir ? ` ${dir}` : '';
+  const hasMidpoint = video?.reached || video?.endDistFt != null;
+  if (hasMidpoint) {
+    const station = video.stationName ? displayStationName(video.stationName) : null;
+    const where = station ? `${station}, the middle of the gap,` : 'the middle of the gap';
+    const over = video.elapsedSec ? ` over ${formatMinutes(video.elapsedSec / 60)}` : '';
+    return `Timelapse map of the ${lineTitle(gap.line)}${suffix}: the next train closing on ${where}${over}.`;
+  }
   return `Timelapse map of the ${lineTitle(gap.line)}${suffix} showing recent movement of the trains flanking a ${formatMinutes(gap.gapMin)} gap.`;
 }
 

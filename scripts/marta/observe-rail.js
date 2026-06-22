@@ -13,7 +13,6 @@
 require('dotenv').config({ path: require('node:path').join(__dirname, '..', '..', '.env') });
 const { fetchTrainData } = require('../../src/marta/rail/api');
 const { fetchStreetcarVehicles } = require('../../src/marta/streetcar/api');
-const { rolloffOldObservations } = require('../../src/marta/storage');
 const { runTicks } = require('../../src/marta/observeUtil');
 
 const TICKS = Number(process.env.MARTA_OBSERVE_RAIL_TICKS || 2);
@@ -35,7 +34,8 @@ async function tick() {
 }
 
 async function main() {
-  rolloffOldObservations();
+  // The 7-day rolloff is driven by observe-buses (every minute) to avoid two
+  // observers running the same DELETE sweep concurrently each minute.
   await runTicks(tick, { ticks: TICKS, intervalMs: INTERVAL_MS });
 }
 

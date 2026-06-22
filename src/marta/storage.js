@@ -189,6 +189,21 @@ function getDb() {
       active_post_ts INTEGER,
       PRIMARY KEY (line, direction)
     );
+
+    -- Bare ts indexes for the 7-day rolloff. rolloffOldObservations runs every
+    -- observe tick and does DELETE ... WHERE ts < cutoff on each snapshot table.
+    -- The composite (route|line|..., ts) indexes above can't serve a bare ts
+    -- predicate (ts isn't the leftmost column), so without these the DELETE
+    -- full-scans the whole table — on rail_arrivals that's millions of rows
+    -- every minute, holding the write lock long enough to push concurrent
+    -- writers past busy_timeout ("database is locked"). With a ts index the
+    -- DELETE is a range scan over just the newly-expired rows.
+    CREATE INDEX IF NOT EXISTS idx_bus_obs_ts ON bus_observations(ts);
+    CREATE INDEX IF NOT EXISTS idx_bus_trip_status_ts ON bus_trip_status(ts);
+    CREATE INDEX IF NOT EXISTS idx_bus_tu_ts ON bus_trip_updates(ts);
+    CREATE INDEX IF NOT EXISTS idx_rail_obs_ts ON rail_observations(ts);
+    CREATE INDEX IF NOT EXISTS idx_rail_arr_ts ON rail_arrivals(ts);
+    CREATE INDEX IF NOT EXISTS idx_streetcar_obs_ts ON streetcar_observations(ts);
   `);
   return _db;
 }

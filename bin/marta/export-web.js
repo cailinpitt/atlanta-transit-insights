@@ -1096,6 +1096,11 @@ function writeOutput(out, outputPath) {
 
 function main() {
   const db = new Database(DB_PATH, { readonly: true });
+  // Wait for a concurrent writer's lock rather than failing the export outright
+  // (matches the writer connection in src/marta/storage.js). Without this a
+  // heavy export read during a write could throw "database is locked" and leave
+  // the site frozen on the last good alerts.json.
+  db.pragma('busy_timeout = 15000');
   try {
     writeOutput(buildExport(db), process.argv[2]);
   } finally {

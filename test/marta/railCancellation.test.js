@@ -49,7 +49,7 @@ test('stops the origin at the linking verb ("was"), not after it', () => {
   assert.equal(c.title, '11:41 AM Gold Line departure from Doraville cancelled');
 });
 
-test('keeps a leading article in the origin ("the Airport")', () => {
+test('strips a leading article from the origin ("the Airport" → "Airport")', () => {
   const c = classifyRailCancellation({
     headline: 'Rail Service Alert for Gold Line',
     description: 'The 12:30 p.m. Gold line departure from the Airport is cancelled.',
@@ -57,8 +57,22 @@ test('keeps a leading article in the origin ("the Airport")', () => {
     anchorTs: ANCHOR,
   });
   assert.ok(c);
-  assert.equal(c.origin, 'the Airport');
-  assert.equal(c.title, '12:30 PM Gold Line departure from the Airport cancelled');
+  // "the Airport" and "Airport" must collapse to one canonical origin so the
+  // station shows up once in per-station breakdowns.
+  assert.equal(c.origin, 'Airport');
+  assert.equal(c.title, '12:30 PM Gold Line departure from Airport cancelled');
+});
+
+test('canonicalizes initials spacing ("H.E. Holmes" → "H. E. Holmes")', () => {
+  const c = classifyRailCancellation({
+    headline: 'Rail Service Alert for Blue Line',
+    description: 'The 2:10 p.m. Blue line departure from H.E. Holmes is cancelled.',
+    line: 'blue',
+    anchorTs: ANCHOR,
+  });
+  assert.ok(c);
+  assert.equal(c.origin, 'H. E. Holmes');
+  assert.equal(c.title, '2:10 PM Blue Line departure from H. E. Holmes cancelled');
 });
 
 test('does not let initials in a station name ("H. E. Holmes") fragment the sentence', () => {

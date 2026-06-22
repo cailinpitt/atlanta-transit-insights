@@ -64,6 +64,26 @@ function sentences(text) {
     .filter(Boolean);
 }
 
+// Canonicalize the origin station as MARTA's prose spells it, so the same stop
+// doesn't show up as two rows in downstream per-station breakdowns. MARTA's
+// editorial copy is inconsistent in exactly two ways we've observed:
+//   - a leading article: "the Airport" vs "Airport"
+//   - spacing inside initials: "H.E. Holmes" vs "H. E. Holmes"
+// Collapse both to one form (no article; a space after each initial's period)
+// while otherwise leaving the rider-facing short name untouched — we don't
+// remap to the all-caps GTFS roster name, which would be uglier and can't even
+// match abbreviations like "H. E. Holmes" → "Hamilton E Holmes".
+function normalizeOrigin(raw) {
+  if (!raw) return null;
+  const s = String(raw)
+    .trim()
+    .replace(/^the\s+/i, '')
+    .replace(/\b([A-Za-z])\.(?=[A-Za-z])/g, '$1. ')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+  return s || null;
+}
+
 // Title-case a rail line key/name for display: "blue"/"BLUE" → "Blue".
 function titleCaseLine(line) {
   const s = String(line || '').trim();
@@ -135,7 +155,7 @@ function classifyRailCancellation({ headline, description, line, anchorTs = Date
 
   const scheduledDepMs = etMidnightMs(anchorTs) + clock.secOfDay * 1000;
   const originMatch = ORIGIN_RE.exec(sentence);
-  const origin = originMatch ? originMatch[1].trim() : null;
+  const origin = originMatch ? normalizeOrigin(originMatch[1]) : null;
 
   const lineLabel = titleCaseLine(line);
   const linePart = lineLabel ? `${lineLabel} Line ` : '';

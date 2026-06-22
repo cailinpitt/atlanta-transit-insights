@@ -13,8 +13,22 @@ const ASSETS_DIR = Path.join(__dirname, '..', '..', '..', 'assets');
 
 function setup() {
   pruneOldAssets();
-  incidents.rolloffOld();
-  storage.rolloffOldObservations();
+  // The rolloffs are best-effort housekeeping (dropping expired cooldowns /
+  // stale meta-signals / aged observations). A transient "database is locked"
+  // from a concurrent writer must NOT abort the detection+post tick that
+  // follows — detection is read-only and unaffected, and missing one tick's
+  // cleanup is harmless (the next bin's setup catches up). Swallow the residual
+  // lock (busy_timeout already retried) so the bin proceeds.
+  try {
+    incidents.rolloffOld();
+  } catch (e) {
+    console.warn(`setup: incidents.rolloffOld skipped (${e.message})`);
+  }
+  try {
+    storage.rolloffOldObservations();
+  } catch (e) {
+    console.warn(`setup: storage.rolloffOldObservations skipped (${e.message})`);
+  }
 }
 
 function writeDryRunAsset(buffer, filename) {

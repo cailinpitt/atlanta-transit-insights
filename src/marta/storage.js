@@ -38,6 +38,12 @@ function getDb() {
   Fs.ensureDirSync(Path.dirname(p));
   _db = new Database(p);
   _db.pragma('journal_mode = WAL');
+  // Many crons (observe-rail/-buses every minute, the pulse + bunching/gap/ghost
+  // detectors) hammer this one file concurrently. WAL lets readers run during a
+  // write, but only one writer at a time — so a write can still hit SQLITE_BUSY
+  // ("database is locked") when another process holds the write lock. Wait up to
+  // 15s for it instead of failing the tick outright (default is 5s).
+  _db.pragma('busy_timeout = 15000');
   _db.exec(`
     -- Bus VehiclePositions: one row per vehicle per poll. route is the PUBLIC
     -- number from the realtime feed; resolve to a canonical GTFS route via

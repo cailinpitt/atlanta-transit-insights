@@ -37,8 +37,17 @@ vehicles** in a headway-scaled lookback (3× longest-direction headway, clamped 
 - Guards: feed-stale (newest fleet observation > 5 min → upstream outage),
   pipeline-wide-quiet (<5 other active routes), cold-start grace (no obs in 6h),
   lookback-quiet probe (ramp), and wind-down (last 30 min of final service hour).
-- 2h re-post cooldown; records `observed` / `pulse-cold`; same clear-reply
-  lifecycle as thin-gaps.
+- 2h re-post cooldown; records `observed` / `pulse-cold`.
+- Posting (CTA parity, like rail pulse): one post **per blacked-out route** to
+  **`@martaalertinsights`** (a blackout is a service disruption, not an insight,
+  so it goes to the alerts account — not the bus insights account). Each post
+  carries a **dimmed-route blackout map** (`map/busDisruption.js#renderBusDisruptionMap`:
+  the whole route drawn solid-but-dimmed with both terminals labeled from the
+  GTFS headsigns) and threads **under any open official MARTA bus alert** for the
+  route (`alert/store.js#findUnresolvedAlertForRoundup`).
+- Clear reply ("buses observed on the route again") threads under the open
+  official alert when one is up, otherwise under the original pulse post, and
+  carries a **resolved-event link card** back to the archive.
 
 The 20-min headway boundary partitions the two cleanly so a route is never both a
 thin-gap and a pulse candidate.
@@ -108,7 +117,12 @@ sustained/aged escalations CTA re-posts.
 ## Files
 
 - `src/marta/bus/thinGaps.js`, `bin/marta/bus/thin-gaps.js`
-- `src/marta/bus/pulse.js`, `bin/marta/bus/pulse.js`
+- `src/marta/bus/pulse.js`, `bin/marta/bus/pulse.js` — bus blackout core + bin
+  (per-route posts to `@martaalertinsights`, blackout map, official-alert threading).
+- `src/marta/map/busDisruption.js#renderBusDisruptionMap` — dimmed full-route
+  blackout map with labeled terminals.
+- `src/marta/alert/store.js#findUnresolvedAlertForRoundup` — bus pulse + roundup
+  open-alert threading.
 - `src/marta/rail/pulse.js`, `bin/marta/rail/pulse.js` — rail dead-segment core +
   bin (posts to `@martaalertinsights`).
 - `src/marta/rail/disruptionPost.js` — rail disruption post/alt/clear text.

@@ -5,16 +5,22 @@
 // Complements thin-gaps: thin-gaps owns low-frequency routes (headway ≥ 20 min);
 // pulse owns the higher-frequency network, firing when a route that should have
 // ≥2 buses on the road shows ZERO distinct vehicles in a headway-scaled lookback
-// while the rest of the fleet reports normally. Posts a rollup thread to the bus
-// account, records a standalone `observed` disruption (web export surfaces it),
-// feeds the roundup a `pulse-cold` meta-signal, and threads a clear reply when
-// buses reappear.
+// while the rest of the fleet reports normally.
+//
+// Posting (parity with cta-insights bin/bus/pulse.js): one post PER blacked-out
+// route to the alerts account (a route blackout is a disruption alert, not an
+// insight), each carrying a dimmed-route blackout map; threads under an open
+// official MARTA alert for the route when one exists; records a standalone
+// `observed` disruption (web export surfaces it); feeds the roundup a
+// `pulse-cold` meta-signal; and threads a clear reply — with a resolved-event
+// link card — when buses reappear.
 require('../../../src/shared/env');
 
 const Path = require('node:path');
 const argv = require('minimist')(process.argv.slice(2));
 
 const { loadGtfs } = require('../../../src/marta/gtfs');
+const { loadShapes } = require('../../../src/marta/bus/shapes');
 const { detectBusBlackouts } = require('../../../src/marta/bus/pulse');
 const {
   loadScheduleIndex,
@@ -24,8 +30,16 @@ const {
 const storage = require('../../../src/marta/storage');
 const incidents = require('../../../src/marta/shared/incidents');
 const { acquireCooldown } = require('../../../src/marta/shared/state');
-const { loginBus, postText, resolveReplyRef } = require('../../../src/marta/shared/bluesky');
-const { buildRollupThread } = require('../../../src/shared/post');
+const {
+  loginAlerts,
+  postText,
+  postWithImage,
+  postWithExternal,
+  resolveReplyRef,
+} = require('../../../src/marta/shared/bluesky');
+const { resolvedEventLink } = require('../../../src/marta/shared/eventLink');
+const { findUnresolvedAlertForRoundup } = require('../../../src/marta/alert/store');
+const { renderBusDisruptionMap } = require('../../../src/marta/map/busDisruption');
 const { setup, runBin } = require('../../../src/marta/shared/runBin');
 
 const GTFS_DIR = Path.join(__dirname, '..', '..', '..', 'data', 'marta', 'gtfs');
@@ -64,19 +78,81 @@ function routeTitle(names, route) {
   return long ? `Route ${route} (${long})` : `Route ${route}`;
 }
 
-function buildClearText(names, route) {
+// One post per blacked-out route (CTA parity), mirroring buildBusPostText.
+function buildPostText(names, c, { headwayMin = null, alertOpen = false } = {}) {
+  const header = `🚌⚠️ ${routeTitle(names, c.route)}: service appears suspended`;
+  const headwayClause =
+    headwayMin != null ? ` — currently scheduled every ${Math.round(headwayMin)} min` : '';
+  const evidence = `📡 No buses observed on the route in the last ~${c.lookbackMin} min${headwayClause}.`;
+  const footer = alertOpen
+    ? 'Inferred from live bus positions. (See MARTA alert in this thread.)'
+    : 'Inferred from live bus positions; no relevant MARTA alert at this time.';
+  return `${header}\n\n${evidence}\n\n${footer}`;
+}
+
+function buildClearText(names, route, { alertOpen = false } = {}) {
+  if (alertOpen) {
+    return `🚌 ${routeTitle(names, route)}: bot's earlier pulse observation cleared — buses moving on the route again. MARTA's alert at the top of this thread is still active.`;
+  }
   return `🚌✅ ${routeTitle(names, route)}: buses are back on the road — earlier service blackout has cleared.`;
 }
 
-function formatLine(names, c) {
-  return `🚌 ${routeTitle(names, c.route)} · no buses observed in past ~${c.lookbackMin} min while the route should be running`;
+function buildClearCardTitle(names, route) {
+  return `${routeTitle(names, route)}: buses observed again`;
 }
 
-function buildPostThread(names, candidates) {
-  return buildRollupThread(
-    '🛑 Bus routes off the air, past hour',
-    candidates.map((c) => formatLine(names, c)),
-  );
+// Resolve the two terminal names for the shape we render: the shape runs
+// start→destination, so the owning trip's headsign is the END terminal and the
+// opposite-direction headsign the START terminal.
+function terminalNamesForShape(gtfs, shapeId) {
+  let owner = null;
+  for (const t of gtfs.tripsById.values()) {
+    if (String(t.shape_id) === String(shapeId)) {
+      owner = t;
+      break;
+    }
+  }
+  if (!owner) return {};
+  let startName = null;
+  for (const t of gtfs.tripsById.values()) {
+    if (
+      String(t.route_id) === String(owner.route_id) &&
+      t.direction_id !== owner.direction_id &&
+      t.trip_headsign
+    ) {
+      startName = t.trip_headsign;
+      break;
+    }
+  }
+  return { fromName: startName, toName: owner.trip_headsign || null };
+}
+
+// Dimmed-route blackout map (best-effort; falls back to text on any failure).
+async function buildBlackoutImage({ gtfs, shapes, shapesByRoute, names, route }) {
+  const ids = [...(shapesByRoute.get(String(route)) || [])];
+  let best = null;
+  let bestId = null;
+  for (const id of ids) {
+    const s = shapes.get(id);
+    if (s && (!best || (s.lengthFt || 0) > (best.lengthFt || 0))) {
+      best = s;
+      bestId = id;
+    }
+  }
+  if (!best) return { image: null, alt: null };
+  const { fromName, toName } = terminalNamesForShape(gtfs, bestId);
+  const title = `⚠ ${routeTitle(names, route)}: service appears suspended`;
+  try {
+    const image = await renderBusDisruptionMap(best, { title, fromName, toName });
+    if (!image) return { image: null, alt: null };
+    const termClause =
+      fromName && toName ? ` Terminals ${fromName} and ${toName} are labeled.` : '';
+    const alt = `Map of ${routeTitle(names, route)} dimmed end-to-end to indicate the route appears to have no buses in service.${termClause}`;
+    return { image, alt };
+  } catch (e) {
+    console.warn(`pulse: blackout map failed for ${route}: ${e.message}`);
+    return { image: null, alt: null };
+  }
 }
 
 async function handleClears(names, now, getAgent, dryRun) {
@@ -88,20 +164,30 @@ async function handleClears(names, now, getAgent, dryRun) {
     const obs = storage.getRecentBusObservations(row.line, row.ts + 1);
     if (!obs || obs.length === 0) continue;
     const firstObsTs = obs.reduce((m, o) => (o.ts < m ? o.ts : m), obs[0].ts);
-    const text = buildClearText(names, row.line);
+    const alertUri = findUnresolvedAlertForRoundup({ kind: 'bus', line: row.line });
+    const text = buildClearText(names, row.line, { alertOpen: !!alertUri });
     if (dryRun) {
       console.log(`--- DRY RUN pulse clear ${row.line} ---\n${text}`);
       continue;
     }
     const agent = await getAgent();
-    const replyRef = await resolveReplyRef(agent, row.postUri);
+    // Thread the ✅ under the open official alert when one is up; otherwise under
+    // the original pulse post.
+    const replyRef =
+      (alertUri ? await resolveReplyRef(agent, alertUri) : null) ||
+      (await resolveReplyRef(agent, row.postUri));
     if (!replyRef) {
       console.warn(
         `pulse: could not resolve reply ref for ${row.postUri} (route ${row.line}), skipping clear`,
       );
       continue;
     }
-    const result = await postText(agent, text, replyRef);
+    // Attach a link card to the resolved event page (parity with cta-insights +
+    // MARTA rail pulse), so the clear reply links back to the archive.
+    const link = resolvedEventLink(row.postUri, buildClearCardTitle(names, row.line));
+    const result = link
+      ? await postWithExternal(agent, text, link, replyRef)
+      : await postText(agent, text, replyRef);
     console.log(`Posted pulse clear ${row.line}: ${result.url}`);
     incidents.recordDisruption(
       { kind: 'bus', line: row.line, source: 'observed-clear', posted: true, postUri: result.uri },
@@ -161,7 +247,7 @@ async function main() {
 
   let agentPromise = null;
   const getAgent = () => {
-    if (!agentPromise) agentPromise = loginBus();
+    if (!agentPromise) agentPromise = loginAlerts();
     return agentPromise;
   };
 
@@ -225,18 +311,17 @@ async function main() {
     );
   }
 
-  const posts = buildPostThread(names, fresh);
-  if (!posts || posts.length === 0) {
-    console.log('pulse: no lines fit under the post limit, skipping');
-    return;
-  }
   if (dryRun) {
-    for (let i = 0; i < posts.length; i++) {
-      console.log(`\n--- DRY RUN post ${i + 1}/${posts.length} ---\n${posts[i].text}`);
+    for (const c of fresh) {
+      const headwayMin = headwayForLine(idx, c.route, nowDate);
+      const text = buildPostText(names, c, { headwayMin });
+      console.log(`\n--- DRY RUN pulse post ${c.route} ---\n${text}`);
     }
     return;
   }
 
+  const shapes = loadShapes(GTFS_DIR);
+  const agent = await getAgent();
   for (const c of fresh) {
     incidents.recordMetaSignal({
       kind: 'bus',
@@ -247,34 +332,40 @@ async function main() {
       detail: { lookbackMin: c.lookbackMin, expectedActive: c.expectedActive },
       posted: true,
     });
-  }
 
-  const agent = await getAgent();
-  let replyRef = null;
-  let cursor = 0;
-  for (let i = 0; i < posts.length; i++) {
-    const result = await postText(agent, posts[i].text, replyRef);
-    console.log(`Posted ${i + 1}/${posts.length}: ${result.url}`);
-    const slice = fresh.slice(cursor, cursor + posts[i].lineCount);
-    for (const c of slice) {
-      const lastSeenTs = storage.getLastBusObservationTs(c.route);
-      incidents.recordDisruption(
-        {
-          kind: 'bus',
-          line: c.route,
-          source: 'observed',
-          posted: true,
-          postUri: result.uri,
-          evidence: { lookbackMin: c.lookbackMin, expectedActive: c.expectedActive },
-        },
-        lastSeenTs ?? now,
-      );
-    }
-    cursor += posts[i].lineCount;
-    if (i < posts.length - 1) replyRef = await resolveReplyRef(agent, result.uri);
+    const alertUri = findUnresolvedAlertForRoundup({ kind: 'bus', line: c.route });
+    const headwayMin = headwayForLine(idx, c.route, nowDate);
+    const text = buildPostText(names, c, { headwayMin, alertOpen: !!alertUri });
+    const { image, alt } = await buildBlackoutImage({
+      gtfs,
+      shapes,
+      shapesByRoute,
+      names,
+      route: c.route,
+    });
+    // Thread under the open official alert for the route when one exists.
+    const replyRef = alertUri ? await resolveReplyRef(agent, alertUri) : null;
+
+    const result = image
+      ? await postWithImage(agent, text, image, alt, replyRef)
+      : await postText(agent, text, replyRef);
+    console.log(`Posted pulse ${c.route}: ${result.url}`);
+
+    const lastSeenTs = storage.getLastBusObservationTs(c.route);
+    incidents.recordDisruption(
+      {
+        kind: 'bus',
+        line: c.route,
+        source: 'observed',
+        posted: true,
+        postUri: result.uri,
+        evidence: { lookbackMin: c.lookbackMin, expectedActive: c.expectedActive },
+      },
+      lastSeenTs ?? now,
+    );
   }
 }
 
-module.exports = { formatLine, buildPostThread, buildClearText, routeMeta };
+module.exports = { buildPostText, buildClearText, routeMeta };
 
 runBin(main);

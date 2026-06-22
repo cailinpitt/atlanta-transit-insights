@@ -370,6 +370,23 @@ official alerts with bot detections into `alerts.json` (Phase 6 export), the
 website fork + data origin (Phase 8/9 — also what unblocks resolution-reply link
 cards), and bus/rail video/update/close lifecycle refinements.
 
+### Bus pulse posting parity (2026-06-22)
+
+Brought `bin/marta/bus/pulse.js` to full CTA `bin/bus/pulse.js` parity (it had
+been posting a text-only rollup to the bus insights account):
+
+- Posts to **`@martaalertinsights`** (was `loginBus`) — a route blackout is a
+  service disruption, not an insight, matching CTA + MARTA rail pulse.
+- **One post per blacked-out route** (was a batched rollup thread), each with a
+  **dimmed-route blackout map** — new `src/marta/map/busDisruption.js#renderBusDisruptionMap`,
+  the bus analog of `renderRailDisruptionMap`: whole route solid-but-dimmed,
+  both terminals labeled from GTFS headsigns.
+- **Threads under any open official MARTA bus alert** for the route via
+  `alert/store.js#findUnresolvedAlertForRoundup`; clear reply threads under the
+  alert too and carries a **resolved-event link card**.
+
+Still deferred: `heldClusters` sub-detector.
+
 ## knip: the mechanical backstop
 
 [`knip`](https://knip.dev) finds unused files and dependencies starting from the real

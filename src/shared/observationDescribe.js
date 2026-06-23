@@ -11,6 +11,7 @@
 
 const TRAIN_LINES = {
   red: 'Red',
+  gold: 'Gold',
   blue: 'Blue',
   brown: 'Brown',
   green: 'Green',

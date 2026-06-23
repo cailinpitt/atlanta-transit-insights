@@ -8,7 +8,12 @@ const Fs = require('node:fs');
 const Path = require('node:path');
 const Database = require('better-sqlite3');
 const { canonicalMode, canonicalRoute, routeMatchKey } = require('../../src/marta/routeKeys');
-const { describeBotEvidenceBullets } = require('../../src/shared/observationDescribe');
+const {
+  describeBotObservation,
+  describeBotResolution,
+  describeBotOnset,
+  describeBotEvidenceBullets,
+} = require('../../src/shared/observationDescribe');
 const { classifyRailCancellation } = require('../../src/marta/alert/cancellation');
 const { ensureSchema: ensureAlertSchema } = require('../../src/marta/alert/store');
 const { buildAlertDisplayName, alertNature } = require('../../src/marta/alert/displayName');
@@ -200,7 +205,16 @@ function detectionScope(det) {
   return {
     route: canonicalRoute(det.route),
     direction: det.direction ?? null,
-    near_stop: det.near_stop ?? null,
+    // Pre-computed rider-facing direction ("northbound") for the renderer; null
+    // when the detection carries no usable direction.
+    direction_label: det.direction_label ?? null,
+    // Cold-stretch endpoints + every roster stop inside the run (raw
+    // rail-stations.json names, which the website resolves to /station/:slug).
+    // Null/[] for whole-route bus silences and roundups. Mirrors CTA's
+    // detection scope shape so the event map highlights the affected segment.
+    from_station: det.from_station ?? null,
+    to_station: det.to_station ?? null,
+    stations: det.stations ?? [],
   };
 }
 
@@ -225,6 +239,11 @@ function detectionBlock(det) {
       // Single detectors carry their own source as the lone signal.
       signals: det.source === 'roundup' ? (det.evidence?.signals ?? []) : [det.source],
       bullets: det.bullets,
+      // Pre-rendered timeline sentences for absence-style detections (cold
+      // stretches): the back-dated onset entry and the resolution line. Null
+      // for detections that have none, matching CTA's evidence shape.
+      onset_description: det.onset_description ?? null,
+      resolved_description: det.resolved_description ?? null,
     },
   };
 }
@@ -717,17 +736,26 @@ function readRoundups(db) {
 const DISRUPTION_WEB_SOURCE = {
   'observed-thin': 'thin-gap',
   observed: 'pulse-cold',
-  'observed-held': 'pulse-cold',
+  'observed-held': 'pulse-held',
 };
 
-// rail-stations.json names are SCREAMING + "Station" ("LENOX Station"); present
-// rider-facing in the incident description ("Lenox").
-function displayStationName(name) {
-  return String(name || '')
-    .replace(/\s+station\s*$/i, '')
-    .toLowerCase()
-    .replace(/\b([a-z])/g, (m) => m.toUpperCase())
-    .trim();
+// Rider-facing label for a rail feed direction. MARTA collapses each line to two
+// cardinal feed directions (RED/GOLD N/S, BLUE/GREEN E/W); the website renders
+// this beside the affected segment ("Oakland City → College Park (northbound)").
+// Lowercase to match the documented data shape. Null for anything unexpected.
+function railDirectionLabel(direction) {
+  switch (direction) {
+    case 'N':
+      return 'northbound';
+    case 'S':
+      return 'southbound';
+    case 'E':
+      return 'eastbound';
+    case 'W':
+      return 'westbound';
+    default:
+      return null;
+  }
 }
 
 function readDisruptions(db) {
@@ -758,26 +786,52 @@ function disruptionDetection(row) {
   } catch (_) {
     evidence = null;
   }
-  // Rail dead-segment pulses name a track stretch between two stations; bus
-  // pulses/thin-gaps are whole-route silences. evidence.from/to carry the
-  // canonical (slug-matching) station names — present them rider-facing here.
+
   let description;
-  let nearStop = null;
+  let fromStation = null;
+  let toStation = null;
+  let stations = [];
+  let directionLabel = null;
+  let bullets = [];
+  let onsetDescription = null;
+  let resolvedDescription = null;
+
   if (row.kind === 'rail') {
-    const lineName = `${route.charAt(0)}${route.slice(1).toLowerCase()} Line`;
-    const from = evidence?.from ? displayStationName(evidence.from) : null;
-    const to = evidence?.to ? displayStationName(evidence.to) : null;
-    const seg = from && to ? ` between ${from} and ${to}` : '';
-    if (evidence?.synthetic) description = `${lineName} no trains running`;
-    else if (row.source === 'observed-held') description = `${lineName} trains stuck${seg}`;
-    else description = `${lineName} trains not moving${seg}`;
-    if (from && to) nearStop = `${from} ↔ ${to}`;
+    // Mirror CTA's pulse export so the two sites render cold sections
+    // identically: pre-render every rider-facing sentence through the shared
+    // describe* helpers (keeping the web app a dumb renderer), and expose the
+    // cold stretch's endpoints + full station list so the event map highlights
+    // the affected segment and the page title reads "from → to (direction)".
+    const describeShape = {
+      kind: 'train',
+      // Canonical lowercase line key the describe helpers resolve to a label
+      // (the detector stores it SCREAMING, e.g. "RED").
+      line: outRoute,
+      detection_source: webSource,
+      signals: [webSource],
+      evidence,
+    };
+    description = describeBotObservation(describeShape);
+    onsetDescription = describeBotOnset(describeShape);
+    resolvedDescription = row.resolved_ts != null ? describeBotResolution(describeShape) : null;
+    bullets = describeBotEvidenceBullets(describeShape) ?? [];
+    // A synthetic (whole-line) cold has no single stretch to map; only segment
+    // pulses carry concrete endpoints. evidence.from/to/coldStationNames are
+    // raw rail-stations.json names ("OAKLAND CITY Station"), which the website
+    // resolves to /station/:slug — pass them through unchanged.
+    if (!evidence?.synthetic) {
+      fromStation = evidence?.from ?? null;
+      toStation = evidence?.to ?? null;
+      stations = Array.isArray(evidence?.coldStationNames) ? evidence.coldStationNames : [];
+      directionLabel = railDirectionLabel(row.direction);
+    }
   } else {
     description =
       webSource === 'thin-gap'
         ? `Route ${route} thin-service gap`
         : `Route ${route} no buses running`;
   }
+
   return {
     id: `marta-${webSource}-${row.id}`,
     source: webSource,
@@ -785,15 +839,20 @@ function disruptionDetection(row) {
     mode,
     route: outRoute,
     direction: row.direction ?? null,
-    near_stop: nearStop,
+    direction_label: directionLabel,
+    from_station: fromStation,
+    to_station: toStation,
+    stations,
     ts: row.ts,
     onset_ts: onsetTsForDisruption(webSource, evidence, row.ts),
     resolved_ts: row.resolved_ts ?? null,
     post_url: atUriToUrl(row.post_uri),
     resolved_post_url: null,
     description,
+    onset_description: onsetDescription,
+    resolved_description: resolvedDescription,
     evidence,
-    bullets: [],
+    bullets,
   };
 }
 

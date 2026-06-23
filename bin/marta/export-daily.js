@@ -19,7 +19,11 @@ function atlantaDate(epochMs) {
 }
 
 function modeKind(mode) {
-  if (mode === 'rail') return 'train';
+  // Streetcar counts with rail on the website (the consumer's legacyKind maps
+  // streetcar -> train), so the calendar/stats must too — otherwise a
+  // streetcar-only day shows 0 in the counts while the incident list still
+  // renders the event, and the two surfaces disagree.
+  if (mode === 'rail' || mode === 'streetcar') return 'train';
   if (mode === 'bus') return 'bus';
   return null;
 }

@@ -14,7 +14,12 @@ const MISSING_ABS_THRESHOLD = 3;
 // concentrated in the trailing slice can fire at a lower absolute bar.
 const MISSING_ABS_THRESHOLD_TRAILING = 2;
 const TRAILING_DEFICIT_MIN = 2;
-const MIN_SNAPSHOTS = 4; // ~6 polls/hour at */10 → 4 tolerates 2 drops
+// Absolute floor on independent samples before a median is trustworthy. MARTA's
+// observe-buses records ~2 snapshots/min, so any actively-running route clears
+// this easily over the 60-min window; it only screens routes whose coverage in
+// the window collapsed to a handful of polls (a stalled feed, not a ghost).
+// (The old "~6 polls/hour at */10" note was the CTA cadence, not MARTA's.)
+const MIN_SNAPSHOTS = 4;
 const MIN_OBSERVED = 2; // observed 0/1 is a schedule bug or a gap (covered elsewhere)
 const MAX_EXPECTED_ACTIVE = 30; // sanity ceiling — likely a bad GTFS bucket
 const RAMP_FILL_RATIO = 0.8; // tail ≥ this × expected → pipeline filling, not ghosting

@@ -19,6 +19,7 @@ This README is written for operators running their own copy. If you just want to
 - **Gaps** — long stretches with no bus service, compared against the scheduled headway from GTFS.
 - **Ghost buses** — rollup of routes with materially fewer active buses than the schedule implies.
 - **Speedmap** — a bus route color-coded by observed speed over a 1-hour window (built from MARTA's reported `speed` field).
+- **Crowding** — a bus route color-coded by how full its buses were (from GTFS-rt occupancy), plus a "most crowded routes" rollup.
 - **Cross-route pileups** — congestion where buses from *different* routes converge on one transit center.
 - **Thin-gaps + pulse** — low-frequency routes that go dark, and higher-frequency routes that blackout entirely (posts to the alerts account).
 

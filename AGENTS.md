@@ -7,7 +7,7 @@ Operating notes for AI agents editing this repo. Companion to `README.md`
 
 Three Bluesky bots that turn live MARTA data into Atlanta-specific transit posts:
 
-- **`@martabusinsights`** — bus bunching, gaps, ghosts, speedmaps, cross-route pileups.
+- **`@martabusinsights`** — bus bunching, gaps, ghosts, speedmaps, crowding, cross-route pileups.
 - **`@martatraininsights`** — rail (RED/GOLD/BLUE/GREEN) + the Atlanta Streetcar (SC): gaps, bunching, ghosts, speedmaps, cross-line pileups, system timelapse.
 - **`@martaalertinsights`** — republished official MARTA service alerts, the multi-signal incident roundup, and the hourly bus-cancellation rollup.
 
@@ -90,6 +90,7 @@ THIN_GAPS_AND_PULSE,MARTA_ALERTS,MARTA_FEEDS}.md`.
 | Thin-gaps / pulse (low-freq + blackout) | `src/marta/bus/{thinGaps,pulse}.js`, `docs/THIN_GAPS_AND_PULSE.md` |
 | Rail dead-segment / pulse (track gap) | `src/marta/rail/pulse.js`, `bin/marta/rail/pulse.js`, `docs/THIN_GAPS_AND_PULSE.md` |
 | Speedmaps | `src/marta/bus/speedmap.js`, `src/marta/rail/speedmap.js`, `src/marta/streetcar/speedmap.js` |
+| Crowding (bus occupancy) | `src/marta/bus/crowding.js`, `src/marta/map/busCrowding.js`, `bin/marta/bus/crowding-{map,rollup}.js`, `docs/CROWDING.md` |
 | Official alerts (fetch + significance + store) | `src/marta/alert/{api,otp,significance,store,cancellation}.js`, `docs/MARTA_ALERTS.md` |
 | Incident roundup (multi-signal correlation) | `bin/marta/incident-roundup.js` |
 | Cooldown / cap / callouts / meta-signals | `src/marta/shared/incidents.js` |

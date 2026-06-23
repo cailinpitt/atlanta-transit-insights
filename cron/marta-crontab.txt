@@ -41,6 +41,14 @@
 6-59/15 * * * * cd __REPO__ && __NODE__ bin/marta/bus/cancellation-surge.js >> __REPO__/state/logs/bus-cancellation-surge.log 2>&1
 # Bus speedmap (martabusinsights). Hourly route rotation from the last hour of observed speeds.
 12 * * * * cd __REPO__ && __NODE__ bin/marta/bus/speedmap.js >> __REPO__/state/logs/bus-speedmap.log 2>&1
+# Bus crowding map (martabusinsights). Hourly; posts the MOST crowded eligible
+# route's shape color-coded by GTFS-rt occupancy over the last hour. Per-route 6h
+# cooldown rotates which route is featured. Silent when nothing is crowded.
+42 * * * * cd __REPO__ && __NODE__ bin/marta/bus/crowding-map.js >> __REPO__/state/logs/bus-crowding-map.log 2>&1
+# Bus crowding rollup (martabusinsights). Every 2h; a "most crowded routes" digest
+# from the same occupancy field. 3h cooldown self-limits; silent unless several
+# routes clear the bar (a lone crowded route is the map's job).
+52 */2 * * * cd __REPO__ && __NODE__ bin/marta/bus/crowding-rollup.js >> __REPO__/state/logs/bus-crowding-rollup.log 2>&1
 # Bus thin-service gaps (martabusinsights). Every 15 min; low-frequency routes
 # (headway >=20 min) the mainline gap/ghost detectors are structurally blind to.
 # One post/route/day; threads a clear reply when buses reappear.

@@ -92,4 +92,4 @@ async function main() {
 
 module.exports = { main };
 
-runBin(main);
+if (require.main === module) runBin(main);

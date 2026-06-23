@@ -115,4 +115,4 @@ async function main() {
 
 module.exports = { bestCrowdedMapByRoute, MIN_CROWDED_FRACTION, MIN_COVERAGE };
 
-runBin(main);
+if (require.main === module) runBin(main);

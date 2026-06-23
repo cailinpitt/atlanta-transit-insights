@@ -31,12 +31,34 @@ function dominantMotionSign(cluster) {
   return best;
 }
 
+// A train is "at a terminal" when its along-line distFt sits within the line's
+// terminal zone at either end. Both ends of every MARTA line are turnback
+// terminals where trains naturally queue (one arriving while another waits to
+// depart), so a layover train has to be dropped BEFORE clustering — otherwise it
+// pairs with a train arriving just outside the zone and the two read as a bunch.
+// Same per-train gate the cross-line detector uses
+// (src/marta/rail/crossBunching.js#isTrainAtTerminal). Needs distFt + lengthFt;
+// without them returns false, so geometry-only callers/tests are unaffected.
+function isTrainAtTerminal(train) {
+  const len = train?.lengthFt;
+  const d = train?.distFt;
+  if (!Number.isFinite(len) || !Number.isFinite(d) || len <= 0) return false;
+  const zone = terminalZoneFt(len);
+  return d <= zone || d >= len - zone;
+}
+
 // `trains` are latestTrainPositions() entries. Returns clusters best-first
 // (size desc, then tightest max-gap).
-function detectRailBunching(trains, { thresholdFt = RAIL_BUNCH_THRESHOLD_FT } = {}) {
+function detectRailBunching(
+  trains,
+  { thresholdFt = RAIL_BUNCH_THRESHOLD_FT, excludeTerminal = true } = {},
+) {
   const byKey = new Map();
   for (const t of trains || []) {
     if (!Number.isFinite(t.distFt)) continue;
+    // Drop terminal layovers up front (see isTrainAtTerminal) so a turnback
+    // queue can't anchor a false bunch with an arriving train.
+    if (excludeTerminal && isTrainAtTerminal(t)) continue;
     const key = `${t.line}/${t.direction}`;
     if (!byKey.has(key)) byKey.set(key, []);
     byKey.get(key).push(t);
@@ -46,12 +68,6 @@ function detectRailBunching(trains, { thresholdFt = RAIL_BUNCH_THRESHOLD_FT } = 
   for (const [key, group] of byKey) {
     if (group.length < 2) continue;
     const [line, direction] = key.split('/');
-    // Both ends of a rail line are turnback terminals where trains naturally
-    // queue (one arriving, one waiting to depart) — that's not a real bunch.
-    // Suppress any cluster that sits entirely within a terminal zone at either
-    // end of the line, mirroring the gap detector's terminal exclusion.
-    const lengthFt = group[0]?.lengthFt || 0;
-    const zoneFt = lengthFt ? terminalZoneFt(lengthFt) : 0;
     const sorted = [...group].sort((a, b) => a.distFt - b.distFt);
 
     let i = 0;
@@ -77,14 +93,6 @@ function detectRailBunching(trains, { thresholdFt = RAIL_BUNCH_THRESHOLD_FT } = 
           ? rawCluster
           : rawCluster.filter((t) => t.motionSign == null || t.motionSign === dom);
       if (cluster.length < 2) {
-        i = j + 1;
-        continue;
-      }
-      // Whole cluster inside the start- or end-terminal zone → layover queue.
-      if (
-        zoneFt &&
-        (cluster[cluster.length - 1].distFt < zoneFt || cluster[0].distFt > lengthFt - zoneFt)
-      ) {
         i = j + 1;
         continue;
       }
@@ -118,4 +126,9 @@ function railBunchesFromObservations(observations, { lineGeom, now = Date.now() 
   return detectRailBunching(latestTrainPositions(observations, lineGeom, { now }));
 }
 
-module.exports = { detectRailBunching, railBunchesFromObservations, RAIL_BUNCH_THRESHOLD_FT };
+module.exports = {
+  detectRailBunching,
+  railBunchesFromObservations,
+  isTrainAtTerminal,
+  RAIL_BUNCH_THRESHOLD_FT,
+};

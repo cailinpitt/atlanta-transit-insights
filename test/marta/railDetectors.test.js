@@ -65,6 +65,37 @@ test('rail bunching ranks the bigger cluster first', () => {
   assert.equal(b[0].direction, 'N');
 });
 
+test('a train laying over at a terminal does not bunch with an arriving train', () => {
+  // terminalZoneFt(100k) = 1500. The layover (distFt 200) is inside the north
+  // turnback zone, so it's dropped before clustering; the arriving train (2000)
+  // is then alone — no false bunch, even though they're within the threshold.
+  const LEN = 100_000;
+  const b = detectRailBunching([
+    train(200, 'layover', { lengthFt: LEN }),
+    train(2000, 'arriving', { lengthFt: LEN }),
+  ]);
+  assert.deepEqual(b, []);
+});
+
+test('a layover at the far-end terminal does not bunch with an arriving train', () => {
+  const LEN = 100_000;
+  const b = detectRailBunching([
+    train(LEN - 200, 'layover', { lengthFt: LEN }),
+    train(LEN - 2000, 'arriving', { lengthFt: LEN }),
+  ]);
+  assert.deepEqual(b, []);
+});
+
+test('a real same-line pileup just past the terminal zone still bunches', () => {
+  const LEN = 100_000;
+  const b = detectRailBunching([
+    train(2000, 'a', { lengthFt: LEN }),
+    train(3200, 'b', { lengthFt: LEN }),
+  ]);
+  assert.equal(b.length, 1);
+  assert.deepEqual(b[0].trains.map((t) => t.trainId).sort(), ['a', 'b']);
+});
+
 // --- gaps ---
 const LEN = 100_000;
 const gapLookups = (headwayMin) => ({

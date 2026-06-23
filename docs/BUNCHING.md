@@ -54,8 +54,9 @@ The bin (`bin/marta/bus/bunching.js`) iterates ranked candidates and picks the f
 MARTA rail (Path A) reports true positions, so trains get the same treatment via `src/marta/rail/lines.js` (the rail `pdist` analog): one representative geometry per line (the longest GTFS shape; both directions share track), and `projectTrain` reuses `bus/shapes.projectToShape`. Validated live at ~17 ft median offset.
 
 1. `latestTrainPositions` (`src/marta/rail/trains.js`) takes the freshest projected fix per train.
-2. Group by `(line, direction)`, sort by line distance, sweep for clusters.
-3. Apply rail-specific severity semantics: when train count ties, the **tighter span is worse**.
+2. **Drop terminal layovers first** (`isTrainAtTerminal`): a train whose along-line `distFt` sits inside the line's terminal zone (`terminalZoneFt(lengthFt)`) at either end is laying over at a turnback, where trains naturally queue. Removing it *before* clustering — the same per-train gate the cross-line detector uses — stops a layover train from pairing with a train arriving just outside the zone and reading as a bunch. Pass `excludeTerminal: false` to disable (e.g. geometry-only tests).
+3. Group by `(line, direction)`, sort by line distance, sweep for clusters.
+4. Apply rail-specific severity semantics: when train count ties, the **tighter span is worse**.
 
 The chosen cluster renders as a line map (`src/marta/map/railIncidents.js`) with each train marked at its snapped position. Rail uses the official MARTA line colors (RED, GOLD, BLUE, GREEN).
 

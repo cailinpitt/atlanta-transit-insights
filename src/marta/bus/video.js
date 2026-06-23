@@ -113,11 +113,19 @@ async function captureBusGapHistoryVideo(gap, shape, rows, opts = {}) {
   const snapshots = snapshotsByTimestamp(enriched).filter((s) => s.vehicles.length > 0);
   if (snapshots.length < 2) return null;
 
-  const extra = enriched.map((v) => ({ lat: v.lat, lon: v.lon, distFt: v.distFt }));
   // Midpoint wait stop — the back half of the gap the "Next up" bus is closing
   // on. Drives the amber map highlight, the HUD readout, and the reply text.
   const waitStop = opts.videoStop || midpointStop(gap, opts.stops);
-  const view = computeGapView(gap, shape, [...extra, ...(waitStop ? [waitStop] : [])]);
+  // Zoom the camera to the trailing ("Next up") bus's approach to the wait stop:
+  // frame on its captured path + the wait stop only, leaving the leading bus out
+  // of the bbox so the bus stays large (the gap dash still runs off-frame toward
+  // it). Without this the bbox spanned both buses and showed the whole route.
+  // Matches cta-insights src/bus/gapVideo.js.
+  const trailingPath = enriched
+    .filter((v) => String(v.vehicleId) === String(trailingId))
+    .map((v) => ({ lat: v.lat, lon: v.lon, distFt: v.distFt }));
+  const framePoints = [...trailingPath, ...(waitStop ? [waitStop] : [])];
+  const view = computeGapView(gap, shape, [], { framePoints });
   const baseMap = await fetchGapBaseMap(view);
   const { frames, times, startTs, videoEndTs } = buildSmoothFrames(snapshots, {
     idOf: (v) => v.vehicleId,

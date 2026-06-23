@@ -5,6 +5,7 @@
 // it never compares buses on different shapes. Here we cluster purely on
 // geography (lat/lon) across ALL routes, then require 2+ routes and congestion.
 const { clusterByProximity, clusterStats } = require('../shared/geoClusters');
+const { haversineFt } = require('../../shared/geo');
 
 const CROSS_RADIUS_FT = 660; // an intersection + its approaches
 const MIN_VEHICLES = 3;
@@ -25,6 +26,39 @@ const STATION_BAY_FT = 600; // distance from a rail-station bay/platform to coun
 function isAtTerminal(distFt, lengthFt, marginFt = LAYOVER_TERMINAL_FT) {
   if (!Number.isFinite(distFt) || !Number.isFinite(lengthFt) || lengthFt <= 0) return false;
   return distFt <= marginFt || distFt >= lengthFt - marginFt;
+}
+
+// Every shape's two endpoints (start + end), the geographic terminals of the
+// route network. Deduped to a coarse grid so a dense transit center's many
+// coincident endpoints collapse to a few points. Used as a route-agnostic
+// layover backstop: a parked bus near ANY route's terminal is laying over, even
+// when its currently-tagged trip's shape doesn't put it near its own endpoint
+// (GTFS-rt often tags a between-trips bus with a trip whose shape runs through
+// the layover mid-route). `shapes` is loadShapes()'s Map<shapeId,{points,...}>.
+function collectShapeTerminals(shapes) {
+  const seen = new Set();
+  const out = [];
+  for (const shape of shapes?.values?.() || []) {
+    const pts = shape?.points;
+    if (!pts || pts.length < 2) continue;
+    for (const p of [pts[0], pts[pts.length - 1]]) {
+      if (!Number.isFinite(p?.lat) || !Number.isFinite(p?.lon)) continue;
+      const key = `${p.lat.toFixed(3)},${p.lon.toFixed(3)}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push({ lat: p.lat, lon: p.lon });
+    }
+  }
+  return out;
+}
+
+// Is (lat, lon) within marginFt of any terminal point? Pure.
+function nearAnyTerminal(lat, lon, terminals, marginFt = LAYOVER_TERMINAL_FT) {
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) return false;
+  for (const t of terminals || []) {
+    if (haversineFt({ lat, lon }, t) <= marginFt) return true;
+  }
+  return false;
 }
 
 // `vehicles` carry { vehicleId, route, lat, lon, tmstmp } (epoch ms).
@@ -118,6 +152,8 @@ module.exports = {
   detectCrossRouteBunches,
   groupByRoute,
   isAtTerminal,
+  collectShapeTerminals,
+  nearAnyTerminal,
   CROSS_RADIUS_FT,
   MIN_VEHICLES,
   MIN_ROUTES,

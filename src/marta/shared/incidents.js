@@ -177,6 +177,17 @@ function getDb() {
       );
       CREATE INDEX IF NOT EXISTS idx_disruption_events_kind_line_ts
         ON disruption_events(kind, line, ts);
+
+      CREATE TABLE IF NOT EXISTS thread_quote_posts (
+        thread_root_uri TEXT NOT NULL,
+        source_post_uri TEXT NOT NULL,
+        quote_post_uri TEXT,
+        quote_post_cid TEXT,
+        ts INTEGER NOT NULL,
+        PRIMARY KEY (thread_root_uri, source_post_uri)
+      );
+      CREATE INDEX IF NOT EXISTS idx_thread_quote_posts_root
+        ON thread_quote_posts(thread_root_uri);
     `);
     for (const table of ['bunching_events', 'gap_events', 'ghost_events']) {
       addColumnIfMissing(db, table, 'last_seen_ts', 'INTEGER');
@@ -251,7 +262,7 @@ function recordBunching(
       posted ? 1 : 0,
       postUri || null,
       posted ? now : null,
-      memberIds && memberIds.length ? JSON.stringify(memberIds.map(String)) : null,
+      memberIds?.length ? JSON.stringify(memberIds.map(String)) : null,
     );
   // A posted detection is the only kind the web export reads; it may fold into
   // an active alert/roundup incident, so refresh the published data.
@@ -882,6 +893,117 @@ function hasObservedClearForPulse({ kind, pulseUri }) {
   return !!row;
 }
 
+// Active roundup anchors usable as related-quote targets: not yet resolved and
+// still inside their TTL window. Once a roundup posts its resolution it stops
+// being a valid anchor, so observations can't land after "back to normal".
+// Mirrors cta-insights history.js listActiveRoundupAnchors.
+function listActiveRoundupAnchors(kind, now = Date.now()) {
+  return getDb()
+    .prepare(`
+      SELECT line, post_uri, post_cid, ts
+      FROM roundup_anchors
+      WHERE kind = ? AND expires_ts > ? AND resolved_ts IS NULL
+    `)
+    .all(kind, now);
+}
+
+// Posted detector observations (bunching/gap/ghost) on `routes` within a time
+// window, for quote-attaching into an alert/roundup thread. `kind` is 'bus' or
+// 'rail'; `routes` are public bus numbers or rail line keys (RED/.../SC).
+// Mirrors cta-insights history.js findRelatedAnalyticsPosts.
+function findRelatedAnalyticsPosts({ kind, routes, sinceTs, untilTs, excludeSourceUris }) {
+  if (!routes || routes.length === 0) return [];
+  const exclude =
+    excludeSourceUris instanceof Set
+      ? [...excludeSourceUris]
+      : Array.isArray(excludeSourceUris)
+        ? excludeSourceUris
+        : [];
+  const routePlaceholders = routes.map(() => '?').join(',');
+  const excludeClause = exclude.length
+    ? ` AND post_uri NOT IN (${exclude.map(() => '?').join(',')})`
+    : '';
+  const params = [kind, ...routes, sinceTs, untilTs, ...exclude];
+  const select = (table) =>
+    getDb()
+      .prepare(`
+        SELECT * FROM ${table}
+        WHERE kind = ? AND route IN (${routePlaceholders})
+          AND post_uri IS NOT NULL
+          AND ts BETWEEN ? AND ?${excludeClause}
+      `)
+      .all(...params);
+  const out = [];
+  for (const r of select('bunching_events')) {
+    out.push({
+      source: 'bunching',
+      ts: r.ts,
+      route: r.route,
+      direction: r.direction,
+      near_stop: r.near_stop,
+      post_uri: r.post_uri,
+    });
+  }
+  for (const r of select('gap_events')) {
+    out.push({
+      source: 'gap',
+      ts: r.ts,
+      route: r.route,
+      direction: r.direction,
+      near_stop: r.near_stop,
+      post_uri: r.post_uri,
+    });
+  }
+  // Ghost rollup posts are route-level (no near_stop); one ghost_events row per
+  // (route, post_uri) lets a single rollup post match multiple anchor groups.
+  for (const r of select('ghost_events')) {
+    out.push({
+      source: 'ghost',
+      ts: r.ts,
+      route: r.route,
+      direction: r.direction,
+      near_stop: null,
+      post_uri: r.post_uri,
+    });
+  }
+  out.sort((a, b) => b.ts - a.ts);
+  return out;
+}
+
+function recordThreadQuote(
+  { threadRootUri, sourcePostUri, quotePostUri, quotePostCid },
+  now = Date.now(),
+) {
+  getDb()
+    .prepare(`
+      INSERT OR REPLACE INTO thread_quote_posts
+        (thread_root_uri, source_post_uri, quote_post_uri, quote_post_cid, ts)
+      VALUES (?, ?, ?, ?, ?)
+    `)
+    .run(threadRootUri, sourcePostUri, quotePostUri || null, quotePostCid || null, now);
+}
+
+function getThreadQuotedSourceUris(threadRootUri) {
+  const rows = getDb()
+    .prepare('SELECT source_post_uri FROM thread_quote_posts WHERE thread_root_uri = ?')
+    .all(threadRootUri);
+  return new Set(rows.map((r) => r.source_post_uri));
+}
+
+// Latest quote post we've authored under this thread root, so the next quote
+// replies to it (keeping the thread linear, not branching off the anchor).
+function getLatestThreadQuote(threadRootUri) {
+  const row = getDb()
+    .prepare(`
+      SELECT quote_post_uri, quote_post_cid FROM thread_quote_posts
+      WHERE thread_root_uri = ? AND quote_post_uri IS NOT NULL
+      ORDER BY ts DESC LIMIT 1
+    `)
+    .get(threadRootUri);
+  if (!row?.quote_post_cid) return null;
+  return { uri: row.quote_post_uri, cid: row.quote_post_cid };
+}
+
 // Event tables are an archive — kept forever.
 function rolloffOld(now = Date.now()) {
   const db = getDb();
@@ -919,7 +1041,12 @@ module.exports = {
   hasObservedClearForPulse,
   recordRoundupAnchor,
   listUnresolvedRoundupAnchors,
+  listActiveRoundupAnchors,
   updateRoundupClearTicks,
   markRoundupResolved,
+  findRelatedAnalyticsPosts,
+  recordThreadQuote,
+  getThreadQuotedSourceUris,
+  getLatestThreadQuote,
   rolloffOld,
 };

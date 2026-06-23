@@ -98,14 +98,27 @@ async function captureRailGapHistoryVideo(gap, line, rows, opts = {}) {
   const snapshots = snapshotsByTimestamp(enriched).filter((s) => s.vehicles.length > 0);
   if (snapshots.length < 2) return null;
 
-  // Dash the gap stretch (same framing as the still) so the timelapse reads as a
-  // hole in service the flanking trains are moving around. Base map fetched once.
-  const view = gapViewFor(line, gap);
-  const baseMap = await fetchBaseMap(view);
-
   // Midpoint wait station — the back half of the gap the "Next up" train is
   // closing on. Drives the amber map highlight, the HUD readout, and reply text.
   const waitStation = opts.videoStop || gap.midStation || null;
+
+  // Zoom the camera to the trailing ("Next up") train's approach to the wait
+  // station: frame on its captured path + the wait station only, leaving the
+  // leading train out of the bbox (it can sit miles off near a terminal) so the
+  // train stays large while the gap dash runs off-frame toward it. Without this
+  // the bbox spanned both trains and showed the whole line. Matches cta-insights
+  // src/map/train/gaps.js computeTrainGapVideoView.
+  const trailingPath = enriched
+    .filter((t) => String(t.trainId) === String(trailingId))
+    .map((t) => ({ lat: t.lat, lon: t.lon }));
+  const framePoints = [
+    ...trailingPath,
+    ...(Number.isFinite(waitStation?.lat) ? [waitStation] : []),
+  ];
+  // Dash the gap stretch (same framing as the still) so the timelapse reads as a
+  // hole in service the flanking trains are moving around. Base map fetched once.
+  const view = gapViewFor(line, gap, { framePoints });
+  const baseMap = await fetchBaseMap(view);
   const highlightStop = waitStation
     ? { lat: waitStation.lat, lon: waitStation.lon, name: waitStation.name }
     : null;

@@ -4,6 +4,8 @@ const {
   detectCrossRouteBunches,
   groupByRoute,
   isAtTerminal,
+  collectShapeTerminals,
+  nearAnyTerminal,
   LAYOVER_TERMINAL_FT,
 } = require('../../src/marta/bus/crossBunching');
 
@@ -75,6 +77,42 @@ test('isAtTerminal flags positions within margin of either shape end', () => {
   assert.equal(isAtTerminal(LAYOVER_TERMINAL_FT + 1, len), false); // just past the start zone
   assert.equal(isAtTerminal(NaN, len), false);
   assert.equal(isAtTerminal(100, 0), false); // degenerate shape
+});
+
+test('collectShapeTerminals dedupes shape endpoints to a coarse grid', () => {
+  const shapes = new Map([
+    [
+      's1',
+      {
+        points: [
+          { lat: 33.75, lon: -84.39 },
+          { lat: 33.8, lon: -84.3 },
+        ],
+      },
+    ],
+    // Same endpoints (within 3-decimal grid) as s1 reversed → collapses.
+    [
+      's2',
+      {
+        points: [
+          { lat: 33.8001, lon: -84.3001 },
+          { lat: 33.7501, lon: -84.3899 },
+        ],
+      },
+    ],
+    ['s3', { points: [{ lat: 34.0, lon: -84.0 }] }], // <2 points → skipped
+  ]);
+  const terms = collectShapeTerminals(shapes);
+  // s1 contributes 2 unique points; s2's endpoints round to the same grid cells.
+  assert.equal(terms.length, 2);
+});
+
+test('nearAnyTerminal matches within margin, misses beyond it', () => {
+  const terms = [{ lat: 33.75, lon: -84.39 }];
+  assert.equal(nearAnyTerminal(33.75 + dLatForFt(400), -84.39, terms), true);
+  assert.equal(nearAnyTerminal(33.75 + dLatForFt(2000), -84.39, terms), false);
+  assert.equal(nearAnyTerminal(NaN, -84.39, terms), false);
+  assert.equal(nearAnyTerminal(33.75, -84.39, []), false);
 });
 
 test('groupByRoute numbers buses across routes, biggest group first', () => {

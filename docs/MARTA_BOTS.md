@@ -45,7 +45,8 @@ npm run marta:post-intro
 ## Notes
 
 - **Avatars** — `scripts/marta/generate-avatar.js` downloads the Twemoji SVG per
-  kind (🚌 / 🚇 / ⚠) and composites it on a diagonal MARTA-logo-color gradient
+  kind (🚌 / 🚆 / ⚠ — the train uses 🚆 to match the CTA train account's avatar)
+  and composites it on a diagonal MARTA-logo-color gradient
   with a soft dark scrim for legibility. `assets/` is gitignored, so regenerate
   before re-uploading. Tune the palette via `MARTA_STOPS` in that file.
 - **set-profile** is idempotent — `upsertProfile` merges, so only the three

@@ -17,6 +17,8 @@ const {
   detectCrossRouteBunches,
   groupByRoute,
   isAtTerminal,
+  collectShapeTerminals,
+  nearAnyTerminal,
   STATION_BAY_FT,
 } = require('../../../src/marta/bus/crossBunching');
 const { findParkedBusVids } = require('../../../src/marta/bus/bunching');
@@ -156,12 +158,18 @@ async function main() {
   // otherwise read as a multi-route pileup. Drop these before clustering. The
   // off-route slack is widened since layover bays sit back from the route line.
   const STATION_NAME_RE = /\bstation\b/i;
+  // Geographic terminals of every route (shape endpoints), as a route-agnostic
+  // layover backstop — catches parked buses resting at a shared layover point
+  // (e.g. Shannon Pkwy @ Lancaster Ln) that their own currently-tagged trip's
+  // shape doesn't flag as a terminal.
+  const terminalPoints = collectShapeTerminals(shapes);
   const layoverIds = new Set();
   for (const v of vehicles) {
     if (!stoppedIds.has(v.vehicleId)) continue;
     const shape = shapeForTrip(gtfs, shapes, v.tripId);
     const proj = projectObservation(v, { gtfs, shapes, maxOffrouteFt: 1500 });
     let layover = !!(shape && proj && isAtTerminal(proj.distFt, shape.lengthFt));
+    if (!layover) layover = nearAnyTerminal(v.lat, v.lon, terminalPoints);
     if (!layover) {
       const near = nearestStop(gtfs, v.lat, v.lon);
       layover = !!(near && near.distFt <= STATION_BAY_FT && STATION_NAME_RE.test(near.stopName));

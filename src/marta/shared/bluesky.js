@@ -255,6 +255,24 @@ async function postWithExternal(agent, text, link, replyRef = null) {
   return { url: postUrl(result), uri: result.uri, cid: result.cid };
 }
 
+// Quote-post (`app.bsky.embed.record`): `text` with the quoted post embedded as
+// a card, optionally threaded under `replyRef`. The alerts account uses this to
+// attach "🕵 Related observation" detector posts into an alert/roundup thread.
+// Ported from cta-insights src/shared/bluesky.js postQuote.
+async function postQuote(agent, text, quoted, replyRef = null) {
+  const facets = linkFacets(text);
+  const result = await agent.post({
+    text,
+    ...(replyRef && { reply: replyRef }),
+    ...(facets && { facets }),
+    embed: {
+      $type: 'app.bsky.embed.record',
+      record: { uri: quoted.uri, cid: quoted.cid },
+    },
+  });
+  return { url: postUrl(result), uri: result.uri, cid: result.cid };
+}
+
 // Fetch a post's record (its cid + value) from an at:// URI. Null if the URI is
 // malformed or the record is gone (deleted/expired). Ported from cta-insights.
 async function getPostRecord(agent, uri) {
@@ -335,6 +353,8 @@ module.exports = {
   postWithVideo,
   postText,
   postWithExternal,
+  postQuote,
+  getPostRecord,
   resolveReplyRef,
   deletePost,
 };

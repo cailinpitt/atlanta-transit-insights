@@ -119,7 +119,13 @@ function viewFor(line, trains, { loFt = 0, hiFt = line.lengthFt, travelSign } = 
 // and the gap stretch (between the two flanking trains) is handed back as
 // `gapPath` so renderRailFrame can dash it in the line color over bare basemap.
 // This makes a gap read as a break in service, not just two markers on a line.
-function gapViewFor(line, gap, { contextFt = GAP_CONTEXT_FT, travelSign } = {}) {
+// `framePoints`: when provided (non-empty), the bbox is fit to exactly these
+// points instead of the gap's two trains + flanking stations. The gap timelapse
+// uses it to zoom to the trailing ("Next up") train's approach to the midpoint
+// wait station — the leading train is left out (it can sit miles off near a
+// terminal) so the dash simply runs off the frame toward it. Matches
+// cta-insights src/map/train/gaps.js computeTrainGapVideoView.
+function gapViewFor(line, gap, { contextFt = GAP_CONTEXT_FT, travelSign, framePoints } = {}) {
   const color = lineColor(line.line);
   const cum = cumulativeDistances(line.points);
   const distAt = (p, i) => p.distFt ?? cum[i];
@@ -159,7 +165,10 @@ function gapViewFor(line, gap, { contextFt = GAP_CONTEXT_FT, travelSign } = {}) 
   const trainPts = [...trains, ...flankPts].filter(
     (p) => Number.isFinite(p.lat) && Number.isFinite(p.lon),
   );
-  const pts = trainPts.length > 0 ? trainPts : framePts;
+  const frameOverride = (framePoints || []).filter(
+    (p) => Number.isFinite(p.lat) && Number.isFinite(p.lon),
+  );
+  const pts = frameOverride.length > 0 ? frameOverride : trainPts.length > 0 ? trainPts : framePts;
   const bbox = {
     minLat: Math.min(...pts.map((p) => p.lat)),
     maxLat: Math.max(...pts.map((p) => p.lat)),

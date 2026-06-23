@@ -80,7 +80,13 @@ function splitShapeForGap(shape, gap) {
   };
 }
 
-function computeGapView(gap, shape, extraPoints = []) {
+// `opts.framePoints`: when provided (non-empty), the bbox is fit to exactly
+// these points instead of the gap's two vehicles + flanks + extras. The gap
+// timelapse uses it to zoom to the trailing ("Next up") bus's approach to the
+// midpoint wait stop — the leading bus is left out so it can sit far up-route
+// while the dash simply runs off the frame toward it. Matches cta-insights
+// src/bus/gapVideo.js (which frames on trailingPath + the wait stop).
+function computeGapView(gap, shape, extraPoints = [], opts = {}) {
   const { framing, before, inner, after } = splitShapeForGap(shape, gap);
   const overlays = [];
   for (const routeSlice of [before, after]) {
@@ -97,10 +103,13 @@ function computeGapView(gap, shape, extraPoints = []) {
   const flankStops = [gap.flankBefore, gap.flankAfter].filter(
     (s) => s?.lat != null && s?.lon != null,
   );
+  const framePoints = (opts.framePoints || []).filter(
+    (p) => Number.isFinite(p.lat) && Number.isFinite(p.lon),
+  );
   const points = [...vehicles, ...flankStops, ...extraPoints].filter(
     (p) => Number.isFinite(p.lat) && Number.isFinite(p.lon),
   );
-  const bboxPoints = points.length > 0 ? points : framing;
+  const bboxPoints = framePoints.length > 0 ? framePoints : points.length > 0 ? points : framing;
   const bbox = {
     minLat: Math.min(...bboxPoints.map((p) => p.lat)),
     maxLat: Math.max(...bboxPoints.map((p) => p.lat)),

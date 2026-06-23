@@ -168,6 +168,33 @@ significant is closed **silently** (no misleading "resolved" reply).
 Boundaries (feed + Bluesky) are injected via `bin.io` for testing — see
 `test/marta/alertsFlow.test.js`. Dry run: `MARTA_ALERTS_DRY_RUN=1 node bin/marta/alerts.js`.
 
+## Related-observation quote-attach — `src/marta/shared/relatedQuotes.js`
+
+After posting, the alerts bin runs a quote-attach sweep (for both `bus` and
+`rail`) that threads the insight bots' detector observations under this account's
+own alert/roundup threads as **"🕵 Related observation"** quote-replies, so an
+official alert or a multi-signal roundup carries the live evidence beneath it
+(the same pattern the CTA alerts account uses). MARTA analog of cta-insights
+`src/shared/relatedQuotes.js`, simplified to MARTA's data model:
+
+- **Anchors** are unresolved official alerts (`alert_posts`, `post_uri` set) and
+  active roundup anchors (`roundup_anchors`, unresolved + inside TTL). MARTA has
+  no pulse/held detectors, so those CTA anchor types don't exist here.
+- **Candidates** are posted `bunching_events` / `gap_events` / `ghost_events`
+  rows on the anchor's routes within a 30-min lead window
+  (`findRelatedAnalyticsPosts`).
+- **Relevance** is route/line + mode equality — CTA's bar for roundup anchors,
+  applied to alert anchors too. MARTA doesn't carry the bus-pattern / train-
+  segment geometry CTA uses to *additionally* segment-match official-alert
+  anchors, so a same-line observation inside the window attaches. Alert `mode` →
+  detector `kind`: `bus`→bus, `rail`/`streetcar`→rail (the SC line lives in the
+  rail rotation); `general` alerts aren't route-scoped and never anchor.
+- **Threading + caps**: ≤ 3 quotes per thread root (`thread_quote_posts`),
+  authored by the alerts account, each replying to the previous quote so the
+  thread stays linear. Already-quoted / deleted sources are tombstoned so they're
+  not re-checked. Disable with `QUOTE_RELATED_POSTS=0`; on ticks with no anchors
+  the sweep short-circuits before any login. Tests: `test/marta/relatedQuotes.test.js`.
+
 ## Bus cancellation rollup — `bin/marta/bus/cancellations.js`
 
 MARTA cancels individual bus trips constantly; republishing each one would flood

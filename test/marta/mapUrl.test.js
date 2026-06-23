@@ -86,6 +86,51 @@ test('MARTA bus gap view exposes the empty stretch as a dashed path', () => {
   assert.ok(staticUrlLength(view) < 8000);
 });
 
+test('MARTA bus gap video frames the trailing approach, not the whole gap', () => {
+  const shape = denseShape();
+  // A deep gap: leading is far up-route (point 1420), trailing well behind it.
+  const gap = {
+    leading: { lat: shape.points[1420].lat, lon: shape.points[1420].lon, distFt: 84_000 },
+    trailing: { lat: shape.points[80].lat, lon: shape.points[80].lon, distFt: 5_000 },
+  };
+  // Wait stop near the gap midpoint, ahead of the trailing bus.
+  const waitStop = { lat: shape.points[420].lat, lon: shape.points[420].lon, distFt: 25_000 };
+  const trailingPath = [80, 160, 240].map((i) => ({
+    lat: shape.points[i].lat,
+    lon: shape.points[i].lon,
+  }));
+
+  const still = computeGapView(gap, shape);
+  const video = computeGapView(gap, shape, [], { framePoints: [...trailingPath, waitStop] });
+
+  // Centered on the trailing approach (~point 250), not the gap midpoint.
+  assert.ok(video.centerLat < shape.points[920].lat);
+  // Zoomed in tighter than the still gap view that spans both buses.
+  assert.ok(video.zoom > still.zoom + 0.5);
+  // The dashed gap path is still the full gap (it just runs off-frame).
+  assert.deepEqual(video.gapPath, still.gapPath);
+});
+
+test('MARTA rail gap video frames the trailing approach, not the whole gap', () => {
+  const line = { line: 'BLUE', ...denseShape() };
+  const gap = {
+    leading: { lat: line.points[1420].lat, lon: line.points[1420].lon, distFt: 84_000 },
+    trailing: { lat: line.points[80].lat, lon: line.points[80].lon, distFt: 5_000 },
+  };
+  const waitStation = { lat: line.points[420].lat, lon: line.points[420].lon };
+  const trailingPath = [80, 160, 240].map((i) => ({
+    lat: line.points[i].lat,
+    lon: line.points[i].lon,
+  }));
+
+  const still = gapViewFor(line, gap);
+  const video = gapViewFor(line, gap, { framePoints: [...trailingPath, waitStation] });
+
+  assert.ok(video.centerLat < line.points[920].lat);
+  assert.ok(video.zoom > still.zoom + 0.5);
+  assert.deepEqual(video.gapPath, still.gapPath);
+});
+
 test('MARTA bus bunching map overlays are short enough for dense long routes', () => {
   const shape = denseShape();
   const bunch = {

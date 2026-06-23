@@ -10,7 +10,7 @@
 // as needed, then upload with scripts/marta/set-profile.js).
 
 const Fs = require('fs-extra');
-const Path = require('path');
+const Path = require('node:path');
 const axios = require('axios');
 const sharp = require('sharp');
 const argv = require('minimist')(process.argv.slice(2));
@@ -39,7 +39,7 @@ const CONFIGS = {
     out: 'avatar-bus.png',
   },
   train: {
-    codepoint: '1f687', // 🚇 (metro)
+    codepoint: '1f686', // 🚆 (train) — matches the CTA train account's avatar
     out: 'avatar-train.png',
   },
   alerts: {

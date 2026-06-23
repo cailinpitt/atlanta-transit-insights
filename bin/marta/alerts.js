@@ -29,6 +29,7 @@ const {
   resolveReplyRef,
 } = require('../../src/marta/shared/bluesky');
 const { resolvedEventLink } = require('../../src/marta/shared/eventLink');
+const { sweepRelatedQuotes } = require('../../src/marta/shared/relatedQuotes');
 const { classifyRailCancellation } = require('../../src/marta/alert/cancellation');
 const { extractAlertStations } = require('../../src/marta/alert/stations');
 const { isAllClearText } = require('../../src/marta/alert/chain');
@@ -274,6 +275,19 @@ async function main({ now = Date.now() } = {}) {
       await postNewAlert(alert, rel, agentGetter, now);
     } catch (e) {
       console.error(`Failed to post marta alert ${alert.id}: ${e.stack || e.message}`);
+    }
+  }
+
+  // Quote-attach pass — attaches the insight bots' bunching/gap/ghost
+  // observations as "🕵 Related observation" replies under this account's own
+  // alert + roundup threads. Runs regardless of this tick's fetch outcome, since
+  // active anchors persist across runs independent of the current feed, and on
+  // quiet ticks short-circuits before any login.
+  for (const kind of ['bus', 'rail']) {
+    try {
+      await sweepRelatedQuotes({ kind, agentGetter, dryRun: DRY_RUN });
+    } catch (e) {
+      console.error(`related-quotes sweep (${kind}) failed: ${e.stack || e.message}`);
     }
   }
 

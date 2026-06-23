@@ -86,9 +86,14 @@ Radius defaults: **660 ft** bus, **1,500 ft** rail. Rank most-vehicles-first, ti
 Transit centers are also bus **layover** points: at Doraville, Lindbergh, Five Points, etc. several routes terminate and rest between trips in off-street bays. Those parked buses look exactly like a congested multi-route pileup, so the bus bin tags **layover buses and drops them before clustering** (`detectCrossRouteBunches` accepts a `layoverIds` set). A parked bus is a layover if **either**:
 
 - **At a terminal** — its position projects to within `LAYOVER_TERMINAL_FT` (750 ft) of the start or end of its trip's shape (`isAtTerminal`).
+- **Near any route's terminal** — within `LAYOVER_TERMINAL_FT` of *any* shape endpoint network-wide (`collectShapeTerminals` + `nearAnyTerminal`), regardless of which trip the bus is currently tagged with. GTFS-rt often tags a between-trips bus with a trip whose shape runs *through* the layover mid-route, so the own-shape `isAtTerminal` check misses it — this geographic backstop catches a knot of routes resting at a shared layover point (e.g. *Shannon Pkwy @ Lancaster Ln*) that isn't named "station".
 - **At a station bay** — its nearest GTFS stop is within `STATION_BAY_FT` (600 ft) and is named like a rail-station bay (`/\bstation\b/i`, e.g. *"Doraville Station - Bay D"*).
 
 The station-bay signal matters because layover bays sit back from the route line: a bus resting in *Bay D* can project too far off its shape to read as "at the terminal" (or fail to project at all), yet the bay name still identifies it. Only **parked** buses are eligible, so a bus driving *through* a terminal on a live run is unaffected.
+
+### Terminal gate (rail)
+
+Both ends of every MARTA line are turnback terminals where trains naturally queue (one arriving, one waiting to depart — and a single train at the turnback can show up on both directions), so a cross-line cluster there is a layover knot, not a real pileup — e.g. RED + GOLD stacked at **Airport**. `detectCrossLineBunches` drops any train whose projected along-line `distFt` sits inside the line's terminal zone (`terminalZoneFt(lengthFt)`, the same gate the per-line detector uses) before clustering (`isTrainAtTerminal`; `latestTrainPositions` supplies `distFt` + `lengthFt`). Pass `excludeTerminal: false` to restore whole-network framing, or a `terminalIds` set to override the derivation in tests.
 
 ### Posting & the place key
 

@@ -6,11 +6,28 @@
 // Points — so a real pileup there spans lines. Here we cluster purely on
 // geography across ALL lines, then require 2+ lines and congestion.
 const { clusterByProximity, clusterStats } = require('../shared/geoClusters');
+const { terminalZoneFt } = require('../../shared/geo');
 
 const CROSS_RADIUS_FT = 1500; // station + platform approach (trains are long)
 const MIN_TRAINS = 3;
 const MIN_LINES = 2;
 const MIN_STOPPED = 2; // congestion evidence — a real pileup, not trains passing through
+
+// A train is "at a terminal" when its along-line distFt sits within the line's
+// terminal zone at either end — exactly the per-line bunching detector's gate
+// (src/marta/rail/bunching.js). Both ends of every MARTA line are turnback
+// terminals where trains naturally queue (and a single train at the turnback
+// shows up on both directions), so cross-line clusters there are layover knots,
+// not real pileups — e.g. RED+GOLD stacked at Airport. Needs projected distFt +
+// lengthFt (latestTrainPositions provides both); without them, returns false so
+// pure-geometry tests are unaffected.
+function isTrainAtTerminal(train) {
+  const len = train?.lengthFt;
+  const d = train?.distFt;
+  if (!Number.isFinite(len) || !Number.isFinite(d) || len <= 0) return false;
+  const zone = terminalZoneFt(len);
+  return d <= zone || d >= len - zone;
+}
 
 // `trains` are latestTrainPositions() entries { line, trainId, lat, lon,
 // motionSign, ... }. Congestion is intrinsic: a train with motionSign == null
@@ -21,14 +38,24 @@ function detectCrossLineBunches(
   trains,
   {
     stoppedIds = null,
+    terminalIds = null,
+    excludeTerminal = true,
     radiusFt = CROSS_RADIUS_FT,
     minTrains = MIN_TRAINS,
     minLines = MIN_LINES,
     minStopped = MIN_STOPPED,
   } = {},
 ) {
+  // Drop trains laying over at a line terminal before clustering, so a turnback
+  // queue can't read as a multi-line pileup. `terminalIds` (Set of trainIds)
+  // overrides the intrinsic distFt-based derivation for tests.
+  const atTerminal = (t) => (terminalIds ? terminalIds.has(t.trainId) : isTrainAtTerminal(t));
   const positioned = (trains || []).filter(
-    (t) => Number.isFinite(t?.lat) && Number.isFinite(t?.lon) && t?.line,
+    (t) =>
+      Number.isFinite(t?.lat) &&
+      Number.isFinite(t?.lon) &&
+      t?.line &&
+      !(excludeTerminal && atTerminal(t)),
   );
   const isStopped = (t) => (stoppedIds ? stoppedIds.has(t.trainId) : t.motionSign == null);
 
@@ -88,6 +115,7 @@ function groupByLine(cluster) {
 module.exports = {
   detectCrossLineBunches,
   groupByLine,
+  isTrainAtTerminal,
   CROSS_RADIUS_FT,
   MIN_TRAINS,
   MIN_LINES,

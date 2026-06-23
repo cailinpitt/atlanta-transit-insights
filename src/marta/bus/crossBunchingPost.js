@@ -4,18 +4,26 @@
 // derives route titles from GTFS, so the bin passes them in via ctx.routeTitles.
 const { groupByRoute } = require('./crossBunching');
 const { formatCallouts } = require('../shared/incidents');
-const { formatDistance, keycapNumber } = require('../shared/format');
+const { formatDistance, keycapNumber, formatDeviation } = require('../shared/format');
 
-// `ctx` = { placeName, routeTitles?: Map<route, label> }.
-function buildPostText(cluster, ctx, callouts = []) {
+// `ctx` = { placeName, routeTitles?: Map<route, label> }. `opts.deviations` is an
+// optional Map vehicleId → minutes (+late / −early) for the per-bus adherence tag.
+function buildPostText(cluster, ctx, callouts = [], opts = {}) {
   const { placeName, routeTitles } = ctx;
+  const deviations = opts.deviations;
   const labelFor = (r) => routeTitles?.get(r) || `Route ${r}`;
   const { byRoute } = groupByRoute(cluster);
   const where = placeName ? ` near ${placeName}` : '';
   const head = `🚍 ${cluster.vehicles.length} buses from ${byRoute.length} routes bunched${where}`;
   const lines = byRoute
     .map((g) => {
-      const list = g.vids.map((x) => `#${x.vehicleId} (${keycapNumber(x.n)})`).join(', ');
+      const list = g.vids
+        .map((x) => {
+          const n = keycapNumber(x.n);
+          const d = formatDeviation(deviations?.get(x.vehicleId));
+          return d ? `#${x.vehicleId} (${n}, ${d})` : `#${x.vehicleId} (${n})`;
+        })
+        .join(', ');
       return `${labelFor(g.route)}: ${list}`;
     })
     .join('\n');

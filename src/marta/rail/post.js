@@ -6,6 +6,7 @@ const {
   formatTimeET,
   elapsedMinutesLabel,
   keycapNumber,
+  formatDeviation,
 } = require('../shared/format');
 const { displayStationName } = require('./stations');
 
@@ -44,13 +45,22 @@ function gapWhereClause(gap) {
   return ` across ~${formatDistance(gap.gapFt)}`;
 }
 
-function buildGapPostText(gap, callouts = []) {
+function buildGapPostText(gap, callouts = [], opts = {}) {
   const dir = directionLabel(gap.direction, gap.terminus);
   const where = dir ? ` - ${dir}` : '';
   // `leading` is the train already past the gap (last seen); `trailing` is the
   // next one a rider is waiting for — spelled out, matching the map's L/N chips.
-  const lastSeen = gap.leading?.trainId ? `#${gap.leading.trainId}` : null;
-  const nextUp = gap.trailing?.trainId ? `#${gap.trailing.trainId}` : null;
+  // Each carries its schedule adherence ("3 min late") when the caller supplies it.
+  const devSuffix = (min) => {
+    const d = formatDeviation(min);
+    return d ? ` (${d})` : '';
+  };
+  const lastSeen = gap.leading?.trainId
+    ? `#${gap.leading.trainId}${devSuffix(opts.leadingDev)}`
+    : null;
+  const nextUp = gap.trailing?.trainId
+    ? `#${gap.trailing.trainId}${devSuffix(opts.trailingDev)}`
+    : null;
   const trainsLine =
     lastSeen || nextUp
       ? `\n\n${[lastSeen && `Last seen: ${lastSeen}`, nextUp && `Next up: ${nextUp}`]
@@ -74,12 +84,18 @@ function buildGapAltText(gap) {
   return `Map of the ${lineTitle(gap.line)}${suffix} showing a ${formatMinutes(gap.gapMin)} rail gap${where}.`;
 }
 
-function buildBunchingPostText(bunch, callouts = []) {
+function buildBunchingPostText(bunch, callouts = [], opts = {}) {
   const dir = directionLabel(bunch.direction, bunch.terminus);
   const where = dir ? ` - ${dir}` : '';
+  // Per-train schedule adherence ("3 min late"), keyed by trainId, when supplied.
+  const deviations = opts.deviations;
   const trains = [...bunch.trains]
     .sort((a, b) => b.distFt - a.distFt)
-    .map((t, i) => `#${t.trainId} (${keycapNumber(i + 1)})`)
+    .map((t, i) => {
+      const n = keycapNumber(i + 1);
+      const d = formatDeviation(deviations?.get(t.trainId));
+      return d ? `#${t.trainId} (${n}, ${d})` : `#${t.trainId} (${n})`;
+    })
     .join(', ');
   const base = `🚇 ${lineTitle(bunch.line)}${where}\n\n${bunch.trains.length} trains within ${formatDistance(bunch.spanFt)}\n\nTrains: ${trains}`;
   const tail = formatCallouts(callouts);

@@ -59,6 +59,19 @@ test('buildPostText renders route, count, span, near-stop, and numbered buses', 
   assert.match(text, /#1003 \(3️⃣\)/);
 });
 
+test('buildPostText weaves per-bus schedule adherence when supplied', () => {
+  const deviations = new Map([
+    ['1001', 7],
+    ['1003', 0],
+  ]);
+  const text = buildPostText(bunch, ctx, [], { deviations });
+  assert.match(text, /#1001 \(1️⃣, 7 min late\)/);
+  assert.match(text, /#1003 \(3️⃣, on time\)/);
+  // A bus with no usable deviation keeps its bare number (no ", … late" inside).
+  assert.match(text, /#1002 \(2️⃣\)/);
+  assert.doesNotMatch(text, /#1002 \(2️⃣,/);
+});
+
 test('buildPostText appends callouts and a record line', () => {
   const text = buildPostText(bunch, ctx, ['2nd Route 20 bunch reported today'], {
     isAllTimeRecord: true,

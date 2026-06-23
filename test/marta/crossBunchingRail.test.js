@@ -5,6 +5,7 @@ const {
   groupByLine,
   isTrainAtTerminal,
 } = require('../../src/marta/rail/crossBunching');
+const { buildPostText } = require('../../src/marta/rail/crossBunchingPost');
 
 const FT_PER_MILLIDEG_LAT = 364;
 const dLatForFt = (ft) => ft / FT_PER_MILLIDEG_LAT / 1000;
@@ -75,4 +76,19 @@ test('groupByLine numbers trains across lines, biggest group first', () => {
   const { byLine, labels } = groupByLine(bunch);
   assert.equal(byLine[0].line, 'GOLD');
   assert.equal(labels.size, 3);
+});
+
+test('cross-line pileup post weaves per-train schedule adherence', () => {
+  const ts = [at('t1', 'RED', 0), at('t2', 'GOLD', 400), at('t3', 'GOLD', 800)];
+  const [bunch] = detectCrossLineBunches(ts);
+  const deviations = new Map([
+    ['t1', 4],
+    ['t2', 0],
+    ['t3', -2],
+  ]);
+  const text = buildPostText(bunch, { placeName: 'Five Points' }, [], { deviations });
+  assert.match(text, /stacked up at Five Points/);
+  assert.match(text, /4 min late/);
+  assert.match(text, /on time/);
+  assert.match(text, /2 min early/);
 });

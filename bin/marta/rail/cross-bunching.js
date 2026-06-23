@@ -39,6 +39,7 @@ const {
   buildVideoAltText,
 } = require('../../../src/marta/rail/crossBunchingPost');
 const { lineTitle } = require('../../../src/marta/rail/post');
+const { railDeviationsByTrain } = require('../../../src/marta/rail/adherence');
 const { setup, writeDryRunAsset, runBin } = require('../../../src/marta/shared/runBin');
 
 const GTFS_DIR = Path.join(__dirname, '..', '..', '..', 'data', 'marta', 'gtfs');
@@ -177,7 +178,7 @@ async function main() {
 
   const { byLine, labels } = groupByLine(chosen);
   const ctx = { placeName: place.placeName };
-  const text = buildPostText(chosen, ctx, callouts);
+  const text = buildPostText(chosen, ctx, callouts, { deviations: railDeviationsByTrain(rows) });
   const alt = buildAltText(chosen, ctx);
 
   const { points, legend } = pointsFromCluster(chosen.trains, {

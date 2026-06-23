@@ -33,6 +33,7 @@ const {
   buildGapVideoPostText,
   buildGapVideoAltText,
 } = require('../../../src/marta/rail/post');
+const { railDeviationsByTrain } = require('../../../src/marta/rail/adherence');
 const { VIDEO_WINDOW_MS, captureRailGapHistoryVideo } = require('../../../src/marta/rail/video');
 const { stationsOnLine, gapStationContext } = require('../../../src/marta/rail/stations');
 
@@ -156,7 +157,11 @@ async function main() {
     console.warn(`Map render failed (${e.message}); will post text-only`);
     image = null;
   }
-  const text = buildGapPostText(gap, callouts);
+  const deviations = railDeviationsByTrain(rows);
+  const text = buildGapPostText(gap, callouts, {
+    leadingDev: deviations.get(gap.leading?.trainId),
+    trailingDev: deviations.get(gap.trailing?.trainId),
+  });
   const alt = buildGapAltText(gap);
 
   if (argv['dry-run']) {

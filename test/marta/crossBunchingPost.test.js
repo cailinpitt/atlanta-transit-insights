@@ -39,6 +39,20 @@ test('bus: headline + per-route grouping with optional GTFS titles', () => {
   assert.match(text, /#1234 \(1️⃣\)/);
 });
 
+test('bus: per-bus schedule adherence is woven in when supplied', () => {
+  const vs = [busAt('5678', '110', 0), busAt('1234', '816', 200), busAt('1235', '816', 400)];
+  const [cluster] = detectCrossRouteBunches(vs, { now: NOW });
+  const deviations = new Map([
+    ['1234', 3],
+    ['5678', -1],
+  ]);
+  const text = busPost.buildPostText(cluster, { placeName: 'Decatur & Clairmont' }, [], {
+    deviations,
+  });
+  assert.match(text, /#1234 \(1️⃣, 3 min late\)/);
+  assert.match(text, /#5678 \(3️⃣, 1 min early\)/);
+});
+
 test('rail: headline names the place and groups trains by line', () => {
   const ts = [trainAt('t1', 'RED', 0), trainAt('t2', 'GOLD', 400), trainAt('t3', 'GOLD', 800)];
   const [cluster] = detectCrossLineBunches(ts);

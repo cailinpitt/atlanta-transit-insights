@@ -5,17 +5,25 @@
 const { lineTitle } = require('./post');
 const { groupByLine } = require('./crossBunching');
 const { formatCallouts } = require('../shared/incidents');
-const { formatDistance, keycapNumber } = require('../shared/format');
+const { formatDistance, keycapNumber, formatDeviation } = require('../shared/format');
 
-// `ctx` = { placeName }.
-function buildPostText(cluster, ctx, callouts = []) {
+// `ctx` = { placeName }. `opts.deviations` is an optional Map trainId → minutes
+// (+late / −early) for the per-train schedule-adherence annotation.
+function buildPostText(cluster, ctx, callouts = [], opts = {}) {
   const { placeName } = ctx;
+  const deviations = opts.deviations;
   const { byLine } = groupByLine(cluster);
   const where = placeName ? ` at ${placeName}` : '';
   const head = `🚆 ${cluster.trains.length} trains from ${byLine.length} lines stacked up${where}`;
   const lines = byLine
     .map((g) => {
-      const list = g.trains.map((x) => `#${x.trainId} (${keycapNumber(x.n)})`).join(', ');
+      const list = g.trains
+        .map((x) => {
+          const n = keycapNumber(x.n);
+          const d = formatDeviation(deviations?.get(x.trainId));
+          return d ? `#${x.trainId} (${n}, ${d})` : `#${x.trainId} (${n})`;
+        })
+        .join(', ');
       return `${lineTitle(g.line)}: ${list}`;
     })
     .join('\n');

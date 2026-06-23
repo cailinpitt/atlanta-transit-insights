@@ -44,6 +44,7 @@ const {
   buildVideoPostText,
   buildVideoAltText,
 } = require('../../../src/marta/bus/crossBunchingPost');
+const { busDeviationsByVid } = require('../../../src/marta/bus/adherence');
 const { setup, writeDryRunAsset, runBin } = require('../../../src/marta/shared/runBin');
 
 const GTFS_DIR = Path.join(__dirname, '..', '..', '..', 'data', 'marta', 'gtfs');
@@ -253,7 +254,7 @@ async function main() {
   const { byRoute, labels } = groupByRoute(chosen);
   const routeTitles = new Map(chosen.routes.map((r) => [r, routeTitleFor(gtfs, r)]));
   const ctx = { placeName: place.placeName, routeTitles };
-  const text = buildPostText(chosen, ctx, callouts);
+  const text = buildPostText(chosen, ctx, callouts, { deviations: busDeviationsByVid(rows) });
   const alt = buildAltText(chosen, ctx);
 
   const { points, legend } = pointsFromCluster(chosen.vehicles, {

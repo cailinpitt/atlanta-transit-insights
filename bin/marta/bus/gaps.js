@@ -29,6 +29,7 @@ const {
   buildVideoPostText,
   buildVideoAltText,
 } = require('../../../src/marta/bus/gapPost');
+const { busDeviationsByVid } = require('../../../src/marta/bus/adherence');
 const { VIDEO_WINDOW_MS, captureBusGapHistoryVideo } = require('../../../src/marta/bus/video');
 const { setup, writeDryRunAsset, runBin } = require('../../../src/marta/shared/runBin');
 
@@ -207,7 +208,11 @@ async function main() {
   }
 
   const ctx = { routeTitle, direction, nearStopName };
-  const text = buildPostText(gap, ctx, callouts);
+  const deviations = busDeviationsByVid(rows);
+  const text = buildPostText(gap, ctx, callouts, {
+    leadingDev: deviations.get(gap.leading?.vehicleId),
+    trailingDev: deviations.get(gap.trailing?.vehicleId),
+  });
   const alt = buildAltText(gap, ctx);
 
   if (argv['dry-run']) {

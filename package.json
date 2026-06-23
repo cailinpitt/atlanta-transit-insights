@@ -15,6 +15,7 @@
   "scripts": {
     "marta:fetch-gtfs": "node scripts/marta/fetch-static-gtfs.js",
     "marta:build-schedule-index": "node scripts/marta/build-schedule-index.js",
+    "marta:build-schedule-stops": "node scripts/marta/build-schedule-stops.js",
     "marta:build-rail-stations": "node scripts/marta/build-rail-stations.js",
     "marta:backfill-alert-stations": "node scripts/marta/backfill-alert-stations.js",
     "marta:observe-buses": "node scripts/marta/observe-buses.js",
@@ -41,6 +42,8 @@
     "marta:rail-ghosts:dry": "node bin/marta/rail/ghosts.js --dry-run",
     "marta:rail-speedmap": "node bin/marta/rail/speedmap.js",
     "marta:rail-speedmap:dry": "node bin/marta/rail/speedmap.js --dry-run",
+    "marta:rail-adherence": "node bin/marta/rail/adherence.js",
+    "marta:rail-adherence:dry": "node bin/marta/rail/adherence.js --dry-run",
     "marta:export-web": "node bin/marta/export-web.js",
     "marta:gen-avatars": "node scripts/marta/generate-avatar.js",
     "marta:set-profile": "node scripts/marta/set-profile.js",

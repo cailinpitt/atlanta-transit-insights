@@ -29,6 +29,7 @@ const {
   buildBunchingVideoPostText,
   buildBunchingVideoAltText,
 } = require('../../../src/marta/rail/post');
+const { railDeviationsByTrain } = require('../../../src/marta/rail/adherence');
 const {
   VIDEO_WINDOW_MS,
   captureRailBunchingHistoryVideo,
@@ -85,6 +86,7 @@ async function main() {
     return;
   }
 
+  const deviations = railDeviationsByTrain(rows);
   const bunches = railBunchesFromObservations(rows, { lineGeom, now });
   if (!argv['dry-run']) {
     const closed = incidents.reconcileBunchingEvents({
@@ -178,7 +180,7 @@ async function main() {
     console.warn(`Map render failed (${e.message}); will post text-only`);
     image = null;
   }
-  const text = buildBunchingPostText(bunch, callouts);
+  const text = buildBunchingPostText(bunch, callouts, { deviations });
   const alt = buildBunchingAltText(bunch);
 
   if (argv['dry-run']) {

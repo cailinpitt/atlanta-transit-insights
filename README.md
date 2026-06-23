@@ -26,6 +26,7 @@ This README is written for operators running their own copy. If you just want to
 ### Train (`@martatraininsights`)
 - **Bunching / gaps / ghosts** — the rail analogs, using true train positions (MARTA rail "Path A") projected onto per-line geometry.
 - **Speedmap** — a rail line (or the streetcar) color-coded by observed speed, reconstructed from position deltas (the rail feed reports no speed).
+- **Adherence** — a "running late" rollup of rail lines whose trains are materially behind schedule, from the feed's reported delay.
 - **Cross-line pileups** — multiple lines stacked at shared track / Five Points.
 - **System timelapse** — a smooth, interpolated clip of every train in service.
 
@@ -36,6 +37,7 @@ This README is written for operators running their own copy. If you just want to
 
 ### Both modes
 - **Historical callouts** — posts carry frequency/severity context from prior posts, e.g. *"3rd Route 110 bunch reported today."*
+- **Schedule adherence** — bunching, gap, and cross-route/line posts tag each named vehicle with how early/late it is, e.g. *"#1234 (1️⃣, 12 min late)"*. Rail comes from the feed's reported delay; bus is projected from position onto the scheduled stop-path. See [ADHERENCE.md](docs/ADHERENCE.md).
 
 ## Setup
 
@@ -67,6 +69,7 @@ This README is written for operators running their own copy. If you just want to
    ```
    npm run marta:fetch-gtfs
    npm run marta:build-schedule-index
+   npm run marta:build-schedule-stops   # per-trip schedule curves for bus adherence
    ```
 
 5. **Smoke test** — loads every bus/rail bin with `--check`.
@@ -107,6 +110,7 @@ Detector bins accept `--dry-run` (write the image/text, don't post) and `--check
 | `npm run marta:observe-bus-tripupdates` | Bus TripUpdates (cancellations). Runs every 5 min. |
 | `npm run marta:fetch-gtfs` | Download MARTA static GTFS. |
 | `npm run marta:build-schedule-index` | Build `data/marta/schedule-index.json` (headways + active counts). |
+| `npm run marta:build-schedule-stops` | Build `data/marta/schedule.sqlite` (per-trip schedule curves; bus adherence). |
 | `npm run marta:status` | Print observe-loop health. |
 
 ### Posting (cron entry points)

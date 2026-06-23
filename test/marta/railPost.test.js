@@ -124,6 +124,38 @@ test('rail bunching post text and alt text include train count and labels', () =
   assert.match(buildBunchingVideoAltText(bunch), /Timelapse map of the Blue Line/);
 });
 
+test('rail bunching post weaves per-train schedule adherence when supplied', () => {
+  const bunch = {
+    line: 'BLUE',
+    direction: 'E',
+    spanFt: 1500,
+    trains: [
+      { trainId: 'a', distFt: 10_000 },
+      { trainId: 'b', distFt: 11_000 },
+    ],
+  };
+  const deviations = new Map([
+    ['a', 12],
+    ['b', -3],
+  ]);
+  const text = buildBunchingPostText(bunch, [], { deviations });
+  assert.match(text, /#b \(1️⃣, 3 min early\), #a \(2️⃣, 12 min late\)/);
+});
+
+test('rail gap post weaves leading/trailing adherence when supplied', () => {
+  const gap = {
+    line: 'RED',
+    direction: 'N',
+    terminus: 'North Springs',
+    gapMin: 15,
+    expectedMin: 5,
+    leading: { trainId: '303', distFt: 60_000 },
+    trailing: { trainId: '408', distFt: 20_000 },
+  };
+  const text = buildGapPostText(gap, [], { leadingDev: 0.2, trailingDev: 7 });
+  assert.match(text, /Last seen: #303 \(on time\) · Next up: #408 \(7 min late\)/);
+});
+
 test('rail gap video reply text and alt text describe recent movement', () => {
   const gap = {
     line: 'RED',

@@ -34,6 +34,7 @@ const {
   buildVideoPostText,
   buildVideoAltText,
 } = require('../../../src/marta/bus/bunchingPost');
+const { busDeviationsByVid } = require('../../../src/marta/bus/adherence');
 const { VIDEO_WINDOW_MS, captureBusBunchingHistoryVideo } = require('../../../src/marta/bus/video');
 const { terminalZoneFt } = require('../../../src/shared/geo');
 const { setup, writeDryRunAsset, runBin } = require('../../../src/marta/shared/runBin');
@@ -247,7 +248,11 @@ async function main() {
   }
 
   const ctx = { routeTitle, direction, nearStopName };
-  const text = buildPostText(bunch, ctx, callouts, { isAllTimeRecord, previousRecord });
+  const text = buildPostText(bunch, ctx, callouts, {
+    isAllTimeRecord,
+    previousRecord,
+    deviations: busDeviationsByVid(rows),
+  });
   const alt = buildAltText(bunch, ctx);
 
   if (argv['dry-run']) {

@@ -20,8 +20,9 @@
 # MARTA-announced cancellations used to enrich ghost-bus detection. Full
 # stop-level prediction rows are opt-in only (MARTA_STORE_TRIP_UPDATE_STOPS=1).
 */5 * * * * cd __REPO__ && __NODE__ scripts/marta/observe-bus-tripupdates.js >> __REPO__/state/logs/observe-bus-tripupdates.log 2>&1
-# Refresh static GTFS + rebuild the schedule index nightly at 03:30.
-30 3 * * * cd __REPO__ && __NODE__ scripts/marta/fetch-static-gtfs.js && __NODE__ scripts/marta/build-schedule-index.js >> __REPO__/state/logs/gtfs-refresh.log 2>&1
+# Refresh static GTFS + rebuild the schedule index and the per-trip schedule
+# stop curves (schedule.sqlite, powers bus schedule-adherence) nightly at 03:30.
+30 3 * * * cd __REPO__ && __NODE__ scripts/marta/fetch-static-gtfs.js && __NODE__ scripts/marta/build-schedule-index.js && __NODE__ scripts/marta/build-schedule-stops.js >> __REPO__/state/logs/gtfs-refresh.log 2>&1
 # Bus bunching detect→post (martabusinsights). Every 5 min, offset off the observe
 # minutes; reads the latest snapshot the observe loop recorded (no extra fetch).
 # Posting volume is bounded by per-shape+route 1h cooldowns and a 3/route/day cap.
@@ -66,6 +67,10 @@
 # Rail ghost rollup and speedmap rotation (martatraininsights).
 10-59/15 * * * * cd __REPO__ && __NODE__ bin/marta/rail/ghosts.js >> __REPO__/state/logs/rail-ghosts.log 2>&1
 17 * * * * cd __REPO__ && __NODE__ bin/marta/rail/speedmap.js >> __REPO__/state/logs/rail-speedmap.log 2>&1
+# Rail adherence rollup (martatraininsights). Every 15 min; posts the lines whose
+# trains are materially behind schedule (from the feed's signed DELAY field), with
+# a 1h cooldown. Silent on a normal on-time day.
+11-59/15 * * * * cd __REPO__ && __NODE__ bin/marta/rail/adherence.js >> __REPO__/state/logs/rail-adherence.log 2>&1
 # Rail system timelapse (martatraininsights). Every 3 hours; reads the last 15 min
 # of stored rail observations (no extra fetch) and posts a smooth, interpolated
 # system-wide clip of every train in service.

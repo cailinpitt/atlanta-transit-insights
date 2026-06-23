@@ -63,7 +63,7 @@ CTA Train Tracker adapter does not transfer directly.
 |---|---|---|
 | `history.js`, `observations.js` | PORT | Keep SQLite model; extend observation schema for rail arrival snapshots. Preserve `alerts.json` schema v2 contract. |
 | `state.js`, `bluesky.js`, `post.js`, `postDetection.js`, `retry.js`, `runBin.js`, `format.js`, `geo.js`, `polyline.js`, `projection.js`, `stats.js`, `gtfs.js` | KEEP | Generic; rebrand only. MARTA-specific equivalents now exist for the first posting slice under `src/marta/shared/{bluesky,format,incidents,postDetection,runBin,state}.js`; keep CTA shared files only while CTA entrypoints remain as references. |
-| `recap.js`, `recapPost.js`, `videoTracks.js`, `eventLink.js`, `eventTracks.js`, `disruption.js`, `directionLabel.js`, `ghostFormat.js`, `ghostsLog.js`, `observationDescribe.js`, `relatedQuotes.js`, `alertPost.js`, `cleanup.js`, `webPushTrigger.js` | KEEP/PORT | Rebrand; `observationDescribe.js` has a `TRAIN_LINES` table to replace. |
+| `recap.js`, `recapPost.js`, `videoTracks.js`, `eventLink.js`, `eventTracks.js`, `disruption.js`, `directionLabel.js`, `ghostFormat.js`, `ghostsLog.js`, `observationDescribe.js`, `relatedQuotes.js`, `alertPost.js`, `cleanup.js`, `webPushTrigger.js` | KEEP/PORT | Rebrand; `observationDescribe.js` has a `TRAIN_LINES` table to replace. `eventTracks.js` ported to `src/shared/eventTracks.js` (event-replay "Watch it unfold" tracks, rail-only; see docs/REPLAY.md). |
 | `ctaAlerts.js` | DELETE | CTA Train/Bus Tracker alerts API + Chicago parsing. Replaced by the MARTA official-alert adapter (Phase 6). |
 | `trainSegment.js` | PORT | CTA rail segment helper → MARTA rail (rail-path dependent). |
 
@@ -122,7 +122,7 @@ is decided — the data model underneath them changes.
 | `bus/*.js` | PORT | Bus detector cores and posting entrypoints are ported under `src/marta/bus/` and `bin/marta/bus/`: bunching, gaps, ghosts, and speedmap. Remaining MARTA bus video/update/close bins still need ports. |
 | `train/*.js` | PORT (rail gate) | Hold until rail path decided. |
 | `metra/*.js` | DELETE | After `src/metra` reference value is spent. |
-| `export-web.js`, `export-daily.js`, `export-csv.js`, `export-event-tracks.js` | PORT | Keep schema v2 + server-side pairing; strip Metra, add MARTA agency/mode. |
+| `export-web.js`, `export-daily.js`, `export-csv.js`, `export-event-tracks.js` | PORT | Keep schema v2 + server-side pairing; strip Metra, add MARTA agency/mode. `export-event-tracks.js` ported to `bin/marta/export-event-tracks.js` (rail-only, reads `rail_observations`; cron `19-59/15`; see docs/REPLAY.md). |
 | `incident-roundup.js`, `audit-alerts.js` | PORT | Multi-signal rollup + audit. |
 | `cron-run.sh`, `push-web-data.sh` | KEEP | Rebrand R2 bucket, dispatch repo, healthchecks slugs. |
 | `backfill-*.js`, `cleanup-metra-resolved-cancellation-replies.js` | DELETE | One-off CTA/Metra data migrations; not reusable. |

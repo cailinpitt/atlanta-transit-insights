@@ -24,6 +24,13 @@ bin/marta/push-web-data.sh                     runtime: client fetch()s
             cailinpitt/atlanta-transit-alerts
 ```
 
+A second, independent job writes to the same R2 origin: **`bin/marta/export-event-tracks.js`**
+(`19-59/15`) archives each rail incident's vehicle-position window to
+`tracks/<eventId>.json` so `/event/:id` pages can replay the disruption after
+`rail_observations` roll off. It's keyed by event id and fetched lazily by the
+frontend's `EventReplay` (not part of the `alerts.json` payload). See
+[REPLAY.md](./REPLAY.md).
+
 - **Live app data** comes straight from R2 — fresh regardless of when the site
   was last built.
 - **Prerendered per-incident OG cards** (for social crawlers) still need a build,

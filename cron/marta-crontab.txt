@@ -90,6 +90,13 @@
 # an upload was missed). Exits early when the exported data is unchanged.
 # NODE is passed explicitly because cron's PATH usually lacks node.
 14-59/15 * * * * cd __REPO__ && NODE=__NODE__ /bin/sh __REPO__/bin/marta/push-web-data.sh >> __REPO__/state/logs/push-web-data.log 2>&1
+# Event replay tracks ("▶ Watch it unfold" data). Archives each rail incident's
+# vehicle-position window to R2 (tracks/<eventId>.json) so /event/:id pages can
+# replay it after rail_observations roll off (~7 days). Offset to :19 so it reads
+# the tmp/web-data/alerts.json that the :14 push-web-data run just wrote. Bounded
+# by a manifest to active + newly-resolved incidents, so R2 op churn stays tiny.
+# See docs/REPLAY.md.
+19-59/15 * * * * cd __REPO__ && __NODE__ bin/marta/export-event-tracks.js >> __REPO__/state/logs/export-event-tracks.log 2>&1
 # Off-box backup of state/marta.sqlite to Cloudflare R2. Uses SQLite .backup,
 # integrity-checks the snapshot, gzips it, then uploads to the private backup
 # bucket. See docs/MARTA_BACKUPS.md.

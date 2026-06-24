@@ -15,6 +15,7 @@ bin/marta/push-web-data.sh                     runtime: client fetch()s
   marta/export-web.js   -> tmp/web-data/alerts.json    https://data.atlanta…/alerts.json
   marta/export-daily.js -> tmp/web-data/daily-counts   (always fresh)
   export-csv.js         -> tmp/web-data/alerts.csv
+  marta/export-standard-site.js -> standard-site.json  (standard.site manifest)
   cmp vs .last  ── unchanged? stop
         │ changed
         ├─ rclone copyto … r2atlanta:atlanta-transit-alerts-data    build time: site fetches the
@@ -44,8 +45,8 @@ Runs from cron (`14-59/15` — the every-post `webPushTrigger` flush kicks it
 immediately on change; this run is the backstop). It:
 
 1. Regenerates `alerts.json` (`bin/marta/export-web.js`), `daily-counts.json`
-   (`bin/marta/export-daily.js`), and `alerts.csv` (`bin/export-csv.js`) into
-   `tmp/web-data/`.
+   (`bin/marta/export-daily.js`), `alerts.csv` (`bin/export-csv.js`), and
+   `standard-site.json` (`bin/marta/export-standard-site.js`) into `tmp/web-data/`.
 2. `cmp`s each against the previous run in `tmp/web-data/.last` — **exits early
    if nothing changed** (no upload, no rebuild).
 3. `rclone copyto`s each changed file to the R2 bucket with

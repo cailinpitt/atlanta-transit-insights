@@ -28,7 +28,8 @@ const {
   postWithExternal,
   resolveReplyRef,
 } = require('../../src/marta/shared/bluesky');
-const { resolvedEventLink } = require('../../src/marta/shared/eventLink');
+const { resolvedEventLink, rkeyFromAtUri } = require('../../src/marta/shared/eventLink');
+const { eventAssociatedRefs } = require('../../src/marta/shared/standardSite');
 const { sweepRelatedQuotes } = require('../../src/marta/shared/relatedQuotes');
 const { classifyRailCancellation } = require('../../src/marta/alert/cancellation');
 const { extractAlertStations } = require('../../src/marta/alert/stations');
@@ -57,6 +58,17 @@ const io = {
   postWithExternal,
   resolveReplyRef,
 };
+
+// standard.site refs for an alert's resolved-event card: maps the stored row to
+// document fields, keyed by the event rkey (= the website's /event/<rkey> slug).
+function standardSiteRefs(agent, alertRow, title) {
+  return eventAssociatedRefs(agent, {
+    rkey: rkeyFromAtUri(alertRow.post_uri),
+    title,
+    description: alertRow.description || title,
+    publishedAt: alertRow.active_start_ts ?? alertRow.first_seen_ts,
+  });
+}
 
 // The fields the store persists for an alert, derived from a feed entity + its
 // resolved relevance (mode + affected routes).
@@ -230,8 +242,9 @@ async function postResolution(alertRow, agentGetter) {
   try {
     const replyRef = await io.resolveReplyRef(agent, alertRow.post_uri);
     if (!replyRef) throw new Error('could not resolve reply ref for alert post');
+    const associatedRefs = link ? await standardSiteRefs(agent, alertRow, displayName) : null;
     const result = link
-      ? await io.postWithExternal(agent, text, link, replyRef)
+      ? await io.postWithExternal(agent, text, link, replyRef, associatedRefs)
       : await io.postText(agent, text, replyRef);
     console.log(`Posted marta resolution for alert ${alertRow.alert_id}: ${result.url}`);
     recordAlertResolved({ alertId: alertRow.alert_id, replyUri: result.uri });

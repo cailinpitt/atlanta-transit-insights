@@ -36,9 +36,12 @@ NODE="${NODE:-node}"
 "$NODE" "$REPO/bin/marta/export-accessibility.js" "$WORK/accessibility.json"
 "$NODE" "$REPO/bin/marta/export-daily.js" "$WORK/alerts.json" "$WORK/daily-counts.json"
 "$NODE" "$REPO/bin/export-csv.js" "$WORK/alerts.json" "$WORK/alerts.csv"
+# standard.site manifest (AT-URIs for the enhanced-link-card tags + well-known);
+# sourced from local state, byte-stable when no records changed.
+"$NODE" "$REPO/bin/marta/export-standard-site.js" "$WORK/standard-site.json"
 
 changed=0
-for f in alerts.json accessibility.json daily-counts.json alerts.csv; do
+for f in alerts.json accessibility.json daily-counts.json alerts.csv standard-site.json; do
   if ! cmp -s "$WORK/$f" "$LAST/$f" 2>/dev/null; then
     changed=1
   fi
@@ -48,7 +51,7 @@ if [ "$changed" -eq 0 ]; then
   exit 0
 fi
 
-for f in alerts.json accessibility.json daily-counts.json alerts.csv; do
+for f in alerts.json accessibility.json daily-counts.json alerts.csv standard-site.json; do
   rclone copyto "$WORK/$f" "$REMOTE/$f" \
     --s3-no-check-bucket \
     --header-upload "Cache-Control: public, max-age=30"
@@ -58,6 +61,7 @@ cp "$WORK/alerts.json" "$LAST/alerts.json"
 cp "$WORK/accessibility.json" "$LAST/accessibility.json"
 cp "$WORK/daily-counts.json" "$LAST/daily-counts.json"
 cp "$WORK/alerts.csv" "$LAST/alerts.csv"
+cp "$WORK/standard-site.json" "$LAST/standard-site.json"
 echo "marta push-web-data: uploaded to $REMOTE"
 
 if [ -n "$GITHUB_DISPATCH_TOKEN" ]; then

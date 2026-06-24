@@ -223,7 +223,13 @@ async function postText(agent, text, replyRef = null) {
   return { url: postUrl(result), uri: result.uri, cid: result.cid };
 }
 
-async function postWithExternal(agent, text, link, replyRef = null) {
+// `associatedRefs` (optional) is an array of com.atproto.repo.strongRef
+// (`{uri, cid}`) — the standard.site document + publication records for the
+// linked event. Bluesky reads them to render the *enhanced* link card. The
+// field is newer than the installed @atproto/api lexicon, so the client passes
+// it through unvalidated (unknown properties survive); see
+// src/marta/shared/standardSite.js.
+async function postWithExternal(agent, text, link, replyRef = null, associatedRefs = null) {
   let thumb;
   for (const thumbUrl of [link?.thumbUrl, link?.fallbackThumbUrl].filter(Boolean)) {
     try {
@@ -249,6 +255,7 @@ async function postWithExternal(agent, text, link, replyRef = null) {
         title: link.title,
         description: link.description,
         ...(thumb && { thumb }),
+        ...(associatedRefs?.length ? { associatedRefs } : {}),
       },
     },
   });

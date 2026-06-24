@@ -49,8 +49,7 @@ const {
   resolveReplyRef,
 } = require('../../../src/marta/shared/bluesky');
 const { findUnresolvedRailAlertForLine } = require('../../../src/marta/alert/store');
-const { resolvedEventLink, rkeyFromAtUri } = require('../../../src/marta/shared/eventLink');
-const { eventAssociatedRefs } = require('../../../src/marta/shared/standardSite');
+const { resolvedEventLink } = require('../../../src/marta/shared/eventLink');
 const { renderRailDisruptionMap } = require('../../../src/marta/map/railIncidents');
 const {
   buildPostText,
@@ -459,15 +458,8 @@ async function postClearReply(ctx, line, direction, prior) {
     return;
   }
   const link = resolvedEventLink(prior.active_post_uri, buildClearCardTitle(disruption));
-  // Mint the event's standard.site document + attach associatedRefs so the clear
-  // card renders enhanced immediately, not after the page-side rebuild.
-  const rkey = rkeyFromAtUri(prior.active_post_uri);
-  const associatedRefs =
-    link && rkey
-      ? await eventAssociatedRefs(agent, { rkey, title: link.title, publishedAt: Date.now() })
-      : null;
   const result = link
-    ? await postWithExternal(agent, text, link, replyRef, associatedRefs)
+    ? await postWithExternal(agent, text, link, replyRef)
     : await postText(agent, text, replyRef);
   console.log(`Posted pulse clear ${lineTitle(line)}/${direction}: ${result.url}`);
   const recordedTs =

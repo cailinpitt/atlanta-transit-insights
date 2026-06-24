@@ -99,7 +99,6 @@ THIN_GAPS_AND_PULSE,MARTA_ALERTS,MARTA_FEEDS}.md`.
 | Map renderers | `src/marta/map/*.js` |
 | Timelapse + dropout/bridge/ghost model | `src/marta/{bus,rail}/video.js`, `src/shared/videoTracks.js` |
 | Web export (R2 data) | `bin/marta/{export-web,export-daily}.js`, `bin/export-csv.js`, `bin/marta/push-web-data.sh`, `docs/DATA_ORIGIN.md` |
-| standard.site records / enhanced Bluesky cards | `src/marta/shared/standardSite.js`, `bin/marta/export-standard-site.js`, `scripts/backfill-standard-site.js`, `docs/STANDARD_SITE.md` |
 | Ghost / effective-headway phrasing | `src/shared/ghostFormat.js` |
 | Bluesky login / threading / post | `src/marta/shared/bluesky.js` |
 

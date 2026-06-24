@@ -24,8 +24,7 @@ const {
   postWithExternal,
   resolveReplyRef,
 } = require('../../src/marta/shared/bluesky');
-const { resolvedEventLink, rkeyFromAtUri } = require('../../src/marta/shared/eventLink');
-const { eventAssociatedRefs } = require('../../src/marta/shared/standardSite');
+const { resolvedEventLink } = require('../../src/marta/shared/eventLink');
 const { findUnresolvedAlertForRoundup } = require('../../src/marta/alert/store');
 const { describeSignal } = require('../../src/shared/observationDescribe');
 const { lineTitle } = require('../../src/marta/rail/post');
@@ -318,20 +317,8 @@ async function sweepResolutions({ kind, getName, agentGetter, now }) {
         );
         continue;
       }
-      // Mint the event's standard.site document + attach associatedRefs so the
-      // resolution card renders enhanced immediately (the root post rkey, = the
-      // event slug, is known here), instead of waiting on the page-side rebuild.
-      const rkey = rkeyFromAtUri(row.post_uri);
-      const associatedRefs =
-        link && rkey
-          ? await eventAssociatedRefs(agent, {
-              rkey,
-              title: buildResolutionCardTitle({ kind, line: row.line, name }),
-              publishedAt: now,
-            })
-          : null;
       const result = link
-        ? await postWithExternal(agent, text, link, replyRef, associatedRefs)
+        ? await postWithExternal(agent, text, link, replyRef)
         : await postText(agent, text, replyRef);
       markRoundupResolved(row.id, result.uri, now);
       console.log(`Posted MARTA roundup resolution ${label}: ${result.url}`);

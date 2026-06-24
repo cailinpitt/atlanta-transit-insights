@@ -26,6 +26,9 @@ const MIN_COVERAGE = 0.3;
 // (covered) segments standing-room-or-fuller, over enough samples to trust.
 const MIN_CROWDED_FRACTION = 0.15;
 const MIN_SAMPLES = 20;
+// The crowding must come from more than one bus, so a single stuck occupancy
+// sensor can't make a route look packed end-to-end on its own.
+const MIN_CROWDED_VEHICLES = 2;
 // A featured route is rested this long so the rotation surfaces other routes
 // rather than re-posting the same chronically-packed trunk every hour.
 const ROUTE_COOLDOWN_MS = 6 * 60 * 60 * 1000;
@@ -43,6 +46,7 @@ function bestCrowdedMapByRoute(maps) {
   for (const m of maps.values()) {
     if (!m.route) continue;
     if (m.sampleCount < MIN_SAMPLES) continue;
+    if (m.crowdedVehicleCount < MIN_CROWDED_VEHICLES) continue;
     if (!(m.summary.bins > 0) || m.summary.covered / m.summary.bins < MIN_COVERAGE) continue;
     const frac = crowdedBinFraction(m.summary);
     const cur = byRoute.get(String(m.route));

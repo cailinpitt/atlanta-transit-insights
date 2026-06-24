@@ -83,10 +83,15 @@ function buildCrowdingSamples(observations, { gtfs, shapes } = {}) {
         route: trip ? (gtfs.routesById.get(trip.route_id)?.route_short_name ?? null) : null,
         direction: trip ? trip.direction_id : null,
         samples: [],
+        // Distinct vehicles that reported a *crowded* (standing-or-fuller) value
+        // here — a route whose crowding comes from a single stuck sensor never
+        // clears the bins' min-vehicle guard.
+        crowdedVehicles: new Set(),
       };
       byShape.set(proj.shapeId, entry);
     }
     entry.samples.push({ distFt: proj.distFt, score });
+    if (score >= CROWDED_SCORE && o.vehicleId != null) entry.crowdedVehicles.add(o.vehicleId);
   }
   return byShape;
 }
@@ -150,15 +155,18 @@ function buildRouteCrowdingMaps(observations, { gtfs, shapes, numBins = 40 } = {
       bins,
       summary: summarize(bins),
       sampleCount: entry.samples.length,
+      crowdedVehicleCount: entry.crowdedVehicles.size,
     });
   }
   return out;
 }
 
 // Rollup view: per-route crowding stats with no projection needed — just the
-// occupancy counts. Returns [{ route, total, crowded, pctCrowded, peakScore }]
-// sorted most-crowded first (pctCrowded, then peak). `total` counts only
-// occupancy-bearing observations; routes with none are omitted.
+// occupancy counts. Returns [{ route, total, crowded, crowdedVehicles, pctCrowded,
+// peakScore }] sorted most-crowded first (pctCrowded, then peak). `total` counts
+// only occupancy-bearing observations; routes with none are omitted.
+// `crowdedVehicles` is the count of DISTINCT vehicles that reported a crowded
+// value — the bins use it to reject a route whose crowding is one stuck sensor.
 function summarizeRouteCrowding(observations, { gtfs } = {}) {
   const byRoute = new Map();
   for (const o of observations || []) {
@@ -169,15 +177,28 @@ function summarizeRouteCrowding(observations, { gtfs } = {}) {
     if (!route) continue;
     let rec = byRoute.get(route);
     if (!rec) {
-      rec = { route: String(route), total: 0, crowded: 0, peakScore: 0 };
+      rec = {
+        route: String(route),
+        total: 0,
+        crowded: 0,
+        peakScore: 0,
+        crowdedVehicleSet: new Set(),
+      };
       byRoute.set(route, rec);
     }
     rec.total++;
-    if (score >= CROWDED_SCORE) rec.crowded++;
+    if (score >= CROWDED_SCORE) {
+      rec.crowded++;
+      if (o.vehicleId != null) rec.crowdedVehicleSet.add(o.vehicleId);
+    }
     if (score > rec.peakScore) rec.peakScore = score;
   }
   const out = [...byRoute.values()].map((r) => ({
-    ...r,
+    route: r.route,
+    total: r.total,
+    crowded: r.crowded,
+    peakScore: r.peakScore,
+    crowdedVehicles: r.crowdedVehicleSet.size,
     pctCrowded: r.total > 0 ? r.crowded / r.total : 0,
   }));
   out.sort(

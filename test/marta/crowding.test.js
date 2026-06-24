@@ -143,3 +143,33 @@ test('summarizeRouteCrowding ranks most-crowded first and ignores no-occupancy r
   );
   assert.equal(none.length, 0);
 });
+
+test('crowdedVehicles counts only distinct vehicles that were crowded', () => {
+  // One vehicle reporting FULL many times is a single stuck sensor, not a
+  // crowded route — the bins gate on crowdedVehicles to reject exactly that.
+  const v = baseVehicles.find((x) => x.tripId && x.vehicleId);
+  const stuck = Array.from({ length: 30 }, () => ({ ...v, occupancy: 'FULL' }));
+  const [rec] = summarizeRouteCrowding(stuck, { gtfs });
+  assert.ok(rec, 'route summarized');
+  assert.equal(rec.crowded, 30, 'every sighting counted as crowded');
+  assert.equal(rec.crowdedVehicles, 1, 'but all from one vehicle');
+
+  // Two distinct crowded vehicles on the same trip → crowdedVehicles === 2.
+  const two = [
+    ...Array.from({ length: 15 }, () => ({ ...v, vehicleId: 'A', occupancy: 'FULL' })),
+    ...Array.from({ length: 15 }, () => ({
+      ...v,
+      vehicleId: 'B',
+      occupancy: 'STANDING_ROOM_ONLY',
+    })),
+  ];
+  const [rec2] = summarizeRouteCrowding(two, { gtfs });
+  assert.equal(rec2.crowdedVehicles, 2, 'two distinct crowded vehicles');
+});
+
+test('buildRouteCrowdingMaps reports distinct crowded vehicles per shape', () => {
+  const maps = buildRouteCrowdingMaps(vehicles, { gtfs, shapes, numBins: 20 });
+  for (const m of maps.values()) {
+    assert.ok(Number.isInteger(m.crowdedVehicleCount) && m.crowdedVehicleCount >= 0);
+  }
+});

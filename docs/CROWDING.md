@@ -48,11 +48,13 @@ Identical construction to the bus speedmap, only the per-segment color scale dif
 2. Samples bin into 40 equal-length segments; each segment's color is its **average** score (`binSamples` → `colorForCrowding`).
 3. The shape polyline is **thinned** before encoding (`thinPolylinePoints`) so the Mapbox static URL stays under its ~8 KB limit — the same fix bus speedmaps needed (a full untthinned bus shape is 20k+ points and 414'd every request).
 
-`bin/marta/bus/crowding-map.js` features the **most crowded** eligible route each run (coverage ≥ `MIN_COVERAGE` 0.3, ≥ `MIN_SAMPLES` 20, standing-or-fuller share ≥ `MIN_CROWDED_FRACTION` 0.15), with a 6 h per-route cooldown so a chronically packed trunk doesn't dominate every hour. Silent when nothing clears the bar.
+`bin/marta/bus/crowding-map.js` features the **most crowded** eligible route each run (coverage ≥ `MIN_COVERAGE` 0.3, ≥ `MIN_SAMPLES` 20, standing-or-fuller share ≥ `MIN_CROWDED_FRACTION` 0.15, and crowding from ≥ `MIN_CROWDED_VEHICLES` 2 distinct vehicles), with a 6 h per-route cooldown so a chronically packed trunk doesn't dominate every hour. Silent when nothing clears the bar.
 
 ## The rollup (`bin/marta/bus/crowding-rollup.js`)
 
-`summarizeRouteCrowding` counts, per route, the share of occupancy sightings that were standing-room-or-fuller (`crowdedBinFraction`'s row-level cousin) plus the peak level. A route qualifies at ≥ 15 sightings, ≥ 25% crowded, ≥ 3 crowded sightings; the digest posts only when ≥ 2 routes qualify (a lone crowded route is the map's job), top 10, with a 3 h cooldown.
+`summarizeRouteCrowding` counts, per route, the share of occupancy sightings that were standing-room-or-fuller (`crowdedBinFraction`'s row-level cousin), the peak level, and the number of **distinct vehicles** that were crowded. A route qualifies at ≥ 15 sightings, ≥ 25% crowded, ≥ 3 crowded sightings, and crowding from ≥ 2 distinct vehicles; the digest posts only when ≥ 2 routes qualify (a lone crowded route is the map's job), top 10, with a 3 h cooldown.
+
+The distinct-vehicle floor (`MIN_CROWDED_VEHICLES`, on both surfaces) exists because MARTA's `occupancyStatus` is noisy: a single bus can report `FULL` for an entire window. Without the floor, that one stuck sensor makes its route read 100% crowded and dominates the feed. Requiring crowding from two or more vehicles keeps the surfaces about routes, not individual buses.
 
 ## Cadence
 

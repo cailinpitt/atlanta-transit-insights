@@ -25,6 +25,10 @@ const WINDOW_MS = 60 * 60 * 1000;
 const MIN_SAMPLES = 15;
 const MIN_PCT_CROWDED = 0.25;
 const MIN_CROWDED_COUNT = 3;
+// A route's crowding must come from more than one bus — otherwise a single stuck
+// occupancy sensor (e.g. a bus reporting FULL all hour) can make a route read
+// 100% crowded on its own. Require at least two distinct crowded vehicles.
+const MIN_CROWDED_VEHICLES = 2;
 const MIN_ROUTES = 2;
 const MAX_ROUTES = 10;
 const COOLDOWN_MS = 3 * 60 * 60 * 1000;
@@ -48,7 +52,10 @@ async function main() {
   const qualifying = summarizeRouteCrowding(rows, { gtfs })
     .filter(
       (r) =>
-        r.total >= MIN_SAMPLES && r.pctCrowded >= MIN_PCT_CROWDED && r.crowded >= MIN_CROWDED_COUNT,
+        r.total >= MIN_SAMPLES &&
+        r.pctCrowded >= MIN_PCT_CROWDED &&
+        r.crowded >= MIN_CROWDED_COUNT &&
+        r.crowdedVehicles >= MIN_CROWDED_VEHICLES,
     )
     .slice(0, MAX_ROUTES);
 

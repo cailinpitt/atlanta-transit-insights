@@ -609,7 +609,7 @@ function countDistinctBusObservationTs(sinceTs) {
 function getRecentBusObservationsAll(sinceTs) {
   return getDb()
     .prepare(`
-      SELECT ts, route, trip_id AS tripId, vehicle_id AS vehicleId, label, lat, lon, bearing, speed, vehicle_ts AS vehicleTs
+      SELECT ts, route, trip_id AS tripId, vehicle_id AS vehicleId, label, lat, lon, bearing, speed, occupancy, vehicle_ts AS vehicleTs
       FROM bus_observations
       WHERE ts >= ?
       ORDER BY ts

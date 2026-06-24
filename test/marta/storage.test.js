@@ -66,6 +66,24 @@ test('bus observations round-trip, preserving optional speed', () => {
   );
 });
 
+test('getRecentBusObservationsAll selects the occupancy column (crowding plumbing)', () => {
+  // The crowding map + rollup read o.occupancy off this query; if the SELECT
+  // omits the column every observation scores null and the feed goes silently
+  // dark. Paint a spread of occupancy on, store it, and prove it round-trips.
+  const OCC = ['EMPTY', 'STANDING_ROOM_ONLY', 'CRUSHED_STANDING_ROOM_ONLY', 'FULL'];
+  const tOcc = T0 + 5;
+  const painted = vehicles.map((v, i) => ({ ...v, occupancy: OCC[i % OCC.length] }));
+  storage.recordBusObservations(painted, tOcc);
+  const rows = storage.getRecentBusObservationsAll(tOcc).filter((r) => r.ts === tOcc);
+  assert.ok(rows.length > 0, 'rows returned for the window');
+  for (const r of rows) assert.ok('occupancy' in r, 'occupancy column is selected');
+  assert.ok(
+    rows.some((r) => r.occupancy === 'FULL') &&
+      rows.some((r) => r.occupancy === 'STANDING_ROOM_ONLY'),
+    'painted crowded occupancy values round-trip',
+  );
+});
+
 test('bus trip updates store compact trip status by default', () => {
   storage.recordBusTripUpdates(tripUpdates, T0);
   const statuses = storage.getRecentBusTripStatuses(T0 - 1).filter((r) => r.ts === T0);

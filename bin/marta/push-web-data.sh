@@ -36,6 +36,14 @@ NODE="${NODE:-node}"
 "$NODE" "$REPO/bin/marta/export-accessibility.js" "$WORK/accessibility.json"
 "$NODE" "$REPO/bin/marta/export-daily.js" "$WORK/alerts.json" "$WORK/daily-counts.json"
 "$NODE" "$REPO/bin/export-csv.js" "$WORK/alerts.json" "$WORK/alerts.csv"
+# Reconcile standard.site document records from the freshly-exported alerts.json
+# BEFORE building the manifest, so every posted incident gets a doc (keyed by its
+# event rkey) and the page-side enhanced-card tags stay complete — not just the
+# narrow slice the live posting bins can mint. Idempotent: only new/changed
+# records hit the network. Non-fatal: a Bluesky hiccup must not block the data
+# push; the manifest just lags one tick until the next run heals it.
+"$NODE" "$REPO/scripts/backfill-standard-site.js" "$WORK/alerts.json" \
+  || echo "marta push-web-data: standard.site sync failed (manifest may lag); continuing"
 # standard.site manifest (AT-URIs for the enhanced-link-card tags + well-known);
 # sourced from local state, byte-stable when no records changed.
 "$NODE" "$REPO/bin/marta/export-standard-site.js" "$WORK/standard-site.json"

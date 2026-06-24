@@ -84,6 +84,23 @@ test('ensureDocument keys by event rkey and sets a matching path', async () => {
   assert.equal(agent.writes.length, before);
 });
 
+test('ensureDocument normalizes a seconds-epoch publishedAt to ms (no 1970)', async () => {
+  const agent = fakeAgent();
+  await ensurePublication(agent);
+  // GTFS-rt onset_ts is in seconds; treated as ms it would land in 1970.
+  const seconds = 1782273600; // 2026-06-24T00:00:00Z
+  await ensureDocument(agent, { rkey: 'secs-evt', title: 'X', publishedAt: seconds });
+  const write = agent.writes.find((w) => w.rkey === 'secs-evt');
+  assert.equal(write.record.publishedAt, new Date(seconds * 1000).toISOString());
+  assert.equal(write.record.publishedAt.slice(0, 4), '2026');
+
+  // A real ms timestamp passes through unchanged.
+  const ms = 1782273600000;
+  await ensureDocument(agent, { rkey: 'ms-evt', title: 'X', publishedAt: ms });
+  const msWrite = agent.writes.find((w) => w.rkey === 'ms-evt');
+  assert.equal(msWrite.record.publishedAt, new Date(ms).toISOString());
+});
+
 test('buildAssociatedRefs returns [document, publication] strong refs', async () => {
   const agent = fakeAgent();
   const pub = await ensurePublication(agent);

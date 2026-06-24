@@ -37,7 +37,8 @@ const {
   postWithExternal,
   resolveReplyRef,
 } = require('../../../src/marta/shared/bluesky');
-const { resolvedEventLink } = require('../../../src/marta/shared/eventLink');
+const { resolvedEventLink, rkeyFromAtUri } = require('../../../src/marta/shared/eventLink');
+const { eventAssociatedRefs } = require('../../../src/marta/shared/standardSite');
 const { findUnresolvedAlertForRoundup } = require('../../../src/marta/alert/store');
 const { renderBusDisruptionMap } = require('../../../src/marta/map/busDisruption');
 const { setup, runBin } = require('../../../src/marta/shared/runBin');
@@ -185,8 +186,15 @@ async function handleClears(names, now, getAgent, dryRun) {
     // Attach a link card to the resolved event page (parity with cta-insights +
     // MARTA rail pulse), so the clear reply links back to the archive.
     const link = resolvedEventLink(row.postUri, buildClearCardTitle(names, row.line));
+    // Mint the event's standard.site document + attach associatedRefs so the
+    // clear card renders enhanced immediately, not after the page-side rebuild.
+    const rkey = rkeyFromAtUri(row.postUri);
+    const associatedRefs =
+      link && rkey
+        ? await eventAssociatedRefs(agent, { rkey, title: link.title, publishedAt: Date.now() })
+        : null;
     const result = link
-      ? await postWithExternal(agent, text, link, replyRef)
+      ? await postWithExternal(agent, text, link, replyRef, associatedRefs)
       : await postText(agent, text, replyRef);
     console.log(`Posted pulse clear ${row.line}: ${result.url}`);
     incidents.recordDisruption(

@@ -53,6 +53,15 @@ test('parses a roster station and unit label from prose', () => {
   assert.equal(parsed.unitLabel, 'to the Red/Gold Line platform');
 });
 
+test('matches Lakewood-Ft. McPherson despite feed punctuation', () => {
+  const parsed = parseStationAndUnit(
+    'Elevator EE-1 (bus bay to concourse [Lee St]) is restored. Elevator Alert for Lakewood-Ft. McPherson Station',
+  );
+  assert.equal(parsed.stationName, 'Lakewood-Ft Mcpherson');
+  assert.equal(parsed.stationSlug, 'lakewood-ft-mcpherson-station');
+  assert.deepEqual(parsed.stationLines, ['gold', 'red']);
+});
+
 test('keeps unmatched stations visible but unlinked', () => {
   const parsed = parseStationAndUnit('Elevator at Mystery Stop is out of service.');
   assert.equal(parsed.stationName, 'Mystery Stop');
@@ -140,4 +149,9 @@ test('storage upsert, reconcile, reappear, and export payload', () => {
   assert.equal(payload.outages[0].id, 'marta-Alert:MARTA:alert-999');
   assert.equal(payload.outages[0].station.slug, 'midtown-station');
   assert.equal(payload.outages[0].lifecycle.active, true);
+});
+
+test('export reports accessibility archive launch date before retention cutoff', () => {
+  const payload = buildAccessibilityPayload({ now: Date.parse('2026-06-24T12:00:00Z') });
+  assert.equal(payload.data_start_ts, Date.parse('2026-06-23T12:00:00Z'));
 });

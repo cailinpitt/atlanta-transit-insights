@@ -62,6 +62,7 @@ function extractBetweenStations(text) {
 function normalizeStationKey(s) {
   return String(s)
     .toLowerCase()
+    .replace(/\./g, '')
     .replace(/\s*\/\s*/g, '/')
     .replace(/[\s-]+/g, ' ')
     .replace(/\s*\bstation\b\s*$/, '')

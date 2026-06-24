@@ -47,6 +47,8 @@ backdating `restored_ts` to the first missing tick. A reappearing source id
 reopens the same row and clears `restored_ts`.
 
 Retention is 180 days for restored outages. Active outages are never rolled off.
+The public archive starts on June 23, 2026; until retention catches up, exports
+report that launch date rather than a synthetic 180-day lookback date.
 
 ## Export
 
@@ -57,7 +59,7 @@ Retention is 180 days for restored outages. Active outages are never rolled off.
 {
   "schema_version": 1,
   "generated_at": 1781920688280,
-  "data_start_ts": 1781458745342,
+  "data_start_ts": 1782216000000,
   "window_days": 180,
   "outages": []
 }

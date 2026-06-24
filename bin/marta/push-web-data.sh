@@ -33,11 +33,12 @@ mkdir -p "$WORK" "$LAST"
 # PATH usually lacks node); fall back to PATH lookup for manual runs.
 NODE="${NODE:-node}"
 "$NODE" "$REPO/bin/marta/export-web.js" "$WORK/alerts.json"
+"$NODE" "$REPO/bin/marta/export-accessibility.js" "$WORK/accessibility.json"
 "$NODE" "$REPO/bin/marta/export-daily.js" "$WORK/alerts.json" "$WORK/daily-counts.json"
 "$NODE" "$REPO/bin/export-csv.js" "$WORK/alerts.json" "$WORK/alerts.csv"
 
 changed=0
-for f in alerts.json daily-counts.json alerts.csv; do
+for f in alerts.json accessibility.json daily-counts.json alerts.csv; do
   if ! cmp -s "$WORK/$f" "$LAST/$f" 2>/dev/null; then
     changed=1
   fi
@@ -47,13 +48,14 @@ if [ "$changed" -eq 0 ]; then
   exit 0
 fi
 
-for f in alerts.json daily-counts.json alerts.csv; do
+for f in alerts.json accessibility.json daily-counts.json alerts.csv; do
   rclone copyto "$WORK/$f" "$REMOTE/$f" \
     --s3-no-check-bucket \
     --header-upload "Cache-Control: public, max-age=30"
 done
 
 cp "$WORK/alerts.json" "$LAST/alerts.json"
+cp "$WORK/accessibility.json" "$LAST/accessibility.json"
 cp "$WORK/daily-counts.json" "$LAST/daily-counts.json"
 cp "$WORK/alerts.csv" "$LAST/alerts.csv"
 echo "marta push-web-data: uploaded to $REMOTE"

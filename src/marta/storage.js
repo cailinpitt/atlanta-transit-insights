@@ -23,6 +23,8 @@ const Database = require('better-sqlite3');
 // Detection looks back ~1h; 7-day retention matches cta-insights and covers
 // low-frequency overnight/weekend route variants without special-casing.
 const ROLLOFF_MS = 7 * 24 * 60 * 60 * 1000;
+const ACCESSIBILITY_ROLLOFF_MS = 180 * 24 * 60 * 60 * 1000;
+const ACCESSIBILITY_CLEAR_TICKS = 3;
 
 let _db = null;
 
@@ -204,6 +206,31 @@ function getDb() {
     CREATE INDEX IF NOT EXISTS idx_rail_obs_ts ON rail_observations(ts);
     CREATE INDEX IF NOT EXISTS idx_rail_arr_ts ON rail_arrivals(ts);
     CREATE INDEX IF NOT EXISTS idx_streetcar_obs_ts ON streetcar_observations(ts);
+
+    -- Elevator/escalator/entrance outage archive. This is capture/export only:
+    -- no Bluesky post URI columns because accessibility alerts are intentionally
+    -- suppressed from the rider notification timeline.
+    CREATE TABLE IF NOT EXISTS accessibility_outages (
+      source_id TEXT PRIMARY KEY,
+      agency TEXT NOT NULL,
+      station_name TEXT,
+      station_slug TEXT,
+      lines TEXT,
+      unit_type TEXT NOT NULL,
+      unit_label TEXT,
+      headline TEXT,
+      description TEXT,
+      source_url TEXT,
+      first_seen_ts INTEGER NOT NULL,
+      last_seen_ts INTEGER NOT NULL,
+      restored_ts INTEGER,
+      active INTEGER NOT NULL DEFAULT 1,
+      clear_ticks INTEGER NOT NULL DEFAULT 0,
+      clear_started_ts INTEGER
+    );
+    CREATE INDEX IF NOT EXISTS idx_accessibility_active ON accessibility_outages(active);
+    CREATE INDEX IF NOT EXISTS idx_accessibility_station ON accessibility_outages(station_slug);
+    CREATE INDEX IF NOT EXISTS idx_accessibility_last_seen ON accessibility_outages(last_seen_ts);
   `);
   return _db;
 }
@@ -416,6 +443,117 @@ function recordStreetcarObservations(vehicles, now = Date.now()) {
   } catch (e) {
     console.warn(`recordStreetcarObservations failed: ${e.message}`);
   }
+}
+
+function upsertAccessibilityOutages(rows, now = Date.now()) {
+  if (!rows || rows.length === 0) return;
+  const stmt = getDb().prepare(`
+    INSERT INTO accessibility_outages
+      (source_id, agency, station_name, station_slug, lines, unit_type, unit_label,
+       headline, description, source_url, first_seen_ts, last_seen_ts, restored_ts,
+       active, clear_ticks, clear_started_ts)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, 1, 0, NULL)
+    ON CONFLICT(source_id) DO UPDATE SET
+      agency = excluded.agency,
+      station_name = excluded.station_name,
+      station_slug = excluded.station_slug,
+      lines = excluded.lines,
+      unit_type = excluded.unit_type,
+      unit_label = excluded.unit_label,
+      headline = excluded.headline,
+      description = excluded.description,
+      source_url = excluded.source_url,
+      last_seen_ts = excluded.last_seen_ts,
+      restored_ts = NULL,
+      active = 1,
+      clear_ticks = 0,
+      clear_started_ts = NULL
+  `);
+  const tx = getDb().transaction((items) => {
+    for (const row of items) {
+      if (!row?.sourceId) continue;
+      stmt.run(
+        String(row.sourceId),
+        String(row.agency || 'marta'),
+        str(row.stationName),
+        str(row.stationSlug),
+        Array.isArray(row.lines) ? row.lines.join(',') : str(row.lines),
+        String(row.unitType || 'other'),
+        str(row.unitLabel),
+        str(row.headline),
+        str(row.description),
+        str(row.sourceUrl),
+        fin(row.firstSeenTs) ?? now,
+        now,
+      );
+    }
+  });
+  tx(rows);
+}
+
+function reconcileAccessibilityOutages(seenIds, now = Date.now()) {
+  const seen = new Set([...seenIds].map(String));
+  const rows = getDb()
+    .prepare(
+      'SELECT source_id AS sourceId, clear_ticks AS clearTicks FROM accessibility_outages WHERE active = 1',
+    )
+    .all();
+  const bump = getDb().prepare(`
+    UPDATE accessibility_outages
+    SET clear_ticks = clear_ticks + 1,
+        clear_started_ts = COALESCE(clear_started_ts, ?)
+    WHERE source_id = ?
+  `);
+  const restore = getDb().prepare(`
+    UPDATE accessibility_outages
+    SET active = 0,
+        restored_ts = COALESCE(clear_started_ts, ?),
+        clear_ticks = 0
+    WHERE source_id = ?
+  `);
+  const reset = getDb().prepare(`
+    UPDATE accessibility_outages
+    SET clear_ticks = 0,
+        clear_started_ts = NULL
+    WHERE source_id = ?
+  `);
+  const tx = getDb().transaction(() => {
+    for (const row of rows) {
+      if (seen.has(String(row.sourceId))) {
+        if (row.clearTicks > 0) reset.run(row.sourceId);
+        continue;
+      }
+      const next = (row.clearTicks || 0) + 1;
+      bump.run(now, row.sourceId);
+      if (next >= ACCESSIBILITY_CLEAR_TICKS) restore.run(now, row.sourceId);
+    }
+  });
+  tx();
+}
+
+function getAccessibilityOutages(sinceTs) {
+  return getDb()
+    .prepare(`
+      SELECT source_id AS sourceId, agency, station_name AS stationName,
+             station_slug AS stationSlug, lines, unit_type AS unitType,
+             unit_label AS unitLabel, headline, description, source_url AS sourceUrl,
+             first_seen_ts AS firstSeenTs, last_seen_ts AS lastSeenTs,
+             restored_ts AS restoredTs, active
+      FROM accessibility_outages
+      WHERE first_seen_ts >= ? OR restored_ts IS NULL OR restored_ts >= ?
+      ORDER BY first_seen_ts DESC
+    `)
+    .all(sinceTs, sinceTs)
+    .map((row) => ({
+      ...row,
+      lines: row.lines
+        ? String(row.lines)
+            .split(',')
+            .map((s) => s.trim())
+            .filter(Boolean)
+        : [],
+      active: row.active === 1,
+    }));
 }
 
 // --- Reads (the substrate the detectors will build on) ---
@@ -641,6 +779,9 @@ function rolloffOldObservations(now = Date.now()) {
   for (const t of SNAPSHOT_TABLES) {
     d.prepare(`DELETE FROM ${t} WHERE ts < ?`).run(cutoff);
   }
+  d.prepare('DELETE FROM accessibility_outages WHERE active = 0 AND restored_ts < ?').run(
+    now - ACCESSIBILITY_ROLLOFF_MS,
+  );
 }
 
 // Close + reset the singleton (tests point MARTA_HISTORY_DB_PATH at a temp file
@@ -655,12 +796,17 @@ function closeDb() {
 module.exports = {
   getDb,
   ROLLOFF_MS,
+  ACCESSIBILITY_ROLLOFF_MS,
+  ACCESSIBILITY_CLEAR_TICKS,
   recordBusObservations,
   recordBusTripUpdates,
   recordRailObservations,
   recordRailArrivals,
   recordRailSnapshot,
   recordStreetcarObservations,
+  upsertAccessibilityOutages,
+  reconcileAccessibilityOutages,
+  getAccessibilityOutages,
   getRecentBusObservations,
   getRecentBusObservationsAll,
   getLastBusObservationTs,

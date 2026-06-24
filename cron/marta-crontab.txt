@@ -87,6 +87,9 @@
 # a threaded "resolved" reply when one clears. The 2-min cadence pairs with
 # ALERT_CLEAR_TICKS=3 for a ~6-min flicker-safe clear window (src/marta/alert/store.js).
 1-59/2 * * * * cd __REPO__ && __NODE__ bin/marta/alerts.js >> __REPO__/state/logs/alerts.log 2>&1
+# Accessibility outage capture. Same official-alert source, capture-only: stores
+# elevator/escalator/entrance alerts for accessibility.json without posting.
+1-59/2 * * * * cd __REPO__ && __NODE__ bin/marta/accessibility.js >> __REPO__/state/logs/accessibility.log 2>&1
 # Bot-detected incident roundup (martaalertinsights). Mirrors CTA's alerts bot:
 # reads detector meta_signals and posts correlated degraded-service issues from
 # the alerts account, with resolution replies only from that same account.

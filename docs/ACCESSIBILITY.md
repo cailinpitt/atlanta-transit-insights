@@ -50,6 +50,13 @@ Retention is 180 days for restored outages. Active outages are never rolled off.
 The public archive starts on June 23, 2026; until retention catches up, exports
 report that launch date rather than a synthetic 180-day lookback date.
 
+Station fields are only written while an alert is live, so a row stored before a
+parser improvement keeps its old (possibly null) station after the alert
+restores and drops out of the feed. `bin/marta/backfill-accessibility-stations.js`
+re-runs the current parser over each stored row's headline + description and
+fills in station fields for any row that still has no `stationSlug`. It is
+idempotent and safe to re-run; pass `--dry-run` to preview without writing.
+
 ## Export
 
 `bin/marta/export-accessibility.js` writes schema-versioned

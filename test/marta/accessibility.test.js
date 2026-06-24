@@ -24,6 +24,7 @@ const {
   toOutageRows,
 } = require('../../src/marta/accessibility');
 const { buildAccessibilityPayload } = require('../../bin/marta/export-accessibility');
+const { main: backfillStations } = require('../../bin/marta/backfill-accessibility-stations');
 
 test.after(() => {
   storage.closeDb();
@@ -149,6 +150,32 @@ test('storage upsert, reconcile, reappear, and export payload', () => {
   assert.equal(payload.outages[0].id, 'marta-Alert:MARTA:alert-999');
   assert.equal(payload.outages[0].station.slug, 'midtown-station');
   assert.equal(payload.outages[0].lifecycle.active, true);
+});
+
+test('backfill re-matches stored outages whose station never resolved', () => {
+  const unmatched = {
+    sourceId: 'Alert:MARTA:alert-backfill',
+    agency: 'marta',
+    stationName: null,
+    stationSlug: null,
+    lines: [],
+    unitType: 'elevator',
+    unitLabel: 'EE-1 (bus bay to concourse [Lee St])',
+    headline: 'Elevator Alert for Lakewood-Ft. McPherson Station',
+    description: 'Elevator EE-1 (bus bay to concourse [Lee St]) is restored.',
+    sourceUrl: 'https://itsmarta.com/',
+    firstSeenTs: 6000,
+  };
+  upsertAccessibilityOutages([unmatched], 6000);
+  const before = getAccessibilityOutages(0).find((o) => o.sourceId === unmatched.sourceId);
+  assert.equal(before.stationSlug, null);
+
+  backfillStations();
+
+  const after = getAccessibilityOutages(0).find((o) => o.sourceId === unmatched.sourceId);
+  assert.equal(after.stationName, 'Lakewood-Ft Mcpherson');
+  assert.equal(after.stationSlug, 'lakewood-ft-mcpherson-station');
+  assert.deepEqual(after.lines, ['gold', 'red']);
 });
 
 test('export reports accessibility archive launch date before retention cutoff', () => {

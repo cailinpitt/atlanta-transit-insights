@@ -491,6 +491,24 @@ function upsertAccessibilityOutages(rows, now = Date.now()) {
   tx(rows);
 }
 
+// Re-derive an already-stored outage's station fields. Used to backfill rows
+// that were ingested before a station-matching fix and never re-upserted (a
+// restored alert drops out of the feed, so the upsert path can't reach it).
+function updateAccessibilityStation(sourceId, { stationName, stationSlug, lines }) {
+  getDb()
+    .prepare(`
+      UPDATE accessibility_outages
+      SET station_name = ?, station_slug = ?, lines = ?
+      WHERE source_id = ?
+    `)
+    .run(
+      str(stationName),
+      str(stationSlug),
+      Array.isArray(lines) ? lines.join(',') : str(lines),
+      String(sourceId),
+    );
+}
+
 function reconcileAccessibilityOutages(seenIds, now = Date.now()) {
   const seen = new Set([...seenIds].map(String));
   const rows = getDb()
@@ -805,6 +823,7 @@ module.exports = {
   recordRailSnapshot,
   recordStreetcarObservations,
   upsertAccessibilityOutages,
+  updateAccessibilityStation,
   reconcileAccessibilityOutages,
   getAccessibilityOutages,
   getRecentBusObservations,

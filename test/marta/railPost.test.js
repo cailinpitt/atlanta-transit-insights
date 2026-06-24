@@ -120,8 +120,35 @@ test('rail bunching post text and alt text include train count and labels', () =
   assert.match(text, /2 trains within 0\.28 mi/);
   assert.match(text, /#b \(1️⃣\), #a \(2️⃣\)/);
   assert.match(buildBunchingAltText(bunch), /2 trains bunched/);
-  assert.match(buildBunchingVideoPostText({ elapsedSec: 300 }, bunch), /5 min of recent movement/);
+  assert.match(
+    buildBunchingVideoPostText({ elapsedSec: 300, initialSpanFt: 1500, finalSpanFt: 2400 }, bunch),
+    /5 minutes later, the trains were 900 ft farther apart\.\n🎬 0\.28 mi → 0\.45 mi/,
+  );
   assert.match(buildBunchingVideoAltText(bunch), /Timelapse map of the Blue Line/);
+});
+
+test('rail bunching video reply describes closing and fallback states', () => {
+  const bunch = {
+    line: 'BLUE',
+    direction: 'E',
+    spanFt: 1500,
+    trains: [
+      { trainId: 'a', distFt: 10_000 },
+      { trainId: 'b', distFt: 11_000 },
+    ],
+  };
+  assert.match(
+    buildBunchingVideoPostText({ elapsedSec: 300, initialSpanFt: 2400, finalSpanFt: 1500 }, bunch),
+    /5 minutes later, the gap had closed by 900 ft\./,
+  );
+  assert.match(
+    buildBunchingVideoPostText({ elapsedSec: 300, initialSpanFt: 1500, finalSpanFt: 1525 }, bunch),
+    /Still bunched 5 minutes later\./,
+  );
+  assert.match(
+    buildBunchingVideoPostText({ elapsedSec: 300 }, bunch),
+    /Timelapse of the above - 5 minutes of real time\./,
+  );
 });
 
 test('rail bunching post weaves per-train schedule adherence when supplied', () => {

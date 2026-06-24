@@ -87,10 +87,31 @@ test('buildAltText describes the map', () => {
   assert.match(alt, /3 doraville buses within 600 ft/);
 });
 
-test('video reply text and alt text describe recent bus bunch movement', () => {
-  assert.match(buildVideoPostText({ elapsedSec: 420 }, bunch), /7 min of recent movement/);
-  assert.match(buildVideoPostText({ elapsedSec: 420 }, bunch), /3-bus bunch/);
+test('video reply text and alt text describe bus bunch spread', () => {
+  const text = buildVideoPostText(
+    { elapsedSec: 420, initialSpanFt: 600, finalSpanFt: 1200 },
+    bunch,
+    ctx,
+  );
+  assert.match(text, /^Route 20 \(Peachtree St\) - Doraville\n/);
+  assert.match(text, /7 minutes later, the buses were 600 ft farther apart\./);
+  assert.match(text, /🎬 600 ft → 0\.23 mi/);
   assert.match(buildVideoAltText(bunch, ctx), /Timelapse map of Route 20 \(Peachtree St\)/);
+});
+
+test('video reply text describes a bus bunch closing or staying together', () => {
+  assert.match(
+    buildVideoPostText({ elapsedSec: 420, initialSpanFt: 1200, finalSpanFt: 600 }, bunch),
+    /7 minutes later, the gap had closed by 600 ft\./,
+  );
+  assert.match(
+    buildVideoPostText({ elapsedSec: 420, initialSpanFt: 600, finalSpanFt: 625 }, bunch),
+    /Still bunched 7 minutes later\./,
+  );
+  assert.match(
+    buildVideoPostText({ elapsedSec: 420 }, bunch),
+    /Timelapse of the above - 7 minutes of real time\./,
+  );
 });
 
 // --- incident lifecycle: cooldown / cap / callouts --------------------------

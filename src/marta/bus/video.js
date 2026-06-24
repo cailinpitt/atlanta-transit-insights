@@ -61,6 +61,12 @@ function enrichRows(rows, { gtfs, shapes, shapeId, vehicleIds }) {
   return out.sort((a, b) => a.ts - b.ts);
 }
 
+function spanFt(items = []) {
+  const dists = items.map((v) => v.track ?? v.distFt).filter((d) => Number.isFinite(d));
+  if (dists.length < 2) return null;
+  return Math.round(Math.max(...dists) - Math.min(...dists));
+}
+
 async function captureBusBunchingHistoryVideo(bunch, shape, rows, opts = {}) {
   const ids = bunch.vehicles.map((v) => v.vehicleId);
   const enriched = enrichRows(rows, {
@@ -97,6 +103,8 @@ async function captureBusBunchingHistoryVideo(bunch, shape, rows, opts = {}) {
     buffer,
     elapsedSec: Math.round((snapshots.at(-1).ts - snapshots[0].ts) / 1000),
     frameCount: frames.length,
+    initialSpanFt: spanFt(frames[0]),
+    finalSpanFt: spanFt(frames.at(-1)),
   };
 }
 

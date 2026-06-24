@@ -108,11 +108,19 @@ function buildBunchingAltText(bunch) {
   return `Map of the ${lineTitle(bunch.line)}${suffix} showing ${bunch.trains.length} trains bunched within ${formatDistance(bunch.spanFt)}.`;
 }
 
-function buildBunchingVideoPostText(video, bunch) {
-  const elapsed = video?.elapsedSec
-    ? `${Math.max(1, Math.round(video.elapsedSec / 60))} min`
-    : 'Several minutes';
-  return `${elapsed} of recent movement from this ${bunch.trains.length}-train bunch.`;
+function buildBunchingVideoPostText(video, _bunch) {
+  const elapsed = elapsedMinutesLabel(video?.elapsedSec || 0);
+  if (video?.finalSpanFt == null || video?.initialSpanFt == null) {
+    return `Timelapse of the above - ${elapsed} of real time.`;
+  }
+  const delta = video.finalSpanFt - video.initialSpanFt;
+  let headline;
+  if (delta > 50)
+    headline = `${elapsed} later, the trains were ${formatDistance(delta)} farther apart.`;
+  else if (delta < -50)
+    headline = `${elapsed} later, the gap had closed by ${formatDistance(-delta)}.`;
+  else headline = `Still bunched ${elapsed} later.`;
+  return `${headline}\n🎬 ${formatDistance(video.initialSpanFt)} → ${formatDistance(video.finalSpanFt)}`;
 }
 
 function buildBunchingVideoAltText(bunch) {

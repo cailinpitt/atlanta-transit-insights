@@ -43,6 +43,12 @@ function enrichRows(rows, { lineGeom, line, direction, trainIds }) {
   return out.sort((a, b) => a.ts - b.ts);
 }
 
+function spanFt(items = []) {
+  const dists = items.map((v) => v.track ?? v.distFt).filter((d) => Number.isFinite(d));
+  if (dists.length < 2) return null;
+  return Math.round(Math.max(...dists) - Math.min(...dists));
+}
+
 async function captureRailBunchingHistoryVideo(bunch, line, rows, opts = {}) {
   const ids = bunch.trains.map((t) => t.trainId);
   const enriched = enrichRows(rows, {
@@ -82,6 +88,8 @@ async function captureRailBunchingHistoryVideo(bunch, line, rows, opts = {}) {
     buffer,
     elapsedSec: Math.round((snapshots.at(-1).ts - snapshots[0].ts) / 1000),
     frameCount: frames.length,
+    initialSpanFt: spanFt(frames[0]),
+    finalSpanFt: spanFt(frames.at(-1)),
   };
 }
 

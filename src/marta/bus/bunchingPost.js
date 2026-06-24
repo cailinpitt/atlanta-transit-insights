@@ -4,7 +4,12 @@
 // Video-post builders are omitted for this slice.
 const { assignBusNumbers } = require('./bunching');
 const { formatCallouts } = require('../shared/incidents');
-const { formatDistance, formatDeviation, keycapNumber } = require('../shared/format');
+const {
+  formatDistance,
+  formatDeviation,
+  elapsedMinutesLabel,
+  keycapNumber,
+} = require('../shared/format');
 
 // `ctx` = { routeTitle, direction, nearStopName }.
 function buildPostText(bunch, ctx, callouts = [], opts = {}) {
@@ -54,11 +59,22 @@ function buildAltText(bunch, ctx) {
   return `Map of ${routeTitle}${nearPart} showing ${bunch.vehicles.length}${dirPart} buses within ${formatDistance(bunch.spanFt)} of each other.`;
 }
 
-function buildVideoPostText(video, bunch) {
-  const elapsed = video?.elapsedSec
-    ? `${Math.max(1, Math.round(video.elapsedSec / 60))} min`
-    : 'Several minutes';
-  return `${elapsed} of recent movement from this ${bunch.vehicles.length}-bus bunch.`;
+function buildVideoPostText(video, _bunch, ctx = {}) {
+  const elapsed = elapsedMinutesLabel(video?.elapsedSec || 0);
+  const context = ctx.routeTitle
+    ? `${ctx.routeTitle}${ctx.direction ? ` - ${ctx.direction}` : ''}\n`
+    : '';
+  if (video?.finalSpanFt == null || video?.initialSpanFt == null) {
+    return `${context}Timelapse of the above - ${elapsed} of real time.`;
+  }
+  const delta = video.finalSpanFt - video.initialSpanFt;
+  let headline;
+  if (delta > 50)
+    headline = `${elapsed} later, the buses were ${formatDistance(delta)} farther apart.`;
+  else if (delta < -50)
+    headline = `${elapsed} later, the gap had closed by ${formatDistance(-delta)}.`;
+  else headline = `Still bunched ${elapsed} later.`;
+  return `${context}${headline}\n🎬 ${formatDistance(video.initialSpanFt)} → ${formatDistance(video.finalSpanFt)}`;
 }
 
 function buildVideoAltText(bunch, ctx = {}) {

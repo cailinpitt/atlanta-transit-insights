@@ -311,7 +311,7 @@ async function main() {
       };
       const reply = await postWithVideo(
         posted.agent,
-        buildVideoPostText(video, bunch),
+        buildVideoPostText(video, bunch, ctx),
         video.buffer,
         buildVideoAltText(bunch, ctx),
         replyRef,

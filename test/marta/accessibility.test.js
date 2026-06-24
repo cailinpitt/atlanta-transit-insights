@@ -77,8 +77,29 @@ test('maps OTP-style alerts to outage rows', () => {
   assert.equal(rows.length, 1);
   assert.equal(rows[0].sourceId, 'Alert:MARTA:alert-123');
   assert.equal(rows[0].unitType, 'elevator');
+  assert.equal(rows[0].unitLabel, 'to southbound platform');
   assert.equal(rows[0].stationSlug, 'arts-center-station');
   assert.deepEqual(rows[0].lines, ['gold', 'red']);
+});
+
+test('prefers description text for unit label over generic headline text', () => {
+  const rows = toOutageRows(
+    [
+      {
+        id: Buffer.from('Alert:MARTA:alert-2584506771016740').toString('base64'),
+        effect: 'ACCESSIBILITY_ISSUE',
+        header: 'Elevator Alert for Dunwoody Station',
+        description:
+          'Elevator SE-3 (platform to street level [State Farm side]) is out of service. Use white or blue phone for customer assistance.',
+        informedEntities: [{ routeId: 'Red', routeType: 1 }],
+      },
+    ],
+    undefined,
+    5000,
+  );
+  assert.equal(rows[0].stationName, 'Dunwoody');
+  assert.equal(rows[0].stationSlug, 'dunwoody-station');
+  assert.equal(rows[0].unitLabel, 'SE-3 (platform to street level [State Farm side])');
 });
 
 test('storage upsert, reconcile, reappear, and export payload', () => {

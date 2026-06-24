@@ -135,7 +135,7 @@ function toOutageRows(alerts, stations = RAIL_STATIONS, now = Date.now()) {
       stationSlug: parsed.stationSlug,
       lines,
       unitType: classifyUnit(text),
-      unitLabel: parsed.unitLabel,
+      unitLabel: parseUnitLabel(alert.description) || parsed.unitLabel,
       headline: alert.header || null,
       description: alert.description || null,
       sourceUrl: alert.url || null,

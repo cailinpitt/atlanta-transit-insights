@@ -47,6 +47,7 @@
     "marta:accessibility": "node bin/marta/accessibility.js",
     "marta:accessibility:dry": "node bin/marta/accessibility.js --dry-run",
     "marta:export-web": "node bin/marta/export-web.js",
+    "marta:publish-data": "sh bin/marta/push-web-data.sh",
     "marta:export-accessibility": "node bin/marta/export-accessibility.js",
     "marta:gen-avatars": "node scripts/marta/generate-avatar.js",
     "marta:set-profile": "node scripts/marta/set-profile.js",

@@ -65,6 +65,9 @@ const CLEAR_LOOKBACK_MS = 24 * 60 * 60 * 1000;
 // Outer bound for the synthetic (no-reply) clear pass. Observations roll off at
 // 7d so we can't prove recovery past that anyway.
 const SYNTHETIC_CLEAR_LOOKBACK_MS = 30 * 24 * 60 * 60 * 1000;
+// Cross-detector suppression window — mirror of pulse's. A route already
+// reported silent by pulse shouldn't ALSO open a thin-gap (see eligibility).
+const CROSS_DETECTOR_LOOKBACK_MS = 7 * 24 * 60 * 60 * 1000;
 
 function routeMeta(gtfs) {
   const names = new Map();
@@ -197,8 +200,18 @@ async function main() {
   // Untracked GTFS-only routes and stale multi-hour silences are skipped.
   const nowDate = new Date(now);
   const recentlyTracked = storage.getDistinctBusRoutesSince(now - TRACKED_RECENT_MS);
+  // Cross-detector suppression (mirror of pulse): the thin/pulse split is the
+  // current-hour headway, so a route whose headway straddles 20 min across the
+  // day can be claimed by both detectors for the SAME ongoing silence. Defer to
+  // an already-open pulse blackout so a route has at most one open silence
+  // incident. observed-clear is line-keyed and shared, releasing both.
+  const openPulses = incidents.openSilenceLines(
+    { kind: 'bus', source: 'observed', sinceMs: CROSS_DETECTOR_LOOKBACK_MS },
+    now,
+  );
   const eligible = busRoutes.filter((r) => {
     if (!recentlyTracked.has(String(r))) return false;
+    if (openPulses.has(String(r))) return false;
     const h = headwayForLine(idx, r, nowDate);
     return h != null && h >= THIN_GAP_MIN_HEADWAY_MIN;
   });

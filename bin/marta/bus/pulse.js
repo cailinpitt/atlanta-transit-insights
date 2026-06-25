@@ -53,6 +53,12 @@ const PULSE_COOLDOWN_MS = 2 * 60 * 60 * 1000;
 const THIN_GAP_MIN_HEADWAY_MIN = 20;
 const CLEAR_LOOKBACK_MS = 24 * 60 * 60 * 1000;
 const SYNTHETIC_CLEAR_LOOKBACK_MS = 30 * 24 * 60 * 60 * 1000;
+// Cross-detector suppression window. A route already reported silent by
+// thin-gaps shouldn't ALSO open a pulse blackout (see the eligibility filter).
+// 7d comfortably exceeds any continuous single-route silence while bounding the
+// scan, and matches the observation roll-off horizon past which recovery can't
+// be proven anyway.
+const CROSS_DETECTOR_LOOKBACK_MS = 7 * 24 * 60 * 60 * 1000;
 
 function routeMeta(gtfs) {
   const names = new Map();
@@ -254,8 +260,21 @@ async function main() {
   await handleClears(names, now, getAgent, dryRun);
   await handleStaleClears(now, dryRun);
 
-  // pulse owns higher-frequency routes; thin-gaps owns headway ≥ 20 min.
+  // pulse owns higher-frequency routes; thin-gaps owns headway ≥ 20 min. That
+  // split is evaluated against the CURRENT hour's headway, so a route whose
+  // scheduled headway straddles 20 min across the day (e.g. 20 one hour, 19.5
+  // the next) can be claimed by thin-gaps in one hour and pulse the next while
+  // the SAME silence is ongoing — two standalone incidents on two accounts.
+  // Defer to an already-open thin-gap silence so a route has at most one open
+  // silence incident regardless of which side of the boundary it landed on.
+  // (observed-clear is keyed by line and shared, so whichever detector posted
+  // the clear releases the suppression for both.)
+  const openThinGaps = incidents.openSilenceLines(
+    { kind: 'bus', source: 'observed-thin', sinceMs: CROSS_DETECTOR_LOOKBACK_MS },
+    now,
+  );
   const eligible = busRoutes.filter((r) => {
+    if (openThinGaps.has(String(r))) return false;
     const h = headwayForLine(idx, r, nowDate);
     return h != null && h < THIN_GAP_MIN_HEADWAY_MIN;
   });

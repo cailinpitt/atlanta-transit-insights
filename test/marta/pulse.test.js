@@ -129,6 +129,47 @@ test("observed (pulse) firing surfaces as a standalone 'pulse-cold' bot incident
   assert.equal(resolved.lifecycle.active, false);
 });
 
+test('openSilenceLines powers cross-detector suppression and releases on a shared clear', () => {
+  const ts = NOW + 9 * 60 * 60_000; // distinct window from the route-110 case above
+  const sinceMs = 7 * 24 * 60 * 60_000;
+  // An open thin-gap on 900 and an open pulse on 901.
+  incidents.recordDisruption(
+    { kind: 'bus', line: '900', source: 'observed-thin', posted: true, postUri: 'thin900' },
+    ts,
+  );
+  incidents.recordDisruption(
+    { kind: 'bus', line: '901', source: 'observed', posted: true, postUri: 'pulse901' },
+    ts,
+  );
+
+  // Each detector sees only the OTHER's open silence under its own source key —
+  // so pulse would skip 900 and thin-gaps would skip 901.
+  const openThin = incidents.openSilenceLines(
+    { kind: 'bus', source: 'observed-thin', sinceMs },
+    ts + 1000,
+  );
+  const openPulse = incidents.openSilenceLines(
+    { kind: 'bus', source: 'observed', sinceMs },
+    ts + 1000,
+  );
+  assert.ok(openThin.has('900'), 'open thin-gap on 900 surfaces');
+  assert.ok(!openThin.has('901'), 'a pulse firing is not an open thin-gap');
+  assert.ok(openPulse.has('901'), 'open pulse on 901 surfaces');
+  assert.ok(!openPulse.has('900'), 'a thin-gap firing is not an open pulse');
+
+  // A line-keyed observed-clear (posted by either detector) releases the
+  // suppression — 900 drops out once buses are observed again.
+  incidents.recordDisruption(
+    { kind: 'bus', line: '900', source: 'observed-clear', posted: true, postUri: 'clear900' },
+    ts + 60_000,
+  );
+  const afterClear = incidents.openSilenceLines(
+    { kind: 'bus', source: 'observed-thin', sinceMs },
+    ts + 120_000,
+  );
+  assert.ok(!afterClear.has('900'), 'cleared thin-gap no longer suppresses');
+});
+
 test('bin --check resolves all imports', () => {
   const bin = Path.join(__dirname, '..', '..', 'bin', 'marta', 'bus', 'pulse.js');
   const res = spawnSync(process.execPath, [bin, '--check'], { encoding: 'utf8' });

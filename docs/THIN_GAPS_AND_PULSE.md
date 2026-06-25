@@ -49,8 +49,19 @@ vehicles** in a headway-scaled lookback (3× longest-direction headway, clamped 
   official alert when one is up, otherwise under the original pulse post, and
   carries a **resolved-event link card** back to the archive.
 
-The 20-min headway boundary partitions the two cleanly so a route is never both a
-thin-gap and a pulse candidate.
+The 20-min headway boundary partitions the two *at a single instant*. But the
+split is evaluated against the **current hour's** headway (`headwayForLine` is an
+hourly bucket), and these are separate cron jobs that run minutes-to-hours apart.
+A route whose scheduled headway straddles 20 min across the day (e.g. Route 187:
+`20` most hours, `19.5` at 10:00, `19` at 16:00) can therefore be claimed by
+thin-gaps in one hour and by pulse the next *for the same ongoing silence* — two
+standalone incidents on two accounts. So each detector also **defers to an
+already-open silence from the other**: before firing route R, pulse skips R if an
+un-cleared `observed-thin` disruption exists for it, and thin-gaps skips R if an
+un-cleared `observed` (pulse) disruption exists. Because `observed-clear` is
+line-keyed and shared, whichever detector posts the clear releases the
+suppression for both, guaranteeing **at most one open silence incident per route**
+regardless of which side of the boundary it landed on.
 
 ## rail pulse — dead track segments (`bin/marta/rail/pulse.js`)
 

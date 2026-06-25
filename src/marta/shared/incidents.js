@@ -866,6 +866,18 @@ function findUnresolvedDisruptions({ kind, source, sinceMs, untilMs = 0 }, now =
     .all(kind, source, now - sinceMs, now - untilMs);
 }
 
+// Set of route/line ids that currently have an open (un-cleared) silence
+// disruption of the given source. Cross-detector suppression primitive shared by
+// the bus thin-gaps and pulse bins: the thin/pulse split is the current-hour
+// scheduled headway, so a route whose headway straddles 20 min across the day
+// can be claimed by both detectors for the same ongoing silence. Each defers to
+// an open silence from the other so a route has at most one open incident.
+function openSilenceLines({ kind, source, sinceMs }, now = Date.now()) {
+  return new Set(
+    findUnresolvedDisruptions({ kind, source, sinceMs }, now).map((row) => String(row.line)),
+  );
+}
+
 // Drop expired cooldowns (+ ancient legacy null-ttl rows) and stale meta_signals.
 // Has an 'observed-clear' already been recorded for the dead-segment pulse
 // whose canonical post is `pulseUri`? Dedups the ✅ clear reply against retries.
@@ -1038,6 +1050,7 @@ module.exports = {
   getRecentMetaSignals,
   recordDisruption,
   findUnresolvedDisruptions,
+  openSilenceLines,
   hasObservedClearForPulse,
   recordRoundupAnchor,
   listUnresolvedRoundupAnchors,

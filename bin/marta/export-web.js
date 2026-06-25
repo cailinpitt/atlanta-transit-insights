@@ -1109,6 +1109,316 @@ function buildIncidents(alerts, detections, roundups = [], disruptions = [], now
   return consolidateAlertChains(incidents);
 }
 
+// --- Sharded web export (alerts-recent.json + monthly + per-line + index) ---
+// The single full-history alerts.json grows unbounded yet is fetched + parsed by
+// every page load. These shards let the site load a bounded recent slice by
+// default and lazily fetch the immutable archive shards / all-time per-line
+// history on demand, while still exposing every incident.
+
+// Recent window the site loads by default. 93d (not 90) leaves a small margin so
+// the client's 90-day aggregations never reference an incident the recent file
+// dropped at the boundary.
+const RECENT_WINDOW_DAYS = 93;
+const RECENT_WINDOW_MS = RECENT_WINDOW_DAYS * 24 * 60 * 60 * 1000;
+
+// Month key in Atlanta local time (matches export-daily.js day bucketing), so a
+// shard boundary lines up with how the site labels calendar dates.
+const monthKeyFmt = new Intl.DateTimeFormat('en-CA', {
+  timeZone: 'America/New_York',
+  year: 'numeric',
+  month: '2-digit',
+});
+function atlantaMonthKey(ts) {
+  let y = null;
+  let m = null;
+  for (const p of monthKeyFmt.formatToParts(new Date(ts))) {
+    if (p.type === 'year') y = p.value;
+    else if (p.type === 'month') m = p.value;
+  }
+  return `${y}-${m}`;
+}
+
+function incidentFirstSeen(inc) {
+  const ts = inc?.lifecycle?.first_seen_ts;
+  return typeof ts === 'number' && Number.isFinite(ts) ? ts : null;
+}
+
+// Every Bluesky post rkey an incident can be deep-linked by: its official
+// alert(s) and each bot detection. The canonical `inc.id` is one of these; the
+// rest are non-canonical aliases a shared link might use. Mirrors the rkeys
+// atlanta-transit-alerts' findIncidentById matches on.
+function incidentPostRkeys(inc) {
+  const out = [];
+  const push = (url) => {
+    const rk = postUrlRkey(url);
+    if (rk) out.push(rk);
+  };
+  const alerts =
+    Array.isArray(inc.official_alerts) && inc.official_alerts.length > 0
+      ? inc.official_alerts
+      : inc.official_alert
+        ? [inc.official_alert]
+        : [];
+  for (const a of alerts) push(a?.post_url);
+  for (const d of inc.detections || []) push(d?.post_url);
+  return out;
+}
+
+// Pure: split the full consolidated incidents[] into the recent slice, immutable
+// monthly archive shards (by Atlanta month of first_seen), all-time per-line
+// files (one per route key in incident.routes — matching how LinePage filters),
+// and an index. Input order (first_seen DESC) is preserved within every bucket.
+function shardIncidents(incidents, now = Date.now()) {
+  const recentCutoff = now - RECENT_WINDOW_MS;
+  const recent = [];
+  const monthMap = new Map();
+  const lineMap = new Map();
+  const idMonth = {};
+  const rkeyMonth = {};
+
+  for (const inc of incidents || []) {
+    const firstSeen = incidentFirstSeen(inc);
+    const active = inc?.lifecycle?.active === true;
+
+    // recent = within the window OR still active (an old-but-open incident must
+    // stay on the home page regardless of age).
+    if (active || (firstSeen != null && firstSeen >= recentCutoff)) recent.push(inc);
+
+    // Monthly archive shard, keyed by the immutable first_seen month. An incident
+    // with no first_seen is degenerate (the export always sets it from the post
+    // ts) — it still rides `recent` if active but isn't archived/indexed.
+    if (firstSeen != null) {
+      const key = atlantaMonthKey(firstSeen);
+      let list = monthMap.get(key);
+      if (!list) {
+        list = [];
+        monthMap.set(key, list);
+      }
+      list.push(inc);
+      idMonth[inc.id] = key;
+      // Secondary post rkeys → month, so a shared link using a non-canonical
+      // bsky post rkey of an archived incident still resolves (the canonical id
+      // is already in idMonth, so skip it to keep the map small).
+      for (const rkey of incidentPostRkeys(inc)) {
+        if (rkey !== inc.id) rkeyMonth[rkey] = key;
+      }
+    }
+
+    // All-time per-line files: one bucket per route the incident touches. A
+    // multi-line incident appears in each line's file (intentional duplication).
+    for (const route of inc.routes || []) {
+      if (!route) continue;
+      let list = lineMap.get(route);
+      if (!list) {
+        list = [];
+        lineMap.set(route, list);
+      }
+      list.push(inc);
+    }
+  }
+
+  const months = [...monthMap.entries()]
+    .sort((a, b) => (a[0] < b[0] ? 1 : -1)) // newest month first
+    .map(([key, list]) => {
+      let min = Infinity;
+      let max = -Infinity;
+      for (const inc of list) {
+        const ts = incidentFirstSeen(inc);
+        if (ts == null) continue;
+        if (ts < min) min = ts;
+        if (ts > max) max = ts;
+      }
+      return {
+        key,
+        url: `alerts/${key}.json`,
+        count: list.length,
+        min_ts: min === Infinity ? null : min,
+        max_ts: max === -Infinity ? null : max,
+        incidents: list,
+      };
+    });
+
+  const lines = [...lineMap.entries()]
+    .sort((a, b) => (a[0] < b[0] ? -1 : 1))
+    .map(([key, list]) => ({
+      key,
+      url: `incidents/by-line/${encodeURIComponent(key)}.json`,
+      count: list.length,
+      incidents: list,
+    }));
+
+  return { recent, recent_from_ts: recentCutoff, months, lines, idMonth, rkeyMonth };
+}
+
+// Write `body` only when the file's bytes change, so unchanged immutable shards
+// neither rewrite locally nor churn the downstream R2 upload.
+function writeFileIfChanged(filePath, body) {
+  if (Fs.existsSync(filePath)) {
+    try {
+      if (Fs.readFileSync(filePath, 'utf8') === body) return false;
+    } catch (_) {}
+  }
+  Fs.mkdirSync(Path.dirname(filePath), { recursive: true });
+  Fs.writeFileSync(filePath, body, 'utf8');
+  return true;
+}
+
+// Emit the shard set into `dir`. Archive shards (months, per-line) deliberately
+// omit generated_at so an unchanged month/line is byte-identical run-to-run and
+// skips the upload; recent + index carry generated_at and refresh each tick.
+function writeShards(out, dir, now = Date.now()) {
+  const { recent, recent_from_ts, months, lines, idMonth, rkeyMonth } = shardIncidents(
+    out.incidents,
+    now,
+  );
+  let written = 0;
+
+  const recentBody = `${JSON.stringify({
+    schema_version: out.schema_version,
+    generated_at: out.generated_at,
+    data_start_ts: out.data_start_ts,
+    recent_from_ts,
+    incidents: recent,
+  })}\n`;
+  if (writeFileIfChanged(Path.join(dir, 'alerts-recent.json'), recentBody)) written++;
+
+  for (const m of months) {
+    const body = `${JSON.stringify({
+      schema_version: out.schema_version,
+      month: m.key,
+      incidents: m.incidents,
+    })}\n`;
+    if (writeFileIfChanged(Path.join(dir, 'alerts', `${m.key}.json`), body)) written++;
+  }
+
+  for (const l of lines) {
+    const body = `${JSON.stringify({
+      schema_version: out.schema_version,
+      line: l.key,
+      incidents: l.incidents,
+    })}\n`;
+    const file = Path.join(dir, 'incidents', 'by-line', `${encodeURIComponent(l.key)}.json`);
+    if (writeFileIfChanged(file, body)) written++;
+  }
+
+  const indexBody = `${JSON.stringify({
+    schema_version: out.schema_version,
+    generated_at: out.generated_at,
+    data_start_ts: out.data_start_ts,
+    recent_from_ts,
+    months: months.map(({ key, url, count, min_ts, max_ts }) => ({
+      key,
+      url,
+      count,
+      min_ts,
+      max_ts,
+    })),
+    lines: lines.map(({ key, url, count }) => ({ key, url, count })),
+    id_month: idMonth,
+    rkey_month: rkeyMonth,
+  })}\n`;
+  if (writeFileIfChanged(Path.join(dir, 'alerts-index.json'), indexBody)) written++;
+
+  console.error(
+    `marta export-web: wrote ${written} shard file(s) to ${dir} ` +
+      `(${recent.length} recent, ${months.length} months, ${lines.length} lines)`,
+  );
+}
+
+// --- Precomputed analytics (aggregates.json) ---
+// The one analytics input that genuinely needs >90 days of history: the SPA's
+// year-over-year compares a trailing 30-day window against the same 30 days a
+// year ago, so it can't be derived from alerts-recent.json. Precomputing it
+// here lets Stats + SystemHealth drop their full-history fetch. Per-line and
+// per-Compare YoY stays client-side over the all-time per-line shards (each page
+// already loads its own line file), so this stays just overall + per mode.
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+const YOY_WINDOW_DAYS = 30;
+
+// Map the wire `mode` to the SPA's legacy kind keys, matching
+// atlanta-transit-alerts' legacyKind: rail + streetcar fold into 'train', bus
+// stays 'bus'. Any other mode (e.g. an alert classified 'general') isn't a
+// website incident — the SPA filters it out with isWebsiteIncident before
+// computing YoY, so we exclude it here too (null) to keep the counts identical.
+function aggregateModeKey(mode) {
+  if (mode === 'rail' || mode === 'streetcar') return 'train';
+  if (mode === 'bus') return 'bus';
+  return null;
+}
+
+// Year-over-year counts for a list of incident first_seen timestamps. One bump
+// per timestamp, so passing one ts per incident yields the same counts the SPA's
+// computeYearOverYear produces after getMerge regroups records to one-per-
+// incident. Direct port of that window math (atlanta-transit-alerts/src/lib/
+// aggregate.js) — keep the two in sync if the windows change.
+function yearOverYear(firstSeenList, now, dataStartTs, windowDays = YOY_WINDOW_DAYS) {
+  const yearMs = 365 * DAY_MS;
+  const windowMs = windowDays * DAY_MS;
+  const currentEndTs = now;
+  const currentStartTs = now - windowMs;
+  const priorEndTs = now - yearMs;
+  const priorStartTs = priorEndTs - windowMs;
+  // Only emit a comparison against a prior window we actually have coverage for;
+  // the trailing-window currentCount is always well-defined.
+  const enoughData = dataStartTs == null || dataStartTs <= priorStartTs;
+  let currentCount = 0;
+  let priorCount = 0;
+  for (const ts of firstSeenList) {
+    if (ts == null) continue;
+    if (ts >= currentStartTs && ts <= currentEndTs) currentCount++;
+    else if (ts >= priorStartTs && ts <= priorEndTs) priorCount++;
+  }
+  const pctChange = enoughData && priorCount > 0 ? (currentCount - priorCount) / priorCount : null;
+  return {
+    enoughData,
+    currentCount,
+    priorCount,
+    pctChange,
+    currentStartTs,
+    currentEndTs,
+    priorStartTs,
+    priorEndTs,
+  };
+}
+
+// Pure: the precomputed analytics rollup published as aggregates.json. Today
+// that's year-over-year only (overall + per mode); everything else the SPA
+// charts stays client-side over the recent file.
+function computeAggregates(incidents, { now = Date.now(), dataStartTs = null } = {}) {
+  const all = [];
+  const byMode = { train: [], bus: [] };
+  for (const inc of incidents || []) {
+    const key = aggregateModeKey(inc.mode);
+    if (!key) continue; // not a website incident — excluded, matching the SPA
+    const ts = incidentFirstSeen(inc);
+    if (ts == null) continue;
+    all.push(ts);
+    byMode[key].push(ts);
+  }
+  return {
+    yoy: {
+      window_days: YOY_WINDOW_DAYS,
+      overall: yearOverYear(all, now, dataStartTs),
+      by_mode: {
+        train: yearOverYear(byMode.train, now, dataStartTs),
+        bus: yearOverYear(byMode.bus, now, dataStartTs),
+      },
+    },
+  };
+}
+
+function writeAggregates(out, dir, now = Date.now()) {
+  const body = `${JSON.stringify({
+    schema_version: out.schema_version,
+    generated_at: out.generated_at,
+    data_start_ts: out.data_start_ts,
+    ...computeAggregates(out.incidents, { now, dataStartTs: out.data_start_ts }),
+  })}\n`;
+  const wrote = writeFileIfChanged(Path.join(dir, 'aggregates.json'), body);
+  console.error(`marta export-web: ${wrote ? 'wrote' : 'unchanged'} aggregates.json in ${dir}`);
+}
+
 function buildExport(db, now = Date.now()) {
   const alerts = readAlerts(db);
   const detections = readDetections(db);
@@ -1154,17 +1464,39 @@ function writeOutput(out, outputPath) {
 }
 
 function main() {
+  // Args: an optional positional alerts.json path (legacy full-history file) and
+  // an optional `--shards <dir>` to also emit the sharded payload. Both may be
+  // given during the rollout so the old and new files publish side by side.
+  const args = process.argv.slice(2);
+  let outputPath = null;
+  let shardDir = null;
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] === '--shards') shardDir = args[++i];
+    else if (!outputPath && !args[i].startsWith('--')) outputPath = args[i];
+  }
+
   const db = new Database(DB_PATH, { readonly: true });
   // Wait for a concurrent writer's lock rather than failing the export outright
   // (matches the writer connection in src/marta/storage.js). Without this a
   // heavy export read during a write could throw "database is locked" and leave
   // the site frozen on the last good alerts.json.
   db.pragma('busy_timeout = 15000');
+  let out;
   try {
-    writeOutput(buildExport(db), process.argv[2]);
+    out = buildExport(db);
   } finally {
     db.close();
   }
+
+  // Shards + aggregates first, so they're emitted even when the legacy write
+  // skips on "no data changes" (writeFileIfChanged no-ops unchanged files).
+  if (shardDir) {
+    writeShards(out, shardDir);
+    writeAggregates(out, shardDir);
+  }
+  // Write the legacy file when a path was given, or fall back to stdout only
+  // when neither an output path nor a shard dir was requested.
+  if (outputPath || !shardDir) writeOutput(out, outputPath);
 }
 
 if (require.main === module) main();
@@ -1175,4 +1507,8 @@ module.exports = {
   buildIncidents,
   consolidateAlertChains,
   postUrlRkey,
+  shardIncidents,
+  atlantaMonthKey,
+  RECENT_WINDOW_MS,
+  computeAggregates,
 };

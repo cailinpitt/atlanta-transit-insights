@@ -32,7 +32,10 @@ mkdir -p "$WORK" "$LAST"
 # Honor an explicit NODE (the crontab passes the absolute path, since cron's
 # PATH usually lacks node); fall back to PATH lookup for manual runs.
 NODE="${NODE:-node}"
-"$NODE" "$REPO/bin/marta/export-web.js" "$WORK/alerts.json"
+# --shards also emits the bounded recent slice + monthly archive shards +
+# all-time per-line files + index + aggregates.json (precomputed YoY), alongside
+# the legacy full-history alerts.json (published side by side during the rollout).
+"$NODE" "$REPO/bin/marta/export-web.js" "$WORK/alerts.json" --shards "$WORK"
 "$NODE" "$REPO/bin/marta/export-accessibility.js" "$WORK/accessibility.json"
 "$NODE" "$REPO/bin/marta/export-daily.js" "$WORK/alerts.json" "$WORK/daily-counts.json"
 "$NODE" "$REPO/bin/export-csv.js" "$WORK/alerts.json" "$WORK/alerts.csv"
@@ -48,11 +51,48 @@ if [ "$changed" -eq 0 ]; then
   exit 0
 fi
 
-for f in alerts.json accessibility.json daily-counts.json alerts.csv; do
+# Upload to R2. High-churn files get a short edge-cache TTL; the client also
+# revalidates on generated_at / ETag, so 30s bounds worst-case staleness without
+# hammering origin. Closed-month archive shards get a long TTL since they
+# effectively never change once their month ends.
+SHORT_TTL="Cache-Control: public, max-age=30"
+
+# 3a. Short-TTL, high-churn top-level files (legacy full file + recent slice +
+#     index + aggregates all change ~every tick; the existing accessibility/
+#     daily/csv too).
+for f in alerts.json accessibility.json daily-counts.json alerts.csv \
+         alerts-recent.json alerts-index.json aggregates.json; do
   rclone copyto "$WORK/$f" "$REMOTE/$f" \
     --s3-no-check-bucket \
-    --header-upload "Cache-Control: public, max-age=30"
+    --header-upload "$SHORT_TTL"
 done
+
+# 3b. All-time per-line files. Each changes only when its line gets a new
+#     incident; rclone copy transfers just the files that actually differ, and
+#     the client revalidates by ETag. Short TTL so a new incident shows promptly.
+if [ -d "$WORK/incidents/by-line" ]; then
+  rclone copy "$WORK/incidents/by-line" "$REMOTE/incidents/by-line" \
+    --s3-no-check-bucket \
+    --header-upload "$SHORT_TTL"
+fi
+
+# 3c. Monthly archive shards. The current Atlanta month still grows each tick →
+#     short TTL; every prior month is closed → a 1-day cache (safe even if a late
+#     resolution rewrites an old shard, unlike a hard `immutable`; can tighten to
+#     immutable once versioned-shard-URL handling lands). rclone copy never
+#     deletes, and only re-transfers changed files.
+if [ -d "$WORK/alerts" ]; then
+  CUR_MONTH=$(TZ=America/New_York date +%Y-%m)
+  rclone copy "$WORK/alerts" "$REMOTE/alerts" \
+    --exclude "${CUR_MONTH}.json" \
+    --s3-no-check-bucket \
+    --header-upload "Cache-Control: public, max-age=86400"
+  if [ -f "$WORK/alerts/${CUR_MONTH}.json" ]; then
+    rclone copyto "$WORK/alerts/${CUR_MONTH}.json" "$REMOTE/alerts/${CUR_MONTH}.json" \
+      --s3-no-check-bucket \
+      --header-upload "$SHORT_TTL"
+  fi
+fi
 
 cp "$WORK/alerts.json" "$LAST/alerts.json"
 cp "$WORK/accessibility.json" "$LAST/accessibility.json"

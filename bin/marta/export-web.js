@@ -244,6 +244,10 @@ function detectionBlock(det) {
       // for detections that have none, matching CTA's evidence shape.
       onset_description: det.onset_description ?? null,
       resolved_description: det.resolved_description ?? null,
+      // Hourly progress updates posted while a long-running absence incident was
+      // still open ("still no buses — ~3h in"). Ascending by ts; null for
+      // detections that have none.
+      updates: det.updates && det.updates.length > 0 ? det.updates : null,
     },
   };
 }
@@ -758,6 +762,40 @@ function railDirectionLabel(direction) {
   }
 }
 
+// Hourly progress updates recorded against open absence incidents, grouped by
+// the disruption_events row they annotate (ascending ts). Guarded so a DB
+// predating the feature exports cleanly. post_uri is null for backfilled rows.
+function readIncidentUpdates(db, disruptionIds) {
+  if (!tableExists(db, 'incident_updates')) return new Map();
+  const ids = [...new Set((disruptionIds || []).filter((n) => Number.isFinite(n)))];
+  if (ids.length === 0) return new Map();
+  const placeholders = ids.map(() => '?').join(',');
+  const rows = db
+    .prepare(
+      `SELECT disruption_id, ts, description, evidence, post_uri
+       FROM incident_updates
+       WHERE disruption_id IN (${placeholders})
+       ORDER BY ts ASC, id ASC`,
+    )
+    .all(...ids);
+  const out = new Map();
+  for (const r of rows) {
+    if (!out.has(r.disruption_id)) out.set(r.disruption_id, []);
+    out.get(r.disruption_id).push(r);
+  }
+  return out;
+}
+
+function formatUpdate(u) {
+  let evidence = null;
+  try {
+    evidence = u.evidence ? JSON.parse(u.evidence) : null;
+  } catch (_) {
+    evidence = null;
+  }
+  return { ts: u.ts, description: u.description, post_url: atUriToUrl(u.post_uri), evidence };
+}
+
 function readDisruptions(db) {
   if (!tableExists(db, 'disruption_events')) return [];
   const rows = db
@@ -772,10 +810,14 @@ function readDisruptions(db) {
        ORDER BY d.ts DESC, d.id DESC`,
     )
     .all();
-  return rows.map(disruptionDetection);
+  const updatesByDisruption = readIncidentUpdates(
+    db,
+    rows.map((r) => r.id),
+  );
+  return rows.map((row) => disruptionDetection(row, updatesByDisruption.get(row.id) || []));
 }
 
-function disruptionDetection(row) {
+function disruptionDetection(row, updateRows = []) {
   const route = String(row.line);
   const outRoute = canonicalRoute(route);
   const mode = canonicalMode(modeForKind(row.kind), outRoute);
@@ -853,6 +895,7 @@ function disruptionDetection(row) {
     resolved_description: resolvedDescription,
     evidence,
     bullets,
+    updates: updateRows.map(formatUpdate),
   };
 }
 

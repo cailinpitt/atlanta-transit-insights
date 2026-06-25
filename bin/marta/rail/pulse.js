@@ -49,6 +49,10 @@ const {
   resolveReplyRef,
 } = require('../../../src/marta/shared/bluesky');
 const { findUnresolvedRailAlertForLine } = require('../../../src/marta/alert/store');
+const {
+  sweepProgressUpdates,
+  railPulseUpdate,
+} = require('../../../src/marta/shared/incidentUpdates');
 const { resolvedEventLink } = require('../../../src/marta/shared/eventLink');
 const { renderRailDisruptionMap } = require('../../../src/marta/map/railIncidents');
 const {
@@ -736,6 +740,28 @@ async function main() {
     for (const row of storage.listPulseStateForLine(line)) {
       if (!seenDirs.has(row.direction)) await handleClear(ctx, line, row.direction);
     }
+  }
+
+  // Hourly progress reply for dead segments still open after the clear pass.
+  for (const source of ['observed', 'observed-held']) {
+    await sweepProgressUpdates({
+      kind: 'rail',
+      source,
+      now,
+      getAgent: agentGetter,
+      dryRun: DRY_RUN,
+      buildUpdate: ({ row, evidence }) => {
+        const elapsedMin = (now - row.ts) / 60000;
+        return railPulseUpdate({
+          lineTitle: lineTitle(row.line),
+          fromStation: evidence?.from ?? null,
+          toStation: evidence?.to ?? null,
+          expectedTrains: evidence?.expectedTrains ?? null,
+          synthetic: evidence?.synthetic === true,
+          elapsedMin,
+        });
+      },
+    });
   }
 }
 

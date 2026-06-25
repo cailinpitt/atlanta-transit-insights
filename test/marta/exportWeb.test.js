@@ -273,6 +273,50 @@ test('co-posted route-silence disruptions get distinct incident ids', () => {
   assert.notEqual(r21[0].id, r116[0].id);
 });
 
+test('a disruption carries its hourly progress updates in evidence.updates', () => {
+  const UPD_URI = 'at://did:plc:bus/app.bsky.feed.post/upd55';
+  const onset = NOW + 70 * 60_000;
+  incidents.recordDisruption(
+    {
+      kind: 'bus',
+      line: '77',
+      source: 'observed-thin',
+      posted: true,
+      postUri: UPD_URI,
+      evidence: { headwayMin: 30 },
+    },
+    onset,
+  );
+  const open = incidents
+    .findUnresolvedDisruptions(
+      { kind: 'bus', source: 'observed-thin', sinceMs: 24 * 60 * 60_000 },
+      onset + 1,
+    )
+    .find((r) => String(r.line) === '77');
+  assert.ok(open, 'recorded disruption is findable');
+  incidents.recordIncidentUpdate({
+    disruptionId: open.id,
+    kind: 'bus',
+    line: '77',
+    source: 'observed-thin',
+    ts: onset + 60 * 60_000,
+    evidence: { elapsedMin: 60, headwayMin: 30, missedTrips: 2 },
+    description:
+      '🚌 Route 77 · still no buses observed — ~1h in, ~2 scheduled trips missed so far.',
+    postUri: null,
+  });
+
+  const out = buildExport(storage.getDb(), onset + 90 * 60_000);
+  const inc = out.incidents.find((i) => (i.routes || []).includes('77') && i.sources[0] === 'bot');
+  assert.ok(inc, 'route-77 bot incident present');
+  const updates = inc.detections[0].evidence.updates;
+  assert.equal(updates.length, 1);
+  assert.equal(updates[0].ts, onset + 60 * 60_000);
+  assert.equal(updates[0].post_url, null);
+  assert.match(updates[0].description, /still no buses observed — ~1h in/);
+  assert.deepEqual(updates[0].evidence, { elapsedMin: 60, headwayMin: 30, missedTrips: 2 });
+});
+
 test('reconciliation resolves a detector folded (via roundup) under an official alert', () => {
   const ts = NOW + 40 * 60_000;
   seedAlert(

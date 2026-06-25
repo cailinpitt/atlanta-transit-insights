@@ -26,6 +26,10 @@ const storage = require('../../../src/marta/storage');
 const incidents = require('../../../src/marta/shared/incidents');
 const { acquireCooldown, isOnCooldown } = require('../../../src/marta/shared/state');
 const { loginBus, postText, resolveReplyRef } = require('../../../src/marta/shared/bluesky');
+const {
+  sweepProgressUpdates,
+  thinGapUpdate,
+} = require('../../../src/marta/shared/incidentUpdates');
 const { buildRollupThread } = require('../../../src/shared/post');
 const { setup, runBin } = require('../../../src/marta/shared/runBin');
 
@@ -195,6 +199,22 @@ async function main() {
   // Clear pass first so a recovered-then-rebroke route gets tidied up.
   await handleClears(names, now, getAgent, dryRun);
   await handleStaleClears(now, dryRun);
+
+  // Hourly progress reply for thin-gaps still open after the clear pass — they're
+  // genuinely still silent (any sighting would have cleared them above), so the
+  // update is an honest "still no buses, ~Nh in, ~M trips missed".
+  await sweepProgressUpdates({
+    kind: 'bus',
+    source: 'observed-thin',
+    now,
+    getAgent,
+    dryRun,
+    buildUpdate: ({ row, evidence }) => {
+      const elapsedMin = (now - row.ts) / 60000;
+      const headwayMin = evidence?.headwayMin ?? headwayForLine(idx, row.line, new Date(now));
+      return thinGapUpdate({ routeTitle: routeTitle(names, row.line), headwayMin, elapsedMin });
+    },
+  });
 
   // Eligible = low-frequency routes that were observed in realtime recently.
   // Untracked GTFS-only routes and stale multi-hour silences are skipped.

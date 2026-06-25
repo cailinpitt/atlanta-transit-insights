@@ -188,6 +188,28 @@ function getDb() {
       );
       CREATE INDEX IF NOT EXISTS idx_thread_quote_posts_root
         ON thread_quote_posts(thread_root_uri);
+
+      -- Progress updates threaded under a long-running absence incident (a
+      -- thin-service gap or pulse blackout). Each row is one hourly "still no
+      -- service — ~Nh in" reply: a frozen evidence snapshot + rendered sentence
+      -- plus the Bluesky reply URI (null for silently backfilled rows). This is
+      -- an ARCHIVE — kept forever like the event tables, so an event page keeps
+      -- its update timeline long after the raw observations roll off at 7 days.
+      -- disruption_id keys back to the open disruption_events row it annotates.
+      CREATE TABLE IF NOT EXISTS incident_updates (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        disruption_id INTEGER NOT NULL,
+        kind TEXT NOT NULL,
+        line TEXT NOT NULL,
+        direction TEXT,
+        source TEXT NOT NULL,
+        ts INTEGER NOT NULL,
+        evidence TEXT,
+        description TEXT,
+        post_uri TEXT
+      );
+      CREATE INDEX IF NOT EXISTS idx_incident_updates_disruption_ts
+        ON incident_updates(disruption_id, ts);
     `);
     for (const table of ['bunching_events', 'gap_events', 'ghost_events']) {
       addColumnIfMissing(db, table, 'last_seen_ts', 'INTEGER');
@@ -851,7 +873,7 @@ function recordDisruption(
 function findUnresolvedDisruptions({ kind, source, sinceMs, untilMs = 0 }, now = Date.now()) {
   return getDb()
     .prepare(`
-      SELECT d.id, d.ts, d.line, d.post_uri AS postUri
+      SELECT d.id, d.ts, d.line, d.direction, d.evidence, d.post_uri AS postUri
       FROM disruption_events d
       WHERE d.kind = ? AND d.source = ?
         AND d.posted = 1 AND d.post_uri IS NOT NULL
@@ -864,6 +886,103 @@ function findUnresolvedDisruptions({ kind, source, sinceMs, untilMs = 0 }, now =
       ORDER BY d.ts ASC
     `)
     .all(kind, source, now - sinceMs, now - untilMs);
+}
+
+// --- Progress updates (incident_updates) ---
+//
+// A long-running absence incident (thin-service gap / pulse blackout) records an
+// hourly progress update threaded under its opening post, so the event explains
+// why it's still open. Keyed on the open disruption_events row's id.
+
+// startOfHourET-style bucket key: the epoch-ms start of `ts`'s clock hour. Used
+// so backfill writes at most one update per wall-clock hour per incident, and so
+// a live update and a backfilled one for the same hour can't both land.
+function hourBucketTs(ts) {
+  return ts - (ts % (60 * 60 * 1000));
+}
+
+function recordIncidentUpdate({
+  disruptionId,
+  kind,
+  line,
+  direction,
+  source,
+  ts,
+  evidence,
+  description,
+  postUri,
+}) {
+  let evidenceJson = null;
+  if (evidence && typeof evidence === 'object' && Object.keys(evidence).length > 0) {
+    try {
+      evidenceJson = JSON.stringify(evidence);
+    } catch (_e) {
+      evidenceJson = null;
+    }
+  }
+  getDb()
+    .prepare(`
+      INSERT INTO incident_updates
+        (disruption_id, kind, line, direction, source, ts, evidence, description, post_uri)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `)
+    .run(
+      disruptionId,
+      kind,
+      String(line),
+      direction || null,
+      source,
+      ts,
+      evidenceJson,
+      description || null,
+      postUri || null,
+    );
+  // A new update changes the incident's event-page timeline — republish.
+  markWebPushPending();
+}
+
+// Most-recent update ts for an incident, or null if it has none yet. The live
+// cadence gate compares this against `now` to enforce the hourly interval.
+function getLatestIncidentUpdateTs(disruptionId) {
+  const row = getDb()
+    .prepare('SELECT MAX(ts) AS ts FROM incident_updates WHERE disruption_id = ?')
+    .get(disruptionId);
+  return row?.ts ?? null;
+}
+
+// Has an update already been written for the clock hour containing `ts`? Backfill
+// idempotency: re-running the backfill must not duplicate an hour's row.
+function incidentUpdateExistsForHour(disruptionId, ts) {
+  const lo = hourBucketTs(ts);
+  const hi = lo + 60 * 60 * 1000;
+  const row = getDb()
+    .prepare(
+      'SELECT 1 FROM incident_updates WHERE disruption_id = ? AND ts >= ? AND ts < ? LIMIT 1',
+    )
+    .get(disruptionId, lo, hi);
+  return !!row;
+}
+
+// All updates for a set of disruption ids, grouped by disruption_id (ascending
+// ts within each). One query for the whole web export.
+function listIncidentUpdatesByDisruption(disruptionIds) {
+  const ids = [...new Set((disruptionIds || []).map((n) => Number(n)).filter(Number.isFinite))];
+  if (ids.length === 0) return new Map();
+  const placeholders = ids.map(() => '?').join(',');
+  const rows = getDb()
+    .prepare(`
+      SELECT id, disruption_id, kind, line, direction, source, ts, evidence, description, post_uri
+      FROM incident_updates
+      WHERE disruption_id IN (${placeholders})
+      ORDER BY ts ASC, id ASC
+    `)
+    .all(...ids);
+  const out = new Map();
+  for (const r of rows) {
+    if (!out.has(r.disruption_id)) out.set(r.disruption_id, []);
+    out.get(r.disruption_id).push(r);
+  }
+  return out;
 }
 
 // Set of route/line ids that currently have an open (un-cleared) silence
@@ -1050,6 +1169,11 @@ module.exports = {
   getRecentMetaSignals,
   recordDisruption,
   findUnresolvedDisruptions,
+  recordIncidentUpdate,
+  getLatestIncidentUpdateTs,
+  incidentUpdateExistsForHour,
+  listIncidentUpdatesByDisruption,
+  hourBucketTs,
   openSilenceLines,
   hasObservedClearForPulse,
   recordRoundupAnchor,

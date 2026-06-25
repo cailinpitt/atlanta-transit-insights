@@ -117,6 +117,36 @@ so their incident description names the stretch (`Gold Line trains not moving
 between Lenox and Chamblee`) and `scope.near_stop` carries `"<from> ↔ <to>"`; bus
 route-silence rows keep their whole-route phrasing.
 
+## Progress updates (`incident_updates`)
+
+A long-running silence used to show only an opening post and an eventual clear, so
+a rider couldn't tell why an 8-hour outage stayed open. Each detector now runs a
+**progress pass after its clear pass** (`src/marta/shared/incidentUpdates.js#sweepProgressUpdates`):
+for every still-open `observed-thin` / `observed` / `observed-held` firing, once
+per hour it threads a "still no service — ~Nh in" reply under the original post
+and records it in the `incident_updates` archive (keyed on the open
+`disruption_events.id`). Because the clear pass runs first, an open firing is
+genuinely still silent, so the update is honest without re-querying. Cadence is
+gated by `dueForUpdate` (≥55 min since the last update and ≥55 min since open).
+
+The update text/evidence builders (`thinGapUpdate` / `busPulseUpdate` /
+`railPulseUpdate`) are **pure** and reused by the backfill so live and historical
+updates read identically. `incident_updates` is a permanent archive (kept like the
+event tables, not rolled off), so the timeline survives the 7-day observation
+window — a forward event keeps its updates forever.
+
+**Backfill** (`bin/marta/backfill-incident-updates.js`, `--dry-run`): for these
+absence detectors the hourly text is fully determined by frozen
+`disruption_events` data (onset ts, the matching `observed-clear`, and the
+firing-time `evidence`) — there is never a partial "seen 1 of 6" beat to recover
+from raw observations — so it reconstructs the **full** history (not just the
+7-day window), writing one update per completed hour with `post_uri = null` (no
+retroactive Bluesky reply). Idempotent via `incidentUpdateExistsForHour`.
+
+`bin/marta/export-web.js` (`readDisruptions` → `readIncidentUpdates`) attaches
+these to each detection as `evidence.updates[]` (`{ts, description, post_url,
+evidence}`, ascending).
+
 ## Gap cooldown alignment
 
 Independently, `incidents.gapCooldownAllows` was aligned with CTA: a within-1h gap
@@ -148,7 +178,13 @@ sustained/aged escalations CTA re-posts.
   `clearPulseState`.
 - `src/marta/rail-stations.json` (+ `scripts/marta/build-rail-stations.js`) — now
   carries per-station `lat`/`lon` (the detector projects stations onto the line).
-- `bin/marta/export-web.js` — `readDisruptions` / standalone disruption incidents.
+- `bin/marta/export-web.js` — `readDisruptions` / `readIncidentUpdates` / standalone
+  disruption incidents (`evidence.updates[]`).
+- `src/marta/shared/incidentUpdates.js` — hourly progress-update builders + sweep.
+- `bin/marta/backfill-incident-updates.js` — full-history update reconstruction.
+- `src/marta/shared/incidents.js` — `incident_updates` table + `recordIncidentUpdate`,
+  `getLatestIncidentUpdateTs`, `incidentUpdateExistsForHour`,
+  `listIncidentUpdatesByDisruption`.
 - Tests: `test/marta/{thinGaps,pulse,gapCooldownAllows,railPulse}.test.js`.
 - Cron: `bus-thin-gaps` (15 min), `bus-pulse` (5 min), `rail-pulse` (2 min) in
   `cron/marta-crontab.txt`.

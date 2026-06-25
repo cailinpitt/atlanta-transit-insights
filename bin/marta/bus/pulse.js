@@ -39,6 +39,10 @@ const {
 } = require('../../../src/marta/shared/bluesky');
 const { resolvedEventLink } = require('../../../src/marta/shared/eventLink');
 const { findUnresolvedAlertForRoundup } = require('../../../src/marta/alert/store');
+const {
+  sweepProgressUpdates,
+  busPulseUpdate,
+} = require('../../../src/marta/shared/incidentUpdates');
 const { renderBusDisruptionMap } = require('../../../src/marta/map/busDisruption');
 const { setup, runBin } = require('../../../src/marta/shared/runBin');
 
@@ -259,6 +263,25 @@ async function main() {
 
   await handleClears(names, now, getAgent, dryRun);
   await handleStaleClears(now, dryRun);
+
+  // Hourly progress reply for blackouts still open after the clear pass.
+  await sweepProgressUpdates({
+    kind: 'bus',
+    source: 'observed',
+    now,
+    getAgent,
+    dryRun,
+    buildUpdate: ({ row, evidence }) => {
+      const elapsedMin = (now - row.ts) / 60000;
+      const expectedActive =
+        evidence?.expectedActive ?? activeForLine(idx, row.line, new Date(now));
+      return busPulseUpdate({
+        routeTitle: routeTitle(names, row.line),
+        expectedActive,
+        elapsedMin,
+      });
+    },
+  });
 
   // pulse owns higher-frequency routes; thin-gaps owns headway ≥ 20 min. That
   // split is evaluated against the CURRENT hour's headway, so a route whose

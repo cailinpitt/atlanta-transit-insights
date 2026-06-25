@@ -1,10 +1,18 @@
 # Web data origin (R2)
 
-The high-churn public data files (`alerts.json`, `daily-counts.json`, and
-`alerts.csv`) are served from **Cloudflare R2** at
+The high-churn public data files are served from **Cloudflare R2** at
 `https://data.atlantatransitalerts.app`, not committed into the frontend Pages
 repo. This keeps the every-few-minutes data churn (and the deploy it would
 trigger) out of the `atlanta-transit-alerts` site repo.
+
+`bin/marta/export-web.js --shards` emits a **sharded** payload so the site loads
+a bounded slice rather than the whole archive on every page: `alerts-recent.json`
+(active ∪ last 93 days), monthly `alerts/<YYYY-MM>.json` archive shards (by
+America/New_York month of `first_seen`), all-time `incidents/by-line/<lineKey>.json`
+files, `alerts-index.json` (the manifest), and `aggregates.json` (precomputed
+year-over-year). The legacy full-history `alerts.json` is still published
+alongside but is **deprecated** (see the site's `public/data/CHANGELOG.md`).
+`daily-counts.json` and `alerts.csv` are unchanged.
 
 ## Data flow
 
@@ -12,14 +20,19 @@ trigger) out of the `atlanta-transit-alerts` site repo.
 atlanta-transit-insights (server)             atlanta-transit-alerts (GitHub Pages)
 ─────────────────────────────────             ─────────────────────────────────────
 bin/marta/push-web-data.sh                     runtime: client fetch()s
-  marta/export-web.js   -> tmp/web-data/alerts.json    https://data.atlanta…/alerts.json
+  marta/export-web.js --shards                       https://data.atlanta…/alerts-recent.json
+    -> tmp/web-data/alerts.json (legacy)             + alerts-index.json, aggregates.json,
+    -> alerts-recent.json, alerts-index.json           alerts/<month>.json, by-line/<line>.json
+    -> aggregates.json, alerts/<month>.json          (bounded; site loads only what it needs)
+    -> incidents/by-line/<line>.json
   marta/export-daily.js -> tmp/web-data/daily-counts   (always fresh)
   export-csv.js         -> tmp/web-data/alerts.csv
   cmp vs .last  ── unchanged? stop
         │ changed
-        ├─ rclone copyto … r2atlanta:atlanta-transit-alerts-data    build time: site fetches the
-        │   (Cache-Control: public, max-age=30)         same files from R2 into public/data/,
-        └─ POST repository_dispatch ─────────►          then prerenders OG cards / feed
+        ├─ rclone copy/copyto … r2atlanta:atlanta-transit-alerts-data    build time: site fetches the
+        │   (short TTL for hot files; closed-month       shards from R2 into public/data/
+        │    shards max-age=86400)                       (reassembling alerts.json), prerenders
+        └─ POST repository_dispatch ─────────►           OG cards / feed
             {event_type: data-updated} to
             cailinpitt/atlanta-transit-alerts
 ```
@@ -43,13 +56,18 @@ frontend's `EventReplay` (not part of the `alerts.json` payload). See
 Runs from cron (`14-59/15` — the every-post `webPushTrigger` flush kicks it
 immediately on change; this run is the backstop). It:
 
-1. Regenerates `alerts.json` (`bin/marta/export-web.js`), `daily-counts.json`
-   (`bin/marta/export-daily.js`), and `alerts.csv` (`bin/export-csv.js`) into
-   `tmp/web-data/`.
-2. `cmp`s each against the previous run in `tmp/web-data/.last` — **exits early
-   if nothing changed** (no upload, no rebuild).
-3. `rclone copyto`s each changed file to the R2 bucket with
-   `Cache-Control: public, max-age=30`.
+1. Regenerates the legacy `alerts.json` **and** the shard set
+   (`bin/marta/export-web.js --shards`: `alerts-recent.json`, `alerts-index.json`,
+   `aggregates.json`, `alerts/<month>.json`, `incidents/by-line/<line>.json`),
+   `daily-counts.json` (`bin/marta/export-daily.js`), and `alerts.csv`
+   (`bin/export-csv.js`) into `tmp/web-data/`.
+2. `cmp`s the legacy top-level files against the previous run in
+   `tmp/web-data/.last` — **exits early if nothing changed** (no upload, no
+   rebuild). `alerts.json` reflects any incident change, so it gates the shards too.
+3. `rclone copy`/`copyto`s the changed files to the R2 bucket: hot files
+   (recent/index/aggregates/per-line + current-month shard) get
+   `Cache-Control: public, max-age=30`; closed-month archive shards get
+   `max-age=86400` (the byte-stable shards only re-transfer when they change).
 4. POSTs a `repository_dispatch` (`event_type: data-updated`) to the site repo to
    trigger a rebuild of the prerendered cards.
 
@@ -148,8 +166,9 @@ spawn inherit it.
 
 ## Notes
 
-- `alerts.json` is produced by `bin/marta/export-web.js`; the public data shape
-  is documented in the consumer-facing changelog. Keep that changelog updated
+- The shard set + legacy `alerts.json` are produced by `bin/marta/export-web.js`;
+  the public data shape is documented in the consumer-facing changelog
+  (`atlanta-transit-alerts/public/data/CHANGELOG.md`). Keep that changelog updated
   when the shape changes.
 - The frontend cutover (point the site at the R2 origin, stop tracking the data
   files in git) lives in the `atlanta-transit-alerts` repo — verify the data-base

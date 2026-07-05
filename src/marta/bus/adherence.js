@@ -43,6 +43,7 @@ function _resetSchedDb() {
   if (_schedDb) _schedDb.close();
   _schedDb = undefined;
   _schedStmt = null;
+  _tripStopsStmt = null;
 }
 
 // Seconds since midnight in Atlanta wall-clock for `now` — the base GTFS
@@ -94,6 +95,21 @@ function deviationFromStops(
   return best;
 }
 
+// Ordered scheduled stops for a trip, from schedule.sqlite — [{ lat, lon }] in
+// stop_sequence order, or [] when the DB is absent or the trip has no curve. The
+// bunching/gap maps use these as a route's REAL stop list (the CTA pattern-stops
+// analog), instead of geometric proximity which pulls in other routes' stops.
+let _tripStopsStmt = null;
+function tripStops(tripId) {
+  if (tripId == null) return [];
+  const db = schedDb();
+  if (!db) return [];
+  if (!_tripStopsStmt) {
+    _tripStopsStmt = db.prepare('SELECT lat, lon FROM sched_stops WHERE trip_id = ? ORDER BY seq');
+  }
+  return _tripStopsStmt.all(String(tripId));
+}
+
 // How late (+) / early (−) a bus is, in minutes, or null when we can't say
 // confidently. `obs` needs { tripId, lat, lon }; `now` is the observation clock.
 function scheduleDeviationMin(obs, now = new Date()) {
@@ -139,5 +155,6 @@ module.exports = {
   deviationFromStops,
   scheduleDeviationMin,
   busDeviationsByVid,
+  tripStops,
   _resetSchedDb,
 };

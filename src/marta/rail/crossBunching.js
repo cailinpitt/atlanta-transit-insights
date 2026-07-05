@@ -1,9 +1,9 @@
-// Cross-line rail bunching — trains from 2+ lines stacked at one spot. Port of
+// Cross-line rail bunching — trains from 2+ lines close together at one spot. Port of
 // cta-insights src/train/crossBunching.js. The per-line detector in bunching.js
 // groups by (line, direction) and projects to that line's geometry, so it never
 // compares a RED train against a GOLD one. But MARTA lines converge: RED+GOLD
 // share the N-S trunk, BLUE+GREEN the E-W, and all four pass through Five
-// Points — so a real pileup there spans lines. Here we cluster purely on
+// Points — so a real cluster there spans lines. Here we cluster purely on
 // geography across ALL lines, then require 2+ lines and congestion.
 const { clusterByProximity, clusterStats } = require('../shared/geoClusters');
 const { terminalZoneFt } = require('../../shared/geo');
@@ -11,14 +11,14 @@ const { terminalZoneFt } = require('../../shared/geo');
 const CROSS_RADIUS_FT = 1500; // station + platform approach (trains are long)
 const MIN_TRAINS = 3;
 const MIN_LINES = 2;
-const MIN_STOPPED = 2; // congestion evidence — a real pileup, not trains passing through
+const MIN_STOPPED = 2; // congestion evidence — a real cluster, not trains passing through
 
 // A train is "at a terminal" when its along-line distFt sits within the line's
 // terminal zone at either end — exactly the per-line bunching detector's gate
 // (src/marta/rail/bunching.js). Both ends of every MARTA line are turnback
 // terminals where trains naturally queue (and a single train at the turnback
 // shows up on both directions), so cross-line clusters there are layover knots,
-// not real pileups — e.g. RED+GOLD stacked at Airport. Needs projected distFt +
+// not real clusters — e.g. RED+GOLD close together at Airport. Needs projected distFt +
 // lengthFt (latestTrainPositions provides both); without them, returns false so
 // pure-geometry tests are unaffected.
 function isTrainAtTerminal(train) {
@@ -47,7 +47,7 @@ function detectCrossLineBunches(
   } = {},
 ) {
   // Drop trains laying over at a line terminal before clustering, so a turnback
-  // queue can't read as a multi-line pileup. `terminalIds` (Set of trainIds)
+  // queue can't read as a multi-line cluster. `terminalIds` (Set of trainIds)
   // overrides the intrinsic distFt-based derivation for tests.
   const atTerminal = (t) => (terminalIds ? terminalIds.has(t.trainId) : isTrainAtTerminal(t));
   const positioned = (trains || []).filter(

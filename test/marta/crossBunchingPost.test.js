@@ -33,7 +33,7 @@ test('bus: headline + per-route grouping with optional GTFS titles', () => {
     { placeName: 'Decatur & Clairmont', routeTitles },
     [],
   );
-  assert.match(text, /3 buses from 2 routes bunched near Decatur & Clairmont/);
+  assert.match(text, /3 buses from 2 routes are close together near Decatur & Clairmont right now/);
   assert.match(text, /Route 816 \(N\. Decatur\): /); // title from map applied
   assert.match(text, /Route 110: /); // fallback label
   assert.match(text, /#1234 \(1️⃣\)/);
@@ -57,7 +57,7 @@ test('rail: headline names the place and groups trains by line', () => {
   const ts = [trainAt('t1', 'RED', 0), trainAt('t2', 'GOLD', 400), trainAt('t3', 'GOLD', 800)];
   const [cluster] = detectCrossLineBunches(ts);
   const text = railPost.buildPostText(cluster, { placeName: 'Five Points' }, ['callout']);
-  assert.match(text, /3 trains from 2 lines stacked up at Five Points/);
+  assert.match(text, /3 trains from 2 lines are close together at Five Points right now/);
   assert.match(text, /Gold Line:/);
   assert.match(text, /Red Line:/);
   assert.match(text, /📊 callout/);

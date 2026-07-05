@@ -1,8 +1,8 @@
 #!/usr/bin/env node
-// MARTA cross-line rail bunching: a pileup at one spot involving 2+ lines (e.g.
-// RED + GOLD stacked at Five Points or on the shared N-S trunk). detect →
+// MARTA cross-line rail bunching: a cluster at one spot involving 2+ lines (e.g.
+// RED + GOLD close together at Five Points or on the shared N-S trunk). detect →
 // render station map → post (train account), keyed on the PLACE. Runs just
-// before bin/marta/rail/bunching.js so its posted pileups suppress the per-line
+// before bin/marta/rail/bunching.js so its posted clusters suppress the per-line
 // post for the same trains. Replies with a ~10-min timelapse (from observation
 // history). Supports --dry-run.
 require('../../../src/shared/env');
@@ -116,13 +116,13 @@ async function main() {
       })),
       now,
     });
-    if (closed.length > 0) console.log(`Resolved ${closed.length} open cross-line rail pileup(s)`);
+    if (closed.length > 0) console.log(`Resolved ${closed.length} open cross-line rail cluster(s)`);
   }
   if (clusters.length === 0) {
     console.log('No cross-line rail bunching detected');
     return;
   }
-  console.log(`Found ${clusters.length} candidate cross-line pileup(s)`);
+  console.log(`Found ${clusters.length} candidate cross-line cluster(s)`);
 
   let chosen = null;
   let place = null;
@@ -171,7 +171,8 @@ async function main() {
   const callouts = incidents.bunchingCallouts({
     kind: 'rail-multi',
     route: place.placeKey,
-    routeLabel: place.placeName ? `pileup at ${place.placeName}` : 'multi-line pileup',
+    routeLabel: place.placeName ? `cluster at ${place.placeName}` : 'multi-line cluster',
+    calloutNoun: '',
     vehicleCount: chosen.trains.length,
     severityFt: chosen.spanFt,
   });

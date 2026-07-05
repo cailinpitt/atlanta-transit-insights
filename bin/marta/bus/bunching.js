@@ -16,7 +16,7 @@ const {
   assignBusNumbers,
   TERMINAL_DIST_FT,
 } = require('../../../src/marta/bus/bunching');
-const { nearestStop, stopsNearShape } = require('../../../src/marta/bus/stops');
+const { nearestStop, stopsForShape } = require('../../../src/marta/bus/stops');
 const storage = require('../../../src/marta/storage');
 const incidents = require('../../../src/marta/shared/incidents');
 const { isOnCooldown } = require('../../../src/marta/shared/state');
@@ -41,7 +41,6 @@ const { setup, writeDryRunAsset, runBin } = require('../../../src/marta/shared/r
 
 const GTFS_DIR = Path.join(__dirname, '..', '..', '..', 'data', 'marta', 'gtfs');
 const WINDOW_MS = 3 * 60 * 1000; // snapshot window: latest fix + parked detection
-const MAP_CONTEXT_FT = 1500; // stop signs to show on each side of the bunch
 const BUS_BUNCHING_DAILY_CAP = 3;
 
 function routeTitleFor(gtfs, route) {
@@ -114,9 +113,9 @@ async function main() {
     }
   }
 
-  // Buses already covered by a recently-posted cross-route pileup (the
+  // Buses already covered by a recently-posted cross-route cluster (the
   // cross-bunching bin runs just before this one). A per-route candidate that
-  // is mostly the same buses is the same physical pileup — the multi-route post
+  // is mostly the same buses is the same physical cluster — the multi-route post
   // is the better story, so suppress this one. See src/marta/bus/crossBunching.js.
   const crossClaimed = argv['dry-run'] ? new Set() : incidents.recentCrossBunchMemberIds();
 
@@ -132,7 +131,7 @@ async function main() {
     }
 
     // Terminal-layover guard: a bunch hugging either end of the shape is a
-    // start/turnaround queue, not a real pileup. Detection already drops
+    // start/turnaround queue, not a real cluster. Detection already drops
     // clusters whose lead is < TERMINAL_DIST_FT; this also guards the far end.
     const shape = shapes.get(candidate.shapeId);
     const lengthFt = shape?.lengthFt ?? 0;
@@ -153,7 +152,7 @@ async function main() {
       ).length;
       if (overlap >= 2) {
         console.log(
-          `  skip shape ${candidate.shapeId}: ${overlap} buses already covered by a cross-route pileup`,
+          `  skip shape ${candidate.shapeId}: ${overlap} buses already covered by a cross-route cluster`,
         );
         recordSkip(candidate);
         continue;
@@ -201,9 +200,6 @@ async function main() {
   }
 
   const shape = shapes.get(bunch.shapeId);
-  const dists = bunch.vehicles.map((v) => v.distFt);
-  const lo = Math.min(...dists);
-  const hi = Math.max(...dists);
   const midLat = bunch.vehicles.reduce((s, v) => s + v.lat, 0) / bunch.vehicles.length;
   const midLon = bunch.vehicles.reduce((s, v) => s + v.lon, 0) / bunch.vehicles.length;
   const near = nearestStop(gtfs, midLat, midLon);
@@ -234,7 +230,10 @@ async function main() {
     console.log(`🥇 new all-time record: ${bunch.vehicles.length} buses (was ${previousRecord})`);
 
   console.log('Rendering map...');
-  const stops = stopsNearShape(gtfs, shape, lo - MAP_CONTEXT_FT, hi + MAP_CONTEXT_FT);
+  // All of THIS route's real scheduled stops (the whole shape), like cta-insights.
+  // The static map frames tightly around the bunch, so only the stops in view draw;
+  // the video shows the rest as small dots as buses travel.
+  const stops = stopsForShape(gtfs, shape, bunch.shapeId);
   const labels = assignBusNumbers(bunch.vehicles);
   let image;
   try {

@@ -21,7 +21,7 @@ const at = (vehicleId, route, ft, extra = {}) => ({
   ...extra,
 });
 
-test('detects a multi-route pileup (2 routes, 3 buses)', () => {
+test('detects a multi-route cluster (2 routes, 3 buses)', () => {
   const vs = [at('a', '110', 0), at('b', '110', 200), at('c', '816', 400)];
   const [bunch] = detectCrossRouteBunches(vs, { now: NOW });
   assert.equal(bunch.vehicles.length, 3);

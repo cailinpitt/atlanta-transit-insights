@@ -1,9 +1,9 @@
 #!/usr/bin/env node
-// MARTA cross-route bus bunching: a pileup at one spot involving 2+ routes.
+// MARTA cross-route bus bunching: a cluster at one spot involving 2+ routes.
 // detect → render intersection map → post (insights account), with the same
 // incident open/cooldown/cap lifecycle as per-route bunching but keyed on the
 // PLACE instead of a route. Runs just before bin/marta/bus/bunching.js so its
-// posted pileups suppress the per-route post for the same buses. Replies with a
+// posted clusters suppress the per-route post for the same buses. Replies with a
 // ~10-min timelapse (from observation history). Supports --dry-run.
 require('../../../src/shared/env');
 
@@ -59,7 +59,7 @@ function routeTitleFor(gtfs, route) {
   return long ? `Route ${route} (${long})` : `Route ${route}`;
 }
 
-// A pileup is a place, not a route. Key the lifecycle on the nearest stop name
+// A cluster is a place, not a route. Key the lifecycle on the nearest stop name
 // when we have one, else a coarse rounded centroid, so the same corner cools
 // down / caps together across snapshots.
 function placeFor(gtfs, centroid) {
@@ -70,7 +70,7 @@ function placeFor(gtfs, centroid) {
 }
 
 // Route-line overlays for the map: for each route group, draw the GTFS shape the
-// pileup is sitting on. We pick the clustered bus of that route nearest the
+// cluster is sitting on. We pick the clustered bus of that route nearest the
 // centroid and resolve its trip's shape (buses in a bunch share a trip pattern,
 // so any of them resolves the same line through the corner). groupIndex matches
 // the disc color so each line ties to its vehicles + legend. Best-effort — a
@@ -156,7 +156,7 @@ async function main() {
   // Layover gate: a parked bus sitting at its route terminal OR at a rail-station
   // bus bay is between trips, not stuck in traffic. Several routes lay over
   // together at the same transit center (Doraville, Lindbergh, …), which would
-  // otherwise read as a multi-route pileup. Drop these before clustering. The
+  // otherwise read as a multi-route cluster. Drop these before clustering. The
   // off-route slack is widened since layover bays sit back from the route line.
   const STATION_NAME_RE = /\bstation\b/i;
   // Geographic terminals of every route (shape endpoints), as a route-agnostic
@@ -190,13 +190,13 @@ async function main() {
       })),
       now,
     });
-    if (closed.length > 0) console.log(`Resolved ${closed.length} open cross-route bus pileup(s)`);
+    if (closed.length > 0) console.log(`Resolved ${closed.length} open cross-route bus cluster(s)`);
   }
   if (clusters.length === 0) {
     console.log('No cross-route bus bunching detected');
     return;
   }
-  console.log(`Found ${clusters.length} candidate cross-route pileup(s)`);
+  console.log(`Found ${clusters.length} candidate cross-route cluster(s)`);
 
   let chosen = null;
   let place = null;
@@ -246,7 +246,8 @@ async function main() {
   const callouts = incidents.bunchingCallouts({
     kind: 'bus-multi',
     route: place.placeKey,
-    routeLabel: place.placeName ? `pileup near ${place.placeName}` : 'multi-route pileup',
+    routeLabel: place.placeName ? `cluster near ${place.placeName}` : 'multi-route cluster',
+    calloutNoun: '',
     vehicleCount: chosen.vehicles.length,
     severityFt: chosen.spanFt,
   });

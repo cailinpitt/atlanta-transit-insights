@@ -18,7 +18,7 @@ const at = (trainId, line, ft, motionSign = null) => ({
   motionSign,
 });
 
-test('detects a multi-line pileup at Five Points (RED + GOLD)', () => {
+test('detects a multi-line cluster at Five Points (RED + GOLD)', () => {
   const ts = [at('t1', 'RED', 0), at('t2', 'GOLD', 400), at('t3', 'GOLD', 800)];
   const [bunch] = detectCrossLineBunches(ts);
   assert.equal(bunch.trains.length, 3);
@@ -31,10 +31,10 @@ test('ignores a single-line cluster', () => {
 });
 
 test('congestion is intrinsic via motionSign (moving trains do not count)', () => {
-  // All moving (motionSign=1) → not a pileup.
+  // All moving (motionSign=1) → not a cluster.
   const moving = [at('t1', 'RED', 0, 1), at('t2', 'GOLD', 400, 1), at('t3', 'BLUE', 800, 1)];
   assert.equal(detectCrossLineBunches(moving).length, 0);
-  // Two stopped → pileup.
+  // Two stopped → cluster.
   const stalled = [at('t1', 'RED', 0, null), at('t2', 'GOLD', 400, null), at('t3', 'BLUE', 800, 1)];
   assert.equal(detectCrossLineBunches(stalled).length, 1);
 });
@@ -52,9 +52,9 @@ test('isTrainAtTerminal flags trains in either end-zone, ignores mid-line', () =
   assert.equal(isTrainAtTerminal({ lat: 1, lon: 1 }), false); // no projection → false
 });
 
-test('suppresses a terminal layover knot but keeps a mid-line pileup', () => {
+test('suppresses a terminal layover knot but keeps a mid-line cluster', () => {
   const len = 100_000;
-  // RED + GOLD stacked at the southern Airport turnback (distFt ~0) → layover.
+  // RED + GOLD close together at the southern Airport turnback (distFt ~0) → layover.
   const terminal = [at('t1', 'RED', 0), at('t2', 'GOLD', 400), at('t3', 'GOLD', 800)].map((t) => ({
     ...t,
     distFt: 150,
@@ -62,7 +62,7 @@ test('suppresses a terminal layover knot but keeps a mid-line pileup', () => {
   }));
   assert.equal(detectCrossLineBunches(terminal).length, 0);
 
-  // Same cluster mid-line → still a real pileup.
+  // Same cluster mid-line → still a real cluster.
   const midline = terminal.map((t) => ({ ...t, distFt: 50_000 }));
   assert.equal(detectCrossLineBunches(midline).length, 1);
 
@@ -78,7 +78,7 @@ test('groupByLine numbers trains across lines, biggest group first', () => {
   assert.equal(labels.size, 3);
 });
 
-test('cross-line pileup post weaves per-train schedule adherence', () => {
+test('cross-line cluster post weaves per-train schedule adherence', () => {
   const ts = [at('t1', 'RED', 0), at('t2', 'GOLD', 400), at('t3', 'GOLD', 800)];
   const [bunch] = detectCrossLineBunches(ts);
   const deviations = new Map([
@@ -87,7 +87,7 @@ test('cross-line pileup post weaves per-train schedule adherence', () => {
     ['t3', -2],
   ]);
   const text = buildPostText(bunch, { placeName: 'Five Points' }, [], { deviations });
-  assert.match(text, /stacked up at Five Points/);
+  assert.match(text, /are close together at Five Points right now/);
   assert.match(text, /4 min late/);
   assert.match(text, /on time/);
   assert.match(text, /2 min early/);

@@ -2,7 +2,7 @@
 
 How the bots know — and say — how early or late a specific bus or train is. Two surfaces draw on it:
 
-1. **Per-vehicle annotations** — every post that names individual vehicles (bunching, gaps, cross-route/line pileups) tags each one with its adherence: `#1234 (1️⃣, 12 min late)`, `Last seen: #305 (on time) · Next up: #408 (3 min late)`.
+1. **Per-vehicle annotations** — every post that names individual vehicles (bunching, gaps, cross-route/line clusters) tags each one with its adherence: `#1234 (1️⃣, 12 min late)`, `Last seen: #305 (on time) · Next up: #408 (3 min late)`.
 2. **Rail "running late" rollup** — a periodic digest of rail lines whose trains are materially behind schedule (`@martatraininsights`), silent on an on-time day.
 
 Wording comes from `formatDeviation` (`src/marta/shared/format.js`): `"12 min late"` / `"3 min early"` / `"on time"`, or omitted when we can't place the vehicle confidently.

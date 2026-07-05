@@ -217,7 +217,7 @@ function getDb() {
       addColumnIfMissing(db, table, 'resolved_post_uri', 'TEXT');
     }
     // member_ids = JSON array of the vehicle/train ids in a cross-route bunch,
-    // used to suppress the per-route post for the same pileup (see crossBunching).
+    // used to suppress the per-route post for the same cluster (see crossBunching).
     addColumnIfMissing(db, 'bunching_events', 'member_ids', 'TEXT');
     addColumnIfMissing(db, 'ghost_events', 'canceled_trips', 'INTEGER');
     addColumnIfMissing(db, 'ghost_events', 'unexplained_missing', 'REAL');
@@ -293,7 +293,7 @@ function recordBunching(
 
 // The vehicle/train ids in cross-route bunches (`kind` ending in `-multi`)
 // posted within `withinMs`. The per-route bunching bins consult this to
-// suppress the per-route post for a pileup the cross-route bin already covered.
+// suppress the per-route post for a cluster the cross-route bin already covered.
 function recentCrossBunchMemberIds({ withinMs = 10 * 60 * 1000 } = {}, now = Date.now()) {
   const rows = getDb()
     .prepare(`
@@ -315,7 +315,10 @@ function recentCrossBunchMemberIds({ withinMs = 10 * 60 * 1000 } = {}, now = Dat
 // Must be called BEFORE recordBunching writes the current event, otherwise the
 // callouts compare the event against itself. Larger vehicle_count wins (tiebreak
 // on span) for buses.
-function bunchingCallouts({ kind, route, routeLabel, vehicleCount, severityFt }, now = Date.now()) {
+function bunchingCallouts(
+  { kind, route, routeLabel, calloutNoun = 'bunch', vehicleCount, severityFt },
+  now = Date.now(),
+) {
   const out = [];
   const startOfDay = startOfDayET(now);
   const todayCount = getDb()
@@ -326,7 +329,9 @@ function bunchingCallouts({ kind, route, routeLabel, vehicleCount, severityFt },
     .get(kind, route, startOfDay).c;
   const nth = todayCount + 1;
   if (nth >= 2) {
-    const label = routeLabel ? `${routeLabel} bunch` : 'bunch';
+    // routeLabel already reads as a full noun phrase for cross-route (calloutNoun
+    // '') — "cluster near X"; per-route appends the default "bunch".
+    const label = [routeLabel, calloutNoun].filter(Boolean).join(' ') || 'bunch';
     out.push(`${ordinal(nth)} ${label} reported today`);
   }
 

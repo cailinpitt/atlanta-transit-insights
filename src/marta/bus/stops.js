@@ -5,6 +5,7 @@
 // proximity to the shape geometry is enough to place a sign.
 const { haversineFt, bearing } = require('../../shared/geo');
 const { projectToShape, MAX_OFFROUTE_FT } = require('./shapes');
+const { tripStops } = require('./adherence');
 
 // Local heading of the shape at segment `segIndex`, sampled over a short window
 // of surrounding points so the renderer can offset a stop perpendicular to its
@@ -102,4 +103,46 @@ function stopsNearShape(gtfs, shape, loFt, hiFt, { maxOffrouteFt = MAX_OFFROUTE_
   return out;
 }
 
-module.exports = { nearestStop, stopsNearShape, titleCaseStopName };
+// A representative bus trip serving `shapeId`, for pulling its scheduled stop
+// list. Any trip on the shape has the same stop pattern, so the first match wins.
+function tripIdForShape(gtfs, shapeId) {
+  if (shapeId == null) return null;
+  for (const t of gtfs.tripsById.values()) {
+    if (String(t.shape_id) === String(shapeId)) return t.trip_id;
+  }
+  return null;
+}
+
+// The REAL stops for the route running `shapeId`, from that route's scheduled
+// stop_times (schedule.sqlite) — not geometric proximity, which sweeps in stops
+// from every other route that happens to pass within MAX_OFFROUTE_FT of the line.
+// Each scheduled stop is projected onto the shape for its along-route distance +
+// local bearing (so the renderer can offset it perpendicular to the line, matching
+// stopsNearShape's shape). Returns [{ stopName: null, distFt, lat, lon, bearing }]
+// sorted by distFt, or [] when the schedule DB is unavailable (caller falls back).
+// Names aren't kept — the map draws stop-sign glyphs, not labels. The CTA
+// getPatternStops analog.
+function stopsForShape(gtfs, shape, shapeId) {
+  if (!shape?.points?.length) return [];
+  const tripId = tripIdForShape(gtfs, shapeId);
+  if (tripId == null) return [];
+  const out = [];
+  for (const s of tripStops(tripId)) {
+    const lat = Number(s.lat);
+    const lon = Number(s.lon);
+    if (!Number.isFinite(lat) || !Number.isFinite(lon)) continue;
+    const proj = projectToShape(shape, lat, lon);
+    if (!proj) continue;
+    out.push({
+      stopName: null,
+      distFt: proj.distFt,
+      lat,
+      lon,
+      bearing: localBearing(shape.points, proj.segIndex),
+    });
+  }
+  out.sort((a, b) => a.distFt - b.distFt);
+  return out;
+}
+
+module.exports = { nearestStop, stopsNearShape, stopsForShape, titleCaseStopName };

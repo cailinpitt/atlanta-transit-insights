@@ -1,5 +1,5 @@
-// Cross-route bus bunching — a pileup at one spot involving 2+ routes (e.g. a
-// knot of buses from different routes stacked at one intersection). Port of
+// Cross-route bus bunching — a cluster at one spot involving 2+ routes (e.g. a
+// knot of buses from different routes close together at one intersection). Port of
 // cta-insights src/bus/crossBunching.js. The per-shape detector in bunching.js
 // can't see this: each route's shape distFt is a separate coordinate system, so
 // it never compares buses on different shapes. Here we cluster purely on
@@ -10,12 +10,12 @@ const { haversineFt } = require('../../shared/geo');
 const CROSS_RADIUS_FT = 660; // an intersection + its approaches
 const MIN_VEHICLES = 3;
 const MIN_ROUTES = 2; // distinct routes, else regular bunching catches it
-const MIN_STOPPED = 2; // congestion evidence — real pileup, not buses crossing in motion
+const MIN_STOPPED = 2; // congestion evidence — real cluster, not buses crossing in motion
 const STALE_MS = 3 * 60 * 1000;
 // Layover zones — a bus sitting at the start/end of its shape, or at a rail
 // station's off-street bus bay, is between trips, not pinned in street traffic.
 // Several routes lay over together at the same transit center, which otherwise
-// reads as a multi-route "pileup". The bin tags these (parked AND at a terminal
+// reads as a multi-route "cluster". The bin tags these (parked AND at a terminal
 // or a station bay) as layoverIds; we drop them before clustering.
 const LAYOVER_TERMINAL_FT = 750; // distance from a shape end to count as "at the terminal"
 const STATION_BAY_FT = 600; // distance from a rail-station bay/platform to count as "at the station"
@@ -67,7 +67,7 @@ function nearAnyTerminal(lat, lon, terminals, marginFt = LAYOVER_TERMINAL_FT) {
 // alone (tests / diagnostics). `layoverIds` is a Set of vehicleIds the caller
 // classified as laying over (parked at a terminal or station bay); they're
 // dropped before clustering so a knot of routes resting at a transit center
-// doesn't read as a street pileup. Best-first: most vehicles, tie-break tightest span.
+// doesn't read as a street cluster. Best-first: most vehicles, tie-break tightest span.
 function detectCrossRouteBunches(
   vehicles,
   {

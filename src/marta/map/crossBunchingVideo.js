@@ -1,4 +1,4 @@
-// Cross-route bunching timelapse — animates a multi-route pileup over the
+// Cross-route bunching timelapse — animates a multi-route cluster over the
 // observation window. Port of cta-insights src/map/crossBunchingVideo.js.
 // Vehicles aren't snapped to one polyline (the cluster spans routes), so motion
 // is a free lat/lon glide via the shared dropout kernel (src/shared/videoTracks.js)

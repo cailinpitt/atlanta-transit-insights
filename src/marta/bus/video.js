@@ -93,6 +93,7 @@ async function captureBusBunchingHistoryVideo(bunch, shape, rows, opts = {}) {
     images.push(
       await renderBunchingFrame(view, baseMap, frames[i], opts.stops || [], {
         labels,
+        compactStops: true,
         clock: { elapsedSec: (times[i] - startTs) / 1000, totalSec },
       }),
     );

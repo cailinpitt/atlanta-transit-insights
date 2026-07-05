@@ -86,7 +86,7 @@ test('a layover at the far-end terminal does not bunch with an arriving train', 
   assert.deepEqual(b, []);
 });
 
-test('a real same-line pileup just past the terminal zone still bunches', () => {
+test('a real same-line cluster just past the terminal zone still bunches', () => {
   const LEN = 100_000;
   const b = detectRailBunching([
     train(2000, 'a', { lengthFt: LEN }),

@@ -3,7 +3,7 @@
 //
 // Every along-route detector (src/marta/{bus,rail}/bunching.js) groups by a
 // single shape/line and measures distance ALONG that route. That can't see a
-// pileup where vehicles from *different* routes converge on one spot — two
+// cluster where vehicles from *different* routes converge on one spot — two
 // buses on different routes can sit at the same intersection, or trains from
 // RED + GOLD can stack up at Five Points, but their along-route coordinates
 // live in different systems. Cross-route bunching is therefore purely

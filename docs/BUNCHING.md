@@ -42,7 +42,7 @@ Purely spatial — no schedule index needed. For each shape:
 2. Sort by `distFt`.
 3. Sweep adjacent pairs. A consecutive gap of ≤ **`BUNCHING_THRESHOLD_FT` (800 ft, ~2.5 city blocks)** extends the current cluster.
 4. Skip clusters that start within **`TERMINAL_DIST_FT` (500 ft)** of the shape start — those are layovers at the origin terminal, not bunching.
-5. **Geo-consistency guard** (`GEO_SLACK_FT` = 500 ft): reject a cluster whose straight-line crow-flies span is much larger than its along-shape span — that means the projection folded two distant points onto nearby shape distances (a doubled-back or self-crossing shape), not a real pileup.
+5. **Geo-consistency guard** (`GEO_SLACK_FT` = 500 ft): reject a cluster whose straight-line crow-flies span is much larger than its along-shape span — that means the projection folded two distant points onto nearby shape distances (a doubled-back or self-crossing shape), not a real cluster.
 6. Rank clusters by size (more vehicles = more severe), tie-break on tighter max-gap.
 
 `bunchesFromObservations` is the bridge: it projects the latest snapshot's positions onto shapes and runs `detectBunches`. `findParkedBusVids` / `assignBusNumbers` carry over from CTA — a bus that moved less than `MOTION_MIN_DELTA_FT` (100 ft) over the window is parked and doesn't anchor a bunch.
@@ -62,7 +62,7 @@ The chosen cluster renders as a line map (`src/marta/map/railIncidents.js`) with
 
 ### Cooldowns and posting
 
-A successful post records the shape (bus) or line/direction (rail) on cooldown so we don't keep firing on the same incident, plus a daily cap (3 bus bunches/day) so a bad day doesn't drown the feed. Both the cap and the route/line cooldown carry a **strict-dominance override**: a candidate strictly worse than every prior post in the window (more vehicles, or same count + larger span for buses / tighter span for trains) bypasses the gate, so a 5-bus pileup at 3:30 isn't suppressed by a 3-bus pileup at 3:00. The lifecycle lives in `src/marta/shared/incidents.js`; bus post text is `src/marta/bus/bunchingPost.js`, rail is `src/marta/rail/post.js`.
+A successful post records the shape (bus) or line/direction (rail) on cooldown so we don't keep firing on the same incident, plus a daily cap (3 bus bunches/day) so a bad day doesn't drown the feed. Both the cap and the route/line cooldown carry a **strict-dominance override**: a candidate strictly worse than every prior post in the window (more vehicles, or same count + larger span for buses / tighter span for trains) bypasses the gate, so a 5-bus cluster at 3:30 isn't suppressed by a 3-bus cluster at 3:00. The lifecycle lives in `src/marta/shared/incidents.js`; bus post text is `src/marta/bus/bunchingPost.js`, rail is `src/marta/rail/post.js`.
 
 ### Timelapse video
 
@@ -72,19 +72,19 @@ Note: this "ghost" is purely a video-rendering treatment for a vehicle that drop
 
 ## Cross-route / cross-line bunching
 
-The per-route detectors group by one shape (`src/marta/bus/bunching.js`, keyed on `shapeId`/`distFt`) or one `(line, direction)` (`src/marta/rail/bunching.js`). They can't see a pileup where vehicles from *different* routes converge on one spot — a knot of buses from different routes at one transit center, or RED + GOLD trains stacked at **Five Points** (where all four rail lines converge) or on the shared N-S / E-W trunks. Each route's `distFt` is a separate coordinate system, so the per-route sweep never compares across routes.
+The per-route detectors group by one shape (`src/marta/bus/bunching.js`, keyed on `shapeId`/`distFt`) or one `(line, direction)` (`src/marta/rail/bunching.js`). They can't see a cluster where vehicles from *different* routes converge on one spot — a knot of buses from different routes at one transit center, or RED + GOLD trains close together at **Five Points** (where all four rail lines converge) or on the shared N-S / E-W trunks. Each route's `distFt` is a separate coordinate system, so the per-route sweep never compares across routes.
 
 Cross-route bunching is a **geographic** detector. The primitive is `src/marta/shared/geoClusters.js#clusterByProximity`: connected-components clustering on raw lat/lon. The surface detectors (`src/marta/{bus,rail}/crossBunching.js`) run it over the whole fleet snapshot and keep clusters passing three gates:
 
 1. **≥ 2 distinct routes/lines** — else it's ordinary bunching.
-2. **≥ 3 vehicles** — a pileup, not a pair.
+2. **≥ 3 vehicles** — a cluster, not a pair.
 3. **Congestion** — ≥ 2 members barely-moving. Bus reuses `findParkedBusVids`; rail is intrinsic — a train whose `motionSign` is `null` (moved < 100 ft over the window in `latestTrainPositions`) counts as stopped.
 
 Radius defaults: **660 ft** bus, **1,500 ft** rail. Rank most-vehicles-first, tie-break tightest span.
 
 ### Layover gate (bus)
 
-Transit centers are also bus **layover** points: at Doraville, Lindbergh, Five Points, etc. several routes terminate and rest between trips in off-street bays. Those parked buses look exactly like a congested multi-route pileup, so the bus bin tags **layover buses and drops them before clustering** (`detectCrossRouteBunches` accepts a `layoverIds` set). A parked bus is a layover if **either**:
+Transit centers are also bus **layover** points: at Doraville, Lindbergh, Five Points, etc. several routes terminate and rest between trips in off-street bays. Those parked buses look exactly like a congested multi-route cluster, so the bus bin tags **layover buses and drops them before clustering** (`detectCrossRouteBunches` accepts a `layoverIds` set). A parked bus is a layover if **either**:
 
 - **At a terminal** — its position projects to within `LAYOVER_TERMINAL_FT` (750 ft) of the start or end of its trip's shape (`isAtTerminal`).
 - **Near any route's terminal** — within `LAYOVER_TERMINAL_FT` of *any* shape endpoint network-wide (`collectShapeTerminals` + `nearAnyTerminal`), regardless of which trip the bus is currently tagged with. GTFS-rt often tags a between-trips bus with a trip whose shape runs *through* the layover mid-route, so the own-shape `isAtTerminal` check misses it — this geographic backstop catches a knot of routes resting at a shared layover point (e.g. *Shannon Pkwy @ Lancaster Ln*) that isn't named "station".
@@ -94,17 +94,17 @@ The station-bay signal matters because layover bays sit back from the route line
 
 ### Terminal gate (rail)
 
-Both ends of every MARTA line are turnback terminals where trains naturally queue (one arriving, one waiting to depart — and a single train at the turnback can show up on both directions), so a cross-line cluster there is a layover knot, not a real pileup — e.g. RED + GOLD stacked at **Airport**. `detectCrossLineBunches` drops any train whose projected along-line `distFt` sits inside the line's terminal zone (`terminalZoneFt(lengthFt)`, the same gate the per-line detector uses) before clustering (`isTrainAtTerminal`; `latestTrainPositions` supplies `distFt` + `lengthFt`). Pass `excludeTerminal: false` to restore whole-network framing, or a `terminalIds` set to override the derivation in tests.
+Both ends of every MARTA line are turnback terminals where trains naturally queue (one arriving, one waiting to depart — and a single train at the turnback can show up on both directions), so a cross-line cluster there is a layover knot, not a genuine convergence — e.g. RED + GOLD close together at **Airport**. `detectCrossLineBunches` drops any train whose projected along-line `distFt` sits inside the line's terminal zone (`terminalZoneFt(lengthFt)`, the same gate the per-line detector uses) before clustering (`isTrainAtTerminal`; `latestTrainPositions` supplies `distFt` + `lengthFt`). Pass `excludeTerminal: false` to restore whole-network framing, or a `terminalIds` set to override the derivation in tests.
 
 ### Posting & the place key
 
 The bins (`bin/marta/{bus,rail}/cross-bunching.js`) post to the bus / train account with an intersection map (`src/marta/map/crossBunching.js`): each vehicle is a numbered disc colored by route, plus a legend. The lifecycle reuses `src/marta/shared/incidents.js` but is **keyed on the place** (nearest GTFS stop, else a rounded centroid) under a new `kind` (`bus-multi` / `rail-multi`). Place name comes from `nearestStop(gtfs, …)`, which scans all GTFS stops (rail platforms included).
 
-**Route lines under the discs.** Like the per-route maps, the still image and timelapse draw each involved route's polyline baked into the Mapbox base map as a `path-` overlay (black halo + route-colored core), so a viewer sees the lines actually converging on the pileup. `buildRoutePathOverlays` per line: **clips** to the visible frame (grown ~35%), **thins** survivors to ≤ 120 vertices (MARTA rail shapes carry a vertex roughly every 6 ft — ~22k points on RED — so without thinning the encoded overlays would blow the Mapbox static-URL length), and **colors** the core to match that group (rail uses official line colors via `lineColor`; buses fall back to the palette). All halos draw first, then all cores, so a crossing core is never buried under another route's halo. Route-line sourcing is best-effort — a route whose shape won't resolve just posts without its trace line.
+**Route lines under the discs.** Like the per-route maps, the still image and timelapse draw each involved route's polyline baked into the Mapbox base map as a `path-` overlay (black halo + route-colored core), so a viewer sees the lines actually converging on the cluster. `buildRoutePathOverlays` per line: **clips** to the visible frame (grown ~35%), **thins** survivors to ≤ 120 vertices (MARTA rail shapes carry a vertex roughly every 6 ft — ~22k points on RED — so without thinning the encoded overlays would blow the Mapbox static-URL length), and **colors** the core to match that group (rail uses official line colors via `lineColor`; buses fall back to the palette). All halos draw first, then all cores, so a crossing core is never buried under another route's halo. Route-line sourcing is best-effort — a route whose shape won't resolve just posts without its trace line.
 
 ### Suppression (cross-route beats per-route)
 
-The cross-route bin runs **1 minute before** the per-route bin. When it posts, it records the cluster's member ids (`bunching_events.member_ids`); the per-route bins consult `incidents.recentCrossBunchMemberIds()` and **skip** any candidate sharing ≥ 2 vehicles with a recently-posted pileup, so the same physical pileup is never posted twice.
+The cross-route bin runs **1 minute before** the per-route bin. When it posts, it records the cluster's member ids (`bunching_events.member_ids`); the per-route bins consult `incidents.recentCrossBunchMemberIds()` and **skip** any candidate sharing ≥ 2 vehicles with a recently-posted cluster, so the same physical cluster is never posted twice.
 
 Each cross-route post replies with a ~10-min timelapse (`src/marta/map/crossBunchingVideo.js`). Since the cluster spans routes there's no single polyline to glide along, so motion is a free lat/lon interpolation through the shared dropout kernel (`pointAlong` = null) — discs ease between observed positions and fade out if a vehicle drops from the feed.
 

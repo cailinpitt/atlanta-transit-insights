@@ -21,6 +21,7 @@ const {
   markerLabelChip,
   buildTerminalMarker,
   buildStopMarker,
+  buildStopDot,
   buildDirectionArrow,
   buildClipProgress,
   fitTitlePill,
@@ -37,9 +38,11 @@ const CONTEXT_PAD_FT = 1500; // feet of route context on each side of the bunch
 const BUS_MARKER_RADIUS = 34;
 const TERMINAL_MARKER_RADIUS = BUS_MARKER_RADIUS;
 const STOP_MARKER_SIZE = 32;
+const STOP_DOT_RADIUS = 6;
 // Push stops sideways off the route so the route line stays unbroken. Offset is
 // in the right-of-travel direction (perpendicular to view bearing).
 const STOP_OFFSET_PX = 22;
+const STOP_DOT_OFFSET_PX = 14;
 
 // Walk the GTFS shape building a cumulative distance, find each bunched
 // vehicle's nearest shape point by straight-line proximity, and return the
@@ -124,18 +127,25 @@ async function fetchBunchingBaseMap(view) {
 async function renderBunchingFrame(view, baseMap, vehicles, stops = [], opts = {}) {
   // Stops render below buses (so a bus sitting at a stop still reads on top),
   // pushed perpendicular to the local segment so the glyph sits beside the route.
+  // The still map draws full stop-sign glyphs; the video passes compactStops so a
+  // whole route's worth of stops reads as small amber dots instead of dominating
+  // the frame (matching cta-insights).
+  const compactStops = opts.compactStops === true;
+  const offsetPx = compactStops ? STOP_DOT_OFFSET_PX : STOP_OFFSET_PX;
+  const minSeparation = compactStops ? STOP_DOT_RADIUS * 2 + 4 : STOP_MARKER_SIZE + 6;
   const placedStops = [];
-  const minSeparation = STOP_MARKER_SIZE + 6;
   const stopElements = [];
   for (const s of stops) {
     const perp = perpendicularFromBearing(s.bearing ?? view.bearingDeg);
     const p = project(s.lat, s.lon, view.centerLat, view.centerLon, view.zoom, WIDTH, HEIGHT);
-    const x = p.x + perp.x * STOP_OFFSET_PX;
-    const y = p.y + perp.y * STOP_OFFSET_PX;
+    const x = p.x + perp.x * offsetPx;
+    const y = p.y + perp.y * offsetPx;
     if (x < 0 || x > WIDTH || y < 0 || y > HEIGHT) continue;
     if (placedStops.some((q) => Math.hypot(q.x - x, q.y - y) < minSeparation)) continue;
     placedStops.push({ x, y });
-    stopElements.push(buildStopMarker(x, y, STOP_MARKER_SIZE));
+    stopElements.push(
+      compactStops ? buildStopDot(x, y, STOP_DOT_RADIUS) : buildStopMarker(x, y, STOP_MARKER_SIZE),
+    );
   }
 
   // Nudge markers apart so a tight bunch still shows every vehicle. Push

@@ -1,4 +1,4 @@
-// Post text for a cross-route bus pileup (2+ routes stacked at one spot). Port
+// Post text for a cross-route bus cluster (2+ routes close together at one spot). Port
 // of cta-insights src/bus/crossBunchingPost.js. The headline is a PLACE; buses
 // are grouped by route with the disc number each carries on the map. MARTA
 // derives route titles from GTFS, so the bin passes them in via ctx.routeTitles.
@@ -14,7 +14,7 @@ function buildPostText(cluster, ctx, callouts = [], opts = {}) {
   const labelFor = (r) => routeTitles?.get(r) || `Route ${r}`;
   const { byRoute } = groupByRoute(cluster);
   const where = placeName ? ` near ${placeName}` : '';
-  const head = `🚍 ${cluster.vehicles.length} buses from ${byRoute.length} routes bunched${where}`;
+  const head = `🚍 ${cluster.vehicles.length} buses from ${byRoute.length} routes are close together${where} right now`;
   const lines = byRoute
     .map((g) => {
       const list = g.vids
@@ -36,19 +36,19 @@ function buildAltText(cluster, ctx) {
   const { placeName } = ctx;
   const where = placeName ? ` near ${placeName}` : '';
   const routes = cluster.routes.map((r) => `Route ${r}`).join(', ');
-  return `Map${where} showing ${cluster.vehicles.length} buses from ${cluster.routeCount} routes (${routes}) bunched within ${formatDistance(cluster.spanFt)} of each other.`;
+  return `Map${where} showing ${cluster.vehicles.length} buses from ${cluster.routeCount} routes (${routes}) within ${formatDistance(cluster.spanFt)} of each other.`;
 }
 
 function buildVideoPostText(video, cluster) {
   const elapsed = video?.elapsedSec
     ? `${Math.max(1, Math.round(video.elapsedSec / 60))} min`
     : 'Several minutes';
-  return `${elapsed} of recent movement from this ${cluster.vehicles.length}-bus, ${cluster.routeCount}-route pileup.`;
+  return `${elapsed} of recent movement from these ${cluster.vehicles.length} buses across ${cluster.routeCount} routes.`;
 }
 
 function buildVideoAltText(cluster, ctx = {}) {
   const where = ctx.placeName ? ` near ${ctx.placeName}` : '';
-  return `Timelapse map${where} showing recent movement of ${cluster.vehicles.length} bunched buses from ${cluster.routeCount} routes.`;
+  return `Timelapse map${where} showing recent movement of ${cluster.vehicles.length} buses from ${cluster.routeCount} routes that were close together.`;
 }
 
 module.exports = { buildPostText, buildAltText, buildVideoPostText, buildVideoAltText };

@@ -25,10 +25,11 @@ const WINDOW_MS = 60 * 60 * 1000;
 const MIN_SAMPLES = 15;
 const MIN_PCT_CROWDED = 0.25;
 const MIN_CROWDED_COUNT = 3;
-// A route's crowding must come from more than one bus — otherwise a single stuck
-// occupancy sensor (e.g. a bus reporting FULL all hour) can make a route read
-// 100% crowded on its own. Require at least two distinct crowded vehicles.
-const MIN_CROWDED_VEHICLES = 2;
+// At least one bus must actually report crowding on the route. MARTA occupancy is
+// sparse enough that genuine crowding is often a single packed bus, so requiring
+// two silences most real crowding; MIN_PCT_CROWDED + MIN_CROWDED_COUNT are the
+// floor that keeps a stray reading out of the digest.
+const MIN_CROWDED_VEHICLES = 1;
 const MIN_ROUTES = 2;
 const MAX_ROUTES = 10;
 const COOLDOWN_MS = 3 * 60 * 60 * 1000;

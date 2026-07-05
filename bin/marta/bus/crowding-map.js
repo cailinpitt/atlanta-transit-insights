@@ -26,9 +26,13 @@ const MIN_COVERAGE = 0.3;
 // (covered) segments standing-room-or-fuller, over enough samples to trust.
 const MIN_CROWDED_FRACTION = 0.15;
 const MIN_SAMPLES = 20;
-// The crowding must come from more than one bus, so a single stuck occupancy
-// sensor can't make a route look packed end-to-end on its own.
-const MIN_CROWDED_VEHICLES = 2;
+// At least one bus must actually report crowding here. A single stuck occupancy
+// sensor can't fake a route-wide map on its own: a parked bus stuck on FULL fills
+// only the one bin it sits in (~1/40 of covered), nowhere near MIN_CROWDED_FRACTION
+// — that fraction gate, not a vehicle count, is what rejects a lone bad sensor.
+// MARTA occupancy is sparse enough that genuine crowding is often a single packed
+// bus, so requiring two would silence most real crowding.
+const MIN_CROWDED_VEHICLES = 1;
 // A featured route is rested this long so the rotation surfaces other routes
 // rather than re-posting the same chronically-packed trunk every hour.
 const ROUTE_COOLDOWN_MS = 6 * 60 * 60 * 1000;

@@ -249,15 +249,74 @@ function perpendicularFromBearing(bearingDeg) {
   return { x: Math.cos(rad), y: Math.sin(rad) };
 }
 
-function thinPolylinePoints(points, maxPoints = 120) {
-  if (!Array.isArray(points) || points.length <= maxPoints) return points || [];
-  if (maxPoints < 2) return points.slice(0, 1);
-  const out = [];
-  const last = points.length - 1;
-  for (let i = 0; i < maxPoints; i++) {
-    out.push(points[Math.round((i * last) / (maxPoints - 1))]);
+// Route lines come from GTFS shapes that already trace the road, but they carry
+// hundreds–thousands of vertices — far more than a Mapbox static URL can hold.
+// The earlier reducer sampled every Nth vertex by index, which chorded straight
+// across curves and threw the drawn line up to a few hundred feet off the road
+// (jarring, "unsnapped" routes). We instead simplify with Douglas–Peucker, which
+// drops only near-collinear vertices, so corners survive and the line keeps
+// hugging the road — at fewer points than index-sampling used.
+const ROUTE_SIMPLIFY_TOLERANCE_FT = 25;
+const FT_PER_DEG = (Math.PI / 180) * 20902231; // equirectangular, matches geo.js
+
+// Perpendicular distance (feet) from point p to segment a→b, equirectangular
+// about a reference latitude — accurate to a few feet at city scale.
+function perpDistanceFt(p, a, b, cosLat0) {
+  const px = p.lon * FT_PER_DEG * cosLat0;
+  const py = p.lat * FT_PER_DEG;
+  const ax = a.lon * FT_PER_DEG * cosLat0;
+  const ay = a.lat * FT_PER_DEG;
+  const dx = b.lon * FT_PER_DEG * cosLat0 - ax;
+  const dy = b.lat * FT_PER_DEG - ay;
+  const len2 = dx * dx + dy * dy;
+  let t = len2 > 0 ? ((px - ax) * dx + (py - ay) * dy) / len2 : 0;
+  if (t < 0) t = 0;
+  else if (t > 1) t = 1;
+  return Math.hypot(px - (ax + t * dx), py - (ay + t * dy));
+}
+
+// Iterative Douglas–Peucker: keep the endpoints plus any vertex farther than
+// tolFt from the running chord, recursing on each half. Preserves order and
+// both endpoints; drops redundant near-collinear points.
+function simplifyPolyline(points, tolFt, cosLat0) {
+  const n = points.length;
+  if (n < 3) return points.slice();
+  const keep = new Uint8Array(n);
+  keep[0] = 1;
+  keep[n - 1] = 1;
+  const stack = [[0, n - 1]];
+  while (stack.length) {
+    const [lo, hi] = stack.pop();
+    let idx = -1;
+    let maxD = tolFt;
+    for (let i = lo + 1; i < hi; i++) {
+      const d = perpDistanceFt(points[i], points[lo], points[hi], cosLat0);
+      if (d > maxD) {
+        maxD = d;
+        idx = i;
+      }
+    }
+    if (idx !== -1) {
+      keep[idx] = 1;
+      stack.push([lo, idx], [idx, hi]);
+    }
   }
-  return out;
+  return points.filter((_, i) => keep[i]);
+}
+
+function thinPolylinePoints(points, maxPoints = 120) {
+  if (!Array.isArray(points) || points.length <= 2) return points || [];
+  const cosLat0 = Math.cos((points[0].lat * Math.PI) / 180);
+  let tol = ROUTE_SIMPLIFY_TOLERANCE_FT;
+  let simplified = simplifyPolyline(points, tol, cosLat0);
+  // maxPoints is the Mapbox static URL budget, not a target: only a pathological
+  // ultra-dense shape exceeds it after simplifying, so raise the tolerance until
+  // it fits rather than fall back to lossy index-sampling.
+  while (simplified.length > maxPoints && tol < 100000) {
+    tol *= 1.8;
+    simplified = simplifyPolyline(points, tol, cosLat0);
+  }
+  return simplified;
 }
 
 // Compute a title pill width and font size that fits within `maxPillWidth`,

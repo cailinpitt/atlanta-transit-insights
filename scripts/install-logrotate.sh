@@ -1,15 +1,21 @@
 #!/bin/bash
-# Install/update the cta-insights logrotate config under /etc/logrotate.d/.
-# Detects the owner of the local cron/ directory and substitutes it into
-# the template so the repo file stays user-agnostic.
+# Install/update the MARTA logrotate config under /etc/logrotate.d/.
+# Detects the owner of the log directory and substitutes it into the template
+# so the repo file stays user-agnostic.
+#
+# NOTE: this repo began as a fork of cta-insights, and both this script and the
+# destination filename were inherited verbatim. Running it used to overwrite
+# /etc/logrotate.d/cta-insights — silently disabling Chicago's rotation — and
+# point at cron/, which holds the crontab template, not the logs. MARTA's logs
+# go to state/logs/ (see cron/marta-crontab.txt).
 #
 # Run on the server: sudo scripts/install-logrotate.sh
 set -euo pipefail
 
 REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 SRC="$REPO_DIR/cron/logrotate.conf"
-CRON_LOG_DIR="$REPO_DIR/cron"
-DEST="/etc/logrotate.d/cta-insights"
+CRON_LOG_DIR="$REPO_DIR/state/logs"
+DEST="/etc/logrotate.d/marta-insights"
 
 # Clean up the legacy cta-bot config if present so we don't end up with two
 # logrotate entries managing the same directory.

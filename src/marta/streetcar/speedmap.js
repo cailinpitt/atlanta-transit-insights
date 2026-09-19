@@ -16,9 +16,20 @@
 const { buildLineSpeedmaps } = require('../rail/speedmap');
 const { haversineFt } = require('../../shared/geo');
 const { STREETCAR_LINE } = require('./api');
+const { routeMode } = require('../gtfs');
 
-// GTFS route_id for the Atlanta Streetcar (route_short_name ATLSC, route_type 0).
-const STREETCAR_ROUTE_ID = '26982';
+// The Atlanta Streetcar is the only route_type 0 (tram) route MARTA publishes,
+// so resolve it by mode rather than by route_id. MARTA rotates the numeric
+// route_id when it republishes the feed — it went 26982 -> 29224 — which
+// silently emptied this geometry and, via the matching id in ./api.js, the live
+// vehicle feed too. route_type is stable; the id is not.
+function streetcarRouteIds(gtfs) {
+  const ids = new Set();
+  for (const r of gtfs.routes || []) {
+    if (routeMode(r) === 'streetcar') ids.add(String(r.route_id));
+  }
+  return ids;
+}
 
 // Tighter than rail's 75: the streetcar tops out far lower, and this is what
 // rejects the once-per-lap loop wraparound jump.
@@ -63,9 +74,10 @@ function stitchShapes(shapeRecords) {
 // shape from each direction into the full loop (see header); falls back to a
 // single shape if the route only has one direction.
 function buildStreetcarGeometry(gtfs, shapes) {
+  const routeIds = streetcarRouteIds(gtfs);
   const idsByDir = new Map();
   for (const t of gtfs.trips) {
-    if (String(t.route_id) !== STREETCAR_ROUTE_ID || !t.shape_id) continue;
+    if (!routeIds.has(String(t.route_id)) || !t.shape_id) continue;
     const dir = String(t.direction_id ?? '');
     if (!idsByDir.has(dir)) idsByDir.set(dir, new Set());
     idsByDir.get(dir).add(t.shape_id);
@@ -115,7 +127,7 @@ function buildStreetcarSpeedmaps(observations, { geom, numBins = 30 } = {}) {
 }
 
 module.exports = {
-  STREETCAR_ROUTE_ID,
+  streetcarRouteIds,
   STREETCAR_MAX_MPH,
   STREETCAR_THRESHOLDS,
   colorForStreetcarSpeed,

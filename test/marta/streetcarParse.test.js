@@ -13,6 +13,8 @@ const storage = require('../../src/marta/storage');
 const {
   parseStreetcarVehicles,
   parseLastUpdate,
+  pickStreetcarRoute,
+  streetcarIdFromGtfs,
   STREETCAR_LINE,
 } = require('../../src/marta/streetcar/api');
 
@@ -76,4 +78,41 @@ test('streetcar observations round-trip and roll off', () => {
   storage.recordStreetcarObservations(vehicles, old);
   storage.rolloffOldObservations(now);
   assert.equal(storage.getRecentStreetcarObservations(old - 60_000).length, 2); // only the fresh pair
+});
+
+// MARTA rotates the streetcar's route id when it republishes the feed, and OTP
+// answers an unknown id with `route: null` — no error, no rows — so a pinned id
+// silently reports an empty fleet forever. These cover both derivations.
+
+test('streetcarIdFromGtfs reads the id out of the feed, not a constant', () => {
+  // The fixture predates the 26982 -> 29224 rotation on purpose: the resolver
+  // must return whatever routes.txt says, so a future rotation needs no edit.
+  const id = streetcarIdFromGtfs(Path.join(__dirname, 'fixtures', 'gtfs', 'routes.txt'));
+  assert.equal(id, 'MARTA:26982');
+});
+
+test('streetcarIdFromGtfs returns null when the GTFS checkout is missing', () => {
+  assert.equal(streetcarIdFromGtfs(Path.join(__dirname, 'nope', 'routes.txt')), null);
+});
+
+test('pickStreetcarRoute selects the sole TRAM route', () => {
+  const routes = [
+    { gtfsId: 'MARTA:1', shortName: '110', mode: 'BUS' },
+    { gtfsId: 'MARTA:29226', shortName: 'Blue', longName: 'Blue Line', mode: 'SUBWAY' },
+    { gtfsId: 'MARTA:29224', shortName: 'SC', longName: 'Atlanta Streetcar', mode: 'TRAM' },
+  ];
+  assert.equal(pickStreetcarRoute(routes).gtfsId, 'MARTA:29224');
+});
+
+test('pickStreetcarRoute falls back to the long name when mode is absent', () => {
+  const routes = [
+    { gtfsId: 'MARTA:1', longName: 'Some Bus' },
+    { gtfsId: 'MARTA:29224', longName: 'Atlanta Streetcar' },
+  ];
+  assert.equal(pickStreetcarRoute(routes).gtfsId, 'MARTA:29224');
+});
+
+test('pickStreetcarRoute returns null when nothing matches', () => {
+  assert.equal(pickStreetcarRoute([{ gtfsId: 'MARTA:1', mode: 'BUS' }]), null);
+  assert.equal(pickStreetcarRoute(null), null);
 });

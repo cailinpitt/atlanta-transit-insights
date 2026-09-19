@@ -4,6 +4,7 @@ const Path = require('node:path');
 const { loadGtfs } = require('../../src/marta/gtfs');
 const { loadShapes } = require('../../src/marta/bus/shapes');
 const {
+  streetcarRouteIds,
   buildStreetcarGeometry,
   buildStreetcarSpeedmaps,
   colorForStreetcarSpeed,
@@ -100,4 +101,23 @@ test('stitches the directional half-shapes into one full SC loop', () => {
   const b = sc.points[sc.points.length - 1];
   const gapFt = Math.hypot((b.lat - a.lat) * 364000, (b.lon - a.lon) * 305000);
   assert.ok(gapFt < 600, `loop closes (ends ${Math.round(gapFt)} ft apart)`);
+});
+
+test('streetcarRouteIds selects by route_type, not by a pinned id', () => {
+  // route_type 0 (tram) is the only stable handle on the streetcar — MARTA
+  // rotates route_id between feed publishes, which previously emptied the
+  // geometry silently.
+  const gtfs = {
+    routes: [
+      { route_id: '99999', route_type: '3', route_short_name: '110' },
+      { route_id: '29226', route_type: '1', route_short_name: 'BLUE' },
+      { route_id: '12345', route_type: '0', route_short_name: 'ATLSC' },
+    ],
+  };
+  assert.deepEqual([...streetcarRouteIds(gtfs)], ['12345']);
+});
+
+test('streetcarRouteIds is empty when the feed has no tram route', () => {
+  assert.equal(streetcarRouteIds({ routes: [{ route_id: '1', route_type: '3' }] }).size, 0);
+  assert.equal(streetcarRouteIds({}).size, 0);
 });

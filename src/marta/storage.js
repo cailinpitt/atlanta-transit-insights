@@ -43,9 +43,12 @@ function getDb() {
   // Many crons (observe-rail/-buses every minute, the pulse + bunching/gap/ghost
   // detectors) hammer this one file concurrently. WAL lets readers run during a
   // write, but only one writer at a time — so a write can still hit SQLITE_BUSY
-  // ("database is locked") when another process holds the write lock. Wait up to
-  // 15s for it instead of failing the tick outright (default is 5s).
-  _db.pragma('busy_timeout = 15000');
+  // ("database is locked") when another process holds the write lock. Wait
+  // rather than failing the tick outright (SQLite's default is 5s). The bare-ts
+  // rolloff indexes below are the real fix for contention; this is the backstop
+  // for the remaining overlap, and is env-tunable so it can be raised on a
+  // smaller box without a deploy.
+  _db.pragma(`busy_timeout = ${Number(process.env.SQLITE_BUSY_TIMEOUT_MS) || 30000}`);
   _db.exec(`
     -- Bus VehiclePositions: one row per vehicle per poll. route is the PUBLIC
     -- number from the realtime feed; resolve to a canonical GTFS route via

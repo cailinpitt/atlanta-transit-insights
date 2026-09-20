@@ -1,11 +1,16 @@
 node_modules/
 .env
+.env.*
+!.env.example
 cron/healthchecks.env
+cron/healthchecks.env.*
+!cron/healthchecks.env.example
 assets/
 /data/
 /state/
 /tmp/
 *.log
+*.log.[0-9]*
 .DS_Store
 .claude/
 plan.md
@@ -13,3 +18,4 @@ research.md
 bugs.md
 debugging/config.sh
 .aider*
+*.sqlite

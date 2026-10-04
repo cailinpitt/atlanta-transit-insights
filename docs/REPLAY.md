@@ -14,12 +14,10 @@ player renders nothing.
 
 ## The problem it solves
 
-The raw positions live in `rail_observations`, which **rolls off after ~7 days**
-(`src/marta/storage.js`). Incidents, though, keep a permanent permalink (90-day
-timeline + an `/event/:id` page for each). So a replay can't read the live DB —
-for anything older than a week the positions are already gone. The fix:
-**archive each incident's position window to R2 before it rolls off**, keyed by
-the incident's permalink id.
+The raw positions live in `rail_observations` on the server, which the public
+site can't read. Incidents, though, keep a permanent permalink (90-day timeline +
+an `/event/:id` page for each). The fix: **archive each incident's position
+window to R2**, keyed by the incident's permalink id.
 
 ## Data flow
 
@@ -87,8 +85,8 @@ are correct regardless of row order.
 ## What gets archived
 
 Rail incidents with a resolvable single line **and** a two-station segment
-(`from` + `to`), whose `onset` is within the retention window (default 6.5 days,
-safely inside the ~7-day rolloff). A **manifest** (`state/track-manifest.json`)
+(`from` + `to`), whose `onset` is within the lookback window (default 6.5 days,
+`--window-days` to widen). A **manifest** (`state/track-manifest.json`)
 records which incidents have been archived after they resolved; those are
 immutable and skipped. Active incidents re-upload each run until they resolve
 (capturing the recovery), then finalize. Bus/streetcar incidents and
@@ -124,5 +122,5 @@ node bin/marta/export-event-tracks.js --dry-run --alerts=/path/to/alerts.json
 
 A dry run reads the live DB but writes only local files and leaves the manifest
 untouched. Run it on the server (the laptop's `marta.sqlite` is a stale dev
-artifact). First live run backfills every replayable incident still inside the
-~7-day window.
+artifact). First live run backfills every replayable incident inside the
+lookback window.

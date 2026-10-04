@@ -20,8 +20,8 @@ const Path = require('node:path');
 const Fs = require('fs-extra');
 const Database = require('better-sqlite3');
 
-// Detection looks back ~1h; 7-day retention matches cta-insights and covers
-// low-frequency overnight/weekend route variants without special-casing.
+// Position tables (bus/rail/streetcar observations) are kept forever; only the
+// heavier trip-update/arrival snapshots roll off.
 const ROLLOFF_MS = 7 * 24 * 60 * 60 * 1000;
 const ACCESSIBILITY_ROLLOFF_MS = 180 * 24 * 60 * 60 * 1000;
 const ACCESSIBILITY_CLEAR_TICKS = 3;
@@ -196,7 +196,7 @@ function getDb() {
     );
 
     -- Bare ts indexes for the 7-day rolloff. rolloffOldObservations runs every
-    -- observe tick and does DELETE ... WHERE ts < cutoff on each snapshot table.
+    -- observe tick and does DELETE ... WHERE ts < cutoff on the rolled-off tables.
     -- The composite (route|line|..., ts) indexes above can't serve a bare ts
     -- predicate (ts isn't the leftmost column), so without these the DELETE
     -- full-scans the whole table — on rail_arrivals that's millions of rows
@@ -794,10 +794,12 @@ function getSnapshotTimestamps(table, sinceTs) {
     .map((r) => r.ts);
 }
 
+const ROLLOFF_TABLES = ['bus_trip_status', 'bus_trip_updates', 'rail_arrivals'];
+
 function rolloffOldObservations(now = Date.now()) {
   const cutoff = now - ROLLOFF_MS;
   const d = getDb();
-  for (const t of SNAPSHOT_TABLES) {
+  for (const t of ROLLOFF_TABLES) {
     d.prepare(`DELETE FROM ${t} WHERE ts < ?`).run(cutoff);
   }
   d.prepare('DELETE FROM accessibility_outages WHERE active = 0 AND restored_ts < ?').run(

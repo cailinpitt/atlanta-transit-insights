@@ -38,7 +38,7 @@ test.after(() => {
   }
 });
 
-// Well outside the 7-day retention window so the rolloff test can age it out.
+// Well outside the 7-day rolloff window so the rolloff test can age it out.
 const T0 = Date.now() - 30 * 24 * 60 * 60 * 1000;
 
 test('bus observations round-trip, preserving optional speed', () => {
@@ -160,10 +160,15 @@ test('snapshot timestamps and rolloff', () => {
   const tsBefore = storage.getSnapshotTimestamps('rail_observations', 0);
   assert.ok(tsBefore.includes(T0) && tsBefore.includes(now), 'both ticks present');
 
+  assert.ok(storage.getSnapshotTimestamps('rail_arrivals', 0).includes(T0));
+
   storage.rolloffOldObservations(now);
   const tsAfter = storage.getSnapshotTimestamps('rail_observations', 0);
-  assert.ok(!tsAfter.includes(T0), 'aged-out tick removed');
+  assert.ok(tsAfter.includes(T0), 'positions kept forever');
   assert.ok(tsAfter.includes(now), 'fresh tick retained');
+  const arrAfter = storage.getSnapshotTimestamps('rail_arrivals', 0);
+  assert.ok(!arrAfter.includes(T0), 'aged-out arrivals removed');
+  assert.ok(arrAfter.includes(now), 'fresh arrivals retained');
 });
 
 test('getSnapshotTimestamps rejects an unknown table', () => {

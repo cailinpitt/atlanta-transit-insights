@@ -39,7 +39,7 @@ A 90-minute trip running 16:30–18:00 contributes 0.5 to hour 16, 1.0 to hour 1
 
 ### Step 2 — observing live service
 
-The observe loop (`scripts/marta/observe-buses.js`, `scripts/marta/observe-rail.js`) records every active vehicle into `state/marta.sqlite` (`src/marta/storage.js`) at ~30s density, rolling off after 7 days. The ghost detector only looks back one hour.
+The observe loop (`scripts/marta/observe-buses.js`, `scripts/marta/observe-rail.js`) records every active vehicle into `state/marta.sqlite` (`src/marta/storage.js`) at ~30s density, kept indefinitely. The ghost detector only looks back one hour.
 
 ### Step 3 — detecting ghosts
 
@@ -96,7 +96,7 @@ MARTA publishes a schedule; live vehicle positions are public. The interesting s
 
 - `scripts/marta/build-schedule-index.js` — builds the `activeByHour` index from GTFS.
 - `scripts/marta/observe-buses.js`, `scripts/marta/observe-rail.js` — live observation loop.
-- `src/marta/storage.js` — observation storage + roll-off + count helpers.
+- `src/marta/storage.js` — observation storage + count helpers.
 - `src/marta/bus/ghosts.js`, `src/marta/rail/ghosts.js` — core detection and gates.
 - `src/marta/bus/ghostPost.js`, `src/marta/rail/post.js` — post text.
 - `src/shared/ghostFormat.js` — `describeGhost`: shared count + effective-headway phrasing.

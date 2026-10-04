@@ -169,7 +169,7 @@ See [MARTA_FEEDS.md](docs/MARTA_FEEDS.md) for what each feed actually contains.
 MARTA is GTFS-realtime: a vehicle reports `trip_id` + lat/lon, not distance-along-route. `src/marta/bus/shapes.js` reconstructs distance-along-route by projecting each position onto its trip's GTFS shape. The whole detector stack runs on that projected `distFt`. See [BUNCHING.md](docs/BUNCHING.md#the-pdist-analog--srcmartabusshapesjs).
 
 ### Storage
-The observe loop records into `state/marta.sqlite` (`src/marta/storage.js`): `bus_observations`, `bus_trip_updates`, `rail_observations`, `rail_arrivals`, 7-day rolloff. Cooldowns, caps, callouts, and `meta_signals` live in the same DB via `src/marta/shared/incidents.js`. SQLite runs in **WAL mode**.
+The observe loop records into `state/marta.sqlite` (`src/marta/storage.js`): `bus_observations`, `bus_trip_updates`, `rail_observations`, `rail_arrivals`. Position tables are kept forever; trip updates and arrivals roll off after 7 days. Cooldowns, caps, callouts, and `meta_signals` live in the same DB via `src/marta/shared/incidents.js`. SQLite runs in **WAL mode**.
 
 ## Contributing and issues
 

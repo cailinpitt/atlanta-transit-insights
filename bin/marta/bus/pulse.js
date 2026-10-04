@@ -60,8 +60,7 @@ const SYNTHETIC_CLEAR_LOOKBACK_MS = 30 * 24 * 60 * 60 * 1000;
 // Cross-detector suppression window. A route already reported silent by
 // thin-gaps shouldn't ALSO open a pulse blackout (see the eligibility filter).
 // 7d comfortably exceeds any continuous single-route silence while bounding the
-// scan, and matches the observation roll-off horizon past which recovery can't
-// be proven anyway.
+// scan.
 const CROSS_DETECTOR_LOOKBACK_MS = 7 * 24 * 60 * 60 * 1000;
 
 function routeMeta(gtfs) {

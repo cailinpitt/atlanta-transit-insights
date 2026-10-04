@@ -63,7 +63,7 @@ test('parseLastUpdate honors the offset and rejects empties', () => {
   assert.equal(parseLastUpdate(''), null);
 });
 
-test('streetcar observations round-trip and roll off', () => {
+test('streetcar observations round-trip and survive rolloff', () => {
   const vehicles = parseStreetcarVehicles(data, Date.now());
   const now = Date.now();
   storage.recordStreetcarObservations(vehicles, now);
@@ -73,11 +73,10 @@ test('streetcar observations round-trip and roll off', () => {
   assert.ok(rows.every((r) => Number.isFinite(r.lat) && Number.isFinite(r.lon)));
   assert.ok(rows.some((r) => r.vehicleId === 'MARTA:1001' && r.label === '1001'));
 
-  // Older than the 7-day window: rolloff drops it.
   const old = now - 30 * 24 * 60 * 60 * 1000;
   storage.recordStreetcarObservations(vehicles, old);
   storage.rolloffOldObservations(now);
-  assert.equal(storage.getRecentStreetcarObservations(old - 60_000).length, 2); // only the fresh pair
+  assert.equal(storage.getRecentStreetcarObservations(old - 60_000).length, 4);
 });
 
 // MARTA rotates the streetcar's route id when it republishes the feed, and OTP

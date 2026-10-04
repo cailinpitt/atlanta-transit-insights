@@ -247,7 +247,7 @@ CTA tree keeps working as a reference until each analog is proven. Done so far
 - `scripts/marta/observe-{buses,rail,bus-tripupdates}.js` + `src/marta/observeUtil.js`
   — the live capture loop (analog of CTA `scripts/observeBuses.js`/`observeTrains.js`).
   Poll the feeds, record via the adapters' default record path, rolloff the 7-day
-  window. `runTicks` densifies within a cron firing. **Bus positions and
+  trip-update/arrival window. `runTicks` densifies within a cron firing. **Bus positions and
   TripUpdates are split into separate jobs on purpose:** positions are ~160
   rows/fetch and feed every detector, so they run at 30s density (2 ticks/min);
   TripUpdates are ~14k rows/fetch (one row per trip×upcoming-stop) and no detector

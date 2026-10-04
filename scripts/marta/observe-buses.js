@@ -5,7 +5,7 @@
 // cheap (~160 rows/fetch), so this runs at 30s density like the CTA observers
 // (cron every minute, 2 ticks 30s apart). TripUpdates are captured separately
 // (observe-bus-tripupdates.js) because they're ~100x heavier and no detector
-// reads them yet. rolloff trims the 7-day window each run.
+// reads them yet. rolloff trims the 7-day trip-update/arrival window each run.
 require('dotenv').config({ path: require('node:path').join(__dirname, '..', '..', '.env') });
 const { getVehiclePositions } = require('../../src/marta/bus/api');
 const { rolloffOldObservations } = require('../../src/marta/storage');

@@ -132,8 +132,7 @@ gated by `dueForUpdate` (≥55 min since the last update and ≥55 min since ope
 The update text/evidence builders (`thinGapUpdate` / `busPulseUpdate` /
 `railPulseUpdate`) are **pure** and reused by the backfill so live and historical
 updates read identically. `incident_updates` is a permanent archive (kept like the
-event tables, not rolled off), so the timeline survives the 7-day observation
-window — a forward event keeps its updates forever.
+event tables, not rolled off) — a forward event keeps its updates forever.
 
 **Backfill** (`bin/marta/backfill-incident-updates.js`, `--dry-run`): for these
 absence detectors the hourly text is fully determined by frozen

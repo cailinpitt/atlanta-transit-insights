@@ -66,8 +66,7 @@ const MIN_HEALTHY_SNAPSHOTS = 2;
 // Bluesky reply window: beyond 24h the original thread is too cold for a
 // "buses observed again" reply to read naturally.
 const CLEAR_LOOKBACK_MS = 24 * 60 * 60 * 1000;
-// Outer bound for the synthetic (no-reply) clear pass. Observations roll off at
-// 7d so we can't prove recovery past that anyway.
+// Outer bound for the synthetic (no-reply) clear pass.
 const SYNTHETIC_CLEAR_LOOKBACK_MS = 30 * 24 * 60 * 60 * 1000;
 // Cross-detector suppression window — mirror of pulse's. A route already
 // reported silent by pulse shouldn't ALSO open a thin-gap (see eligibility).

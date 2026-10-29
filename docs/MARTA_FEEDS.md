@@ -83,7 +83,7 @@ scheduled stop times.
   `arrival.time − arrival.scheduledTime` (positive = late), exposed as
   `scheduleDeviationSec`.
 
-## Rail realtime — `developerservices.itsmarta.com:18096/…/traindata`
+## Rail realtime — `developerservices.itsmarta.com/mcsmrail/…/traindata`
 
 Needs `MARTA_TRAIN_KEY` (`apiKey` query param). Returns a flat JSON array, one
 row per **(train → upcoming station)** arrival prediction. Adapter:

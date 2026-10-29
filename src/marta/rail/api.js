@@ -1,6 +1,6 @@
 // MARTA rail realtime adapter — the rail parity gate (plan Phase 5).
 //
-// Source: developerservices.itsmarta.com:18096 …/railrealtimearrivals/…/traindata
+// Source: developerservices.itsmarta.com/mcsmrail …/railrealtimearrivals/…/traindata
 // Requires MARTA_TRAIN_KEY (apiKey query param). Returns a flat JSON array where
 // each row is one (train → upcoming station) arrival prediction. Validated feed
 // reality (see docs/MARTA_FEEDS.md), NOT the developer doc:
@@ -28,7 +28,7 @@ const axios = require('axios');
 const { withRetry } = require('../../shared/retry');
 
 const RAIL_URL =
-  'https://developerservices.itsmarta.com:18096/itsmarta/railrealtimearrivals/developerservices/traindata';
+  'https://developerservices.itsmarta.com/mcsmrail/itsmarta/railrealtimearrivals/developerservices/traindata';
 
 const LINES = ['RED', 'GOLD', 'BLUE', 'GREEN'];
 

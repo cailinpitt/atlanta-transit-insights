@@ -167,10 +167,15 @@ async function fetchTrainData({ record = true } = {}) {
     () =>
       axios.get(RAIL_URL, {
         params: { apiKey: process.env.MARTA_TRAIN_KEY },
+        // The feed serves an unparseable text/plain body if text/plain is acceptable.
+        headers: { Accept: 'application/json' },
         timeout: 20000,
       }),
     { label: 'MARTA rail traindata' },
   );
+  if (!Array.isArray(data)) {
+    throw new Error(`MARTA rail traindata returned non-JSON: ${String(data).slice(0, 80)}`);
+  }
   const parsed = parseTrainData(data, polledAt);
   if (record) require('../storage').recordRailSnapshot(parsed, polledAt);
   return parsed;

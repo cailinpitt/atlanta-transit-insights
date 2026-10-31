@@ -108,11 +108,16 @@
 14-59/15 * * * * cd __REPO__ && NODE=__NODE__ /bin/sh __REPO__/bin/marta/push-web-data.sh >> __REPO__/state/logs/push-web-data.log 2>&1
 # Event replay tracks ("▶ Watch it unfold" data). Archives each rail incident's
 # vehicle-position window to R2 (tracks/<eventId>.json) so /event/:id pages can
-# replay it after rail_observations roll off (~7 days). Offset to :19 so it reads
+# replay it after rail_observations roll off (14 days). Offset to :19 so it reads
 # the tmp/web-data/alerts.json that the :14 push-web-data run just wrote. Bounded
 # by a manifest to active + newly-resolved incidents, so R2 op churn stays tiny.
 # See docs/REPLAY.md.
 19-59/15 * * * * cd __REPO__ && __NODE__ bin/marta/export-event-tracks.js >> __REPO__/state/logs/export-event-tracks.log 2>&1
+# Archive each finished Atlanta day of vehicle positions to archive/positions/ as
+# gzipped NDJSON, publish it to the same bucket under positions/, then trim the
+# position tables to the 14-day hot window (only days that were uploaded). Runs
+# before the 04:23 backup. See docs/POSITIONS.md.
+40 2 * * * cd __REPO__ && __NODE__ bin/marta/export-positions.js >> __REPO__/state/logs/export-positions.log 2>&1
 # Off-box backup of state/marta.sqlite to Cloudflare R2. Uses SQLite .backup,
 # integrity-checks the snapshot, gzips it, then uploads to the private backup
 # bucket. See docs/MARTA_BACKUPS.md.

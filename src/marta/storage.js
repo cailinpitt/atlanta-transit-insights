@@ -20,8 +20,9 @@ const Path = require('node:path');
 const Fs = require('fs-extra');
 const Database = require('better-sqlite3');
 
-// Position tables (bus/rail/streetcar observations) are kept forever; only the
-// heavier trip-update/arrival snapshots roll off.
+// Trip-update/arrival snapshots roll off here. Position tables (bus/rail/
+// streetcar observations) keep a 14-day hot window, trimmed by
+// bin/marta/export-positions.js after each day is archived.
 const ROLLOFF_MS = 7 * 24 * 60 * 60 * 1000;
 const ACCESSIBILITY_ROLLOFF_MS = 180 * 24 * 60 * 60 * 1000;
 const ACCESSIBILITY_CLEAR_TICKS = 3;

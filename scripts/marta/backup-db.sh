@@ -2,8 +2,10 @@
 # Off-box backup of the MARTA history DB to Cloudflare R2.
 #
 # Uses SQLite's online `.backup` so the snapshot is WAL-safe while cron writers
-# are active. The snapshot is integrity-checked, gzipped, uploaded to R2, and a
-# small number of local temp copies are retained for fast restores.
+# are active. The position tables are dropped from the snapshot (positions are
+# archived separately by bin/marta/export-positions.js, see docs/POSITIONS.md),
+# then it is integrity-checked, gzipped, uploaded to R2, and a small number of
+# local temp copies are retained for fast restores.
 #
 # Env overrides:
 #   MARTA_HISTORY_DB_PATH  SQLite DB to back up
@@ -28,8 +30,15 @@ if [ ! -f "$DB" ]; then
 fi
 
 mkdir -p "$WORKDIR"
+# Don't leave a multi-GB uncompressed snapshot behind if a step fails.
+trap 'rm -f "${WORKDIR:?}/${OUT}"' ERR
 
 sqlite3 "$DB" ".backup '${WORKDIR}/${OUT}'"
+
+# Drop vehicle positions from the snapshot only. The live DB is untouched, and
+# storage.js recreates the empty tables on a restored copy.
+sqlite3 "${WORKDIR}/${OUT}" \
+  'DROP TABLE IF EXISTS bus_observations; DROP TABLE IF EXISTS rail_observations; DROP TABLE IF EXISTS streetcar_observations; VACUUM;'
 
 if ! sqlite3 "${WORKDIR}/${OUT}" 'PRAGMA integrity_check;' | grep -qx 'ok'; then
   echo "$(date -u '+%Y-%m-%dT%H:%M:%SZ') ERROR: integrity_check failed for ${OUT}" >&2

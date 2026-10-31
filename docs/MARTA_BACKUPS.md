@@ -1,8 +1,15 @@
 # MARTA Database Backups
 
 The MARTA history DB (`state/marta.sqlite`) is backed up off-box to Cloudflare
-R2. The backup script uses SQLite's online `.backup`, then integrity-checks,
-gzips, and uploads the snapshot.
+R2. The backup script uses SQLite's online `.backup`, drops the position
+tables from the snapshot, then integrity-checks, gzips, and uploads it.
+
+Vehicle positions (`bus_observations`, `rail_observations`,
+`streetcar_observations`) are **not** in the backup. Finished days are archived
+by `bin/marta/export-positions.js` to `archive/positions/` and to the public
+data bucket, which doubles as their off-box copy (`docs/POSITIONS.md`). A
+restored DB starts with empty position tables, so it loses up to 14 days of
+hot-window positions. The archived days are unaffected.
 
 Scripts:
 

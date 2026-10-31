@@ -19,6 +19,8 @@
     "marta:build-rail-stations": "node scripts/marta/build-rail-stations.js",
     "marta:backfill-alert-stations": "node scripts/marta/backfill-alert-stations.js",
     "marta:observe-buses": "node scripts/marta/observe-buses.js",
+    "marta:export-positions": "node bin/marta/export-positions.js",
+    "marta:export-positions:dry": "node bin/marta/export-positions.js --dry-run",
     "marta:observe-bus-tripupdates": "node scripts/marta/observe-bus-tripupdates.js",
     "marta:observe-rail": "node scripts/marta/observe-rail.js",
     "marta:status": "node scripts/marta/observe-status.js",

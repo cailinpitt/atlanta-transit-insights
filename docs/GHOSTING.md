@@ -39,7 +39,7 @@ A 90-minute trip running 16:30–18:00 contributes 0.5 to hour 16, 1.0 to hour 1
 
 ### Step 2 — observing live service
 
-The observe loop (`scripts/marta/observe-buses.js`, `scripts/marta/observe-rail.js`) records every active vehicle into `state/marta.sqlite` (`src/marta/storage.js`) at ~30s density, kept indefinitely. The ghost detector only looks back one hour.
+The observe loop (`scripts/marta/observe-buses.js`, `scripts/marta/observe-rail.js`) records every active vehicle into `state/marta.sqlite` (`src/marta/storage.js`) at ~30s density, with a 14-day hot window (older days are archived, see `docs/POSITIONS.md`). The ghost detector only looks back one hour.
 
 ### Step 3 — detecting ghosts
 

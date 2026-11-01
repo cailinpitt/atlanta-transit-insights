@@ -36,12 +36,16 @@ const ARCHIVE_DIR = process.env.POSITIONS_ARCHIVE_DIR || Path.join(REPO, 'archiv
 const REMOTE = process.env.RCLONE_REMOTE || 'r2atlanta:atlanta-transit-alerts-data';
 const DELETE_BATCH_MS = 60 * 60 * 1000;
 
-function loadManifest() {
+function readJson(path) {
   try {
-    return JSON.parse(Fs.readFileSync(MANIFEST_PATH, 'utf8'));
+    return JSON.parse(Fs.readFileSync(path, 'utf8'));
   } catch (_) {
-    return {};
+    return null;
   }
+}
+
+function loadManifest() {
+  return readJson(MANIFEST_PATH) ?? {};
 }
 
 function saveManifest(manifest) {
@@ -157,7 +161,8 @@ async function main() {
   if (days.length > 0 || argv['publish-index']) {
     Fs.mkdirSync(ARCHIVE_DIR, { recursive: true });
     const indexPath = Path.join(ARCHIVE_DIR, 'index.json');
-    Fs.writeFileSync(indexPath, `${JSON.stringify(buildIndex(manifest, now), null, 2)}\n`);
+    const index = buildIndex(manifest, now, readJson(indexPath));
+    Fs.writeFileSync(indexPath, `${JSON.stringify(index, null, 2)}\n`);
     upload(indexPath, 'positions/index.json', 'application/json', 300);
   }
 

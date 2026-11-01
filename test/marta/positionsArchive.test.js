@@ -66,18 +66,86 @@ test('rolloffCutoff deletes nothing before an empty manifest’s start date', ()
   assert.strictEqual(rolloffCutoff({}, now, '2026-10-01'), localMidnight('2026-10-01'));
 });
 
-test('buildIndex lists only uploaded days, sorted', () => {
+const file = (rows) => ({ path: 'p', rows, bytes: 1, sha256: 'h' });
+const dayFiles = (n) => ({ bus: file(n), rail: file(n + 1), streetcar: file(n + 2) });
+
+test('buildIndex lists only uploaded days, newest first', () => {
   const index = buildIndex(
     {
-      '2026-10-02': { uploaded: true, files: { bus: { rows: 2 } } },
-      '2026-10-01': { uploaded: true, files: { bus: { rows: 1 } } },
+      '2026-10-02': { uploaded: true, files: dayFiles(2) },
+      '2026-10-01': { uploaded: true, files: dayFiles(1) },
       '2026-10-03': { uploaded: false, files: {} },
     },
     0,
   );
   assert.deepStrictEqual(
     index.days.map((d) => d.date),
-    ['2026-10-01', '2026-10-02'],
+    ['2026-10-02', '2026-10-01'],
   );
-  assert.ok(index.schema.streetcar.event_ts);
+  assert.deepStrictEqual(index.coverage, { first: '2026-10-01', latest: '2026-10-02', days: 2 });
+});
+
+test('buildIndex shape and key order', () => {
+  const index = buildIndex({ '2026-10-31': { uploaded: true, files: dayFiles(5) } }, 0);
+  assert.deepStrictEqual(Object.keys(index), [
+    'title',
+    'generated_at',
+    'timezone',
+    'days_are',
+    'format',
+    'base_url',
+    'coverage',
+    'feeds',
+    'known_gaps',
+    'days',
+  ]);
+  assert.deepStrictEqual(index.days[0], {
+    date: '2026-10-31',
+    weekday: 'Sat',
+    rows: { bus: 5, rail: 6, streetcar: 7 },
+    files: dayFiles(5),
+  });
+  assert.deepStrictEqual(index.feeds.bus.fields.ts, {
+    type: 'integer',
+    unit: 'epoch ms',
+    nullable: false,
+    description: 'Poll time',
+  });
+  assert.strictEqual(index.feeds.bus.fields.vehicle_ts.unit, 'epoch s');
+  assert.ok(!('unit' in index.feeds.rail.fields.line));
+  for (const { fields } of Object.values(index.feeds)) {
+    for (const f of Object.values(fields)) {
+      assert.ok(['integer', 'number', 'string'].includes(f.type));
+      assert.strictEqual(typeof f.nullable, 'boolean');
+    }
+  }
+  assert.ok(index.known_gaps.every((g) => g.start < g.end && g.feeds.length && g.note));
+});
+
+test('buildIndex migrates an old-format index without dropping days', () => {
+  const old = {
+    generated_at: '2026-11-01T08:40:01.664Z',
+    timezone: 'America/New_York',
+    format: 'gzipped NDJSON, one JSON object per line, ordered by ts',
+    schema: { bus: { ts: 'Poll time, epoch ms' } },
+    days: [
+      { date: '2026-09-28', files: dayFiles(1) },
+      { date: '2026-09-29', files: dayFiles(2) },
+    ],
+  };
+  const manifest = {
+    '2026-09-29': { uploaded: true, files: dayFiles(2) },
+    '2026-09-30': { uploaded: true, files: dayFiles(3) },
+  };
+  const index = buildIndex(manifest, 0, old);
+  assert.ok(!('schema' in index));
+  assert.deepStrictEqual(
+    index.days.map((d) => [d.date, d.files]),
+    [
+      ['2026-09-30', dayFiles(3)],
+      ['2026-09-29', dayFiles(2)],
+      ['2026-09-28', dayFiles(1)],
+    ],
+  );
+  assert.deepStrictEqual(buildIndex(manifest, 0, index), index);
 });

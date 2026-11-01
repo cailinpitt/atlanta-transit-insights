@@ -11,8 +11,44 @@ download.
 
 Index: <https://data.atlantatransitalerts.app/positions/index.json>
 
-The index lists every archived day with each file's path, row count, size and
-sha256, plus the field list for each kind. Files are at:
+The index describes each feed's fields (type, unit, nullability, caveats),
+lists known gaps, and then lists every archived day, newest first, with each
+file's path (relative to `base_url`), row count, size and sha256. Trimmed:
+
+```json
+{
+  "title": "MARTA vehicle positions archive",
+  "generated_at": "2026-11-02T08:40:01.664Z",
+  "timezone": "America/New_York",
+  "days_are": "Local calendar days in `timezone`, midnight to midnight",
+  "format": "gzipped NDJSON, one JSON object per line, ordered by ts",
+  "base_url": "https://data.atlantatransitalerts.app/",
+  "coverage": { "first": "2026-09-28", "latest": "2026-11-01", "days": 35 },
+  "feeds": {
+    "bus": {
+      "description": "MARTA bus positions from the GTFS-rt vehicle positions feed",
+      "fields": {
+        "ts": { "type": "integer", "unit": "epoch ms", "nullable": false, "description": "Poll time" }
+      }
+    }
+  },
+  "known_gaps": [
+    { "start": "2026-10-30T18:40:00-04:00", "end": "2026-10-30T19:07:00-04:00", "feeds": ["bus", "rail", "streetcar"], "note": "~26.5 min gap during the deploy that fixed the rail API change" }
+  ],
+  "days": [
+    {
+      "date": "2026-10-31",
+      "weekday": "Sat",
+      "rows": { "bus": 364774, "rail": 42659, "streetcar": 2925 },
+      "files": {
+        "bus": { "path": "positions/bus/2026/10/2026-10-31.ndjson.gz", "rows": 364774, "bytes": 11413836, "sha256": "f053ff18…" }
+      }
+    }
+  ]
+}
+```
+
+Files are at:
 
 ```
 https://data.atlantatransitalerts.app/positions/{bus,rail,streetcar}/YYYY/MM/YYYY-MM-DD.ndjson.gz
@@ -29,7 +65,7 @@ https://data.atlantatransitalerts.app/positions/{bus,rail,streetcar}/YYYY/MM/YYY
 
 ## Fields
 
-The authoritative descriptions are in `index.json` (`schema`), generated from
+The authoritative descriptions are in `index.json` (`feeds`), generated from
 `src/marta/positionsArchive.js`. Types follow the SQLite schema in
 `src/marta/storage.js`.
 
@@ -77,9 +113,12 @@ The authoritative descriptions are in `index.json` (`schema`), generated from
 
 ## Known gaps and issues
 
+The gaps are also published as `known_gaps` in `index.json`, from
+`KNOWN_GAPS` in `src/marta/positionsArchive.js`; keep the two in sync.
+
 - **2026-10-28 ~01:20 ET to 2026-10-30 ~18:40 ET:** rail and streetcar were
   effectively dark after a MARTA rail API change (2026-10-29 has 0 rail rows).
-- **2026-10-30 ~18:40 ET:** a ~26.5 min gap on all feeds during the deploy
+- **2026-10-30 ~18:40 to ~19:07 ET:** a ~26.5 min gap on all feeds during the deploy
   that fixed the above.
 - **2026-11-01 ~06:00Z to 11:00Z:** 403 rail rows were stored with `event_ts`
   1h early, from a DST bug in the `EVENT_TIME` parser. The parser is fixed and
@@ -107,7 +146,8 @@ backup:
    server).
 2. It uploads the files to `r2atlanta:atlanta-transit-alerts-data/positions/`
    and records them in `state/positions-manifest.json`. `positions/index.json`
-   is rebuilt from the manifest.
+   is rebuilt from the manifest, keeping any day already listed in the
+   previous index.
 3. It deletes position rows older than 14 days, but never past the first day
    that isn't uploaded yet. A failed run leaves the data in the DB for the
    next night.

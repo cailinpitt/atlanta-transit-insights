@@ -81,9 +81,10 @@ The authoritative descriptions are in `index.json` (`schema`), generated from
   effectively dark after a MARTA rail API change (2026-10-29 has 0 rail rows).
 - **2026-10-30 ~18:40 ET:** a ~26.5 min gap on all feeds during the deploy
   that fixed the above.
-- **2026-11-01 ~06:00Z to 11:00Z:** 354 rail rows have `event_ts` 1h early, from
-  a DST bug in the `EVENT_TIME` parser. The parser is fixed; these rows have
-  not been backfilled. `ts` is unaffected.
+- **2026-11-01 ~06:00Z to 11:00Z:** 403 rail rows were stored with `event_ts`
+  1h early, from a DST bug in the `EVENT_TIME` parser. The parser is fixed and
+  these rows were corrected in place before the day was archived, so the
+  archive is unaffected.
 
 ```sh
 curl -sO https://data.atlantatransitalerts.app/positions/rail/2026/10/2026-10-30.ndjson.gz

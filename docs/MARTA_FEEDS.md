@@ -119,7 +119,8 @@ train's last-update wall clock in **America/New_York**, with no offset.
 `zonedToEpoch` converts it with `Intl` (no tz library): the repeated fall-back
 hour resolves to the instant closest to our poll time, and a nonexistent
 spring-forward time uses the pre-transition offset. Before this fix, 2026-11-01
-event times from ~06:00Z to 11:00Z (354 rows) were stored 1h early. `WAITING_SECONDS` is the authoritative
+event times from ~06:00Z to 11:00Z were stored 1h early (403 `rail_observations`
+and 27,256 `rail_arrivals` rows, since corrected in place). `WAITING_SECONDS` is the authoritative
 seconds-to-arrival; `NEXT_ARR` is a redundant local clock string.
 
 Implication: rail can target near-full CTA parity — true speedmaps, gaps,

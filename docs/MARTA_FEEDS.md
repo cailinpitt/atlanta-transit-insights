@@ -61,10 +61,11 @@ One entity per active vehicle (~180 observed midday).
 | `trip.routeId` | **public route number**, not `route_id` |
 | `trip.directionId` | **UNRELIABLE** — observed values 0, 5, 9, 11, 14. Ignore it; take `direction_id` from `trips.txt`. |
 | `position.lat/lon` | always present |
-| `position.bearing` | usually present |
-| `position.speed` | **only ~57% of vehicles**, metres/second, quantized to ~5 mph steps (max ~26.8 m/s ≈ 60 mph). Detectors must tolerate `null`. |
-| `vehicle.id` / `.label` | fleet id + run number |
+| `position.bearing` | integer degrees clockwise from true north. MARTA omits zero-valued fields, so `0` never appears; a missing bearing usually means heading north (0°). |
+| `position.speed` | metres/second, quantized to ~5 mph steps. **Missing on ~44% of rows**: MARTA omits zero-valued fields, so `0` never appears and a missing speed mostly means stopped (~0), not unknown. Some vehicles report implausible values (e.g. vehicle 4756 at a constant 35.76 m/s); treat anything above ~31 m/s (~70 mph) as suspect. Detectors must tolerate `null`. |
+| `vehicle.id` / `.label` | two separate identifiers; `label` is not derived from `id` (e.g. id `2303` has label `1603`). Stored as `vehicle_id` / `label`. |
 | `occupancyStatus` | usually present |
+| `vehicle.timestamp` | epoch seconds, stored as-is in `vehicle_ts`. Usually lags our poll time (median ~23s, p99 ~400s, up to ~25 min); around the fall-back DST change it has run up to ~1h *ahead* of poll time. |
 
 `parseVehiclePosition` deliberately **omits** `directionId` so nothing
 downstream is tempted to trust it. It distinguishes on-wire `speed`/`bearing`
@@ -97,7 +98,7 @@ stronger. Two row kinds, split by `IS_REALTIME`:
 |---|---|---|
 | `TRAIN_ID` | real, e.g. `"402"` | **empty** |
 | `LATITUDE`/`LONGITUDE` | **real train position** | **absent** |
-| `DELAY` | signed `T<sec>S` (`T-21S`=21s early, `T0S`=on time) | absent |
+| `DELAY` | signed `T<sec>S` (`T-21S`=21s early, `T0S`=on time, `T249S`=249s late); stored as `delay_sec`, positive = late. Missing on ~2–4% of tracked rows. | absent |
 | meaning | a train being tracked live | a future scheduled arrival |
 
 Observed midday: ~330 tracked rows / ~340 scheduled rows, ~43 distinct trains.
@@ -111,11 +112,14 @@ What makes Path A work (verified against two snapshots 150s apart):
   0.4–1.8 mi (≈ plausible inter-station speeds) — so **speed is computable from
   position deltas**, enabling true rail speedmaps, not just headway maps.
 - **Identity key is `(LINE, DIRECTION, TRAIN_ID)`** — `TRAIN_ID` alone (e.g.
-  `401`/`402`) is reused across lines and directions.
+  `401`/`402`) is reused across lines and directions, even within one poll.
 
 Directions: `N`/`S` (Red, Gold), `E`/`W` (Blue, Green). `EVENT_TIME` is each
-train's last-update wall clock in **America/New_York** (parsed via a DST-correct
-offset inversion, no tz library). `WAITING_SECONDS` is the authoritative
+train's last-update wall clock in **America/New_York**, with no offset.
+`zonedToEpoch` converts it with `Intl` (no tz library): the repeated fall-back
+hour resolves to the instant closest to our poll time, and a nonexistent
+spring-forward time uses the pre-transition offset. Before this fix, 2026-11-01
+event times from ~06:00Z to 11:00Z (354 rows) were stored 1h early. `WAITING_SECONDS` is the authoritative
 seconds-to-arrival; `NEXT_ARR` is a redundant local clock string.
 
 Implication: rail can target near-full CTA parity — true speedmaps, gaps,

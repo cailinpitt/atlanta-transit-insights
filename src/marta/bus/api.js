@@ -89,8 +89,8 @@ function parseVehiclePosition(entity) {
     lat: Number.isFinite(pos.latitude) ? pos.latitude : null,
     lon: Number.isFinite(pos.longitude) ? pos.longitude : null,
     bearing: wireNum(pos, 'bearing'),
-    // metres/second when present (~57% of vehicles); null otherwise. Detectors
-    // must tolerate missing speed.
+    // metres/second. MARTA omits zero values, so null (~44%) mostly means
+    // stopped; detectors must tolerate it.
     speed: wireNum(pos, 'speed'),
     occupancy: relName(OCCUPANCY, v.occupancyStatus),
     ts: longToNum(v.timestamp),

@@ -31,7 +31,8 @@ recorded snapshot (no extra feed fetch), detects → renders → posts → exits
   `activeByHour`. Lookups in `src/marta/bus/schedule.js` (`headwayForShape`,
   `headwayForRoute`, `headwayForLine`, `activeForLine`). Powers gaps + ghosts.
 - **Storage.** `src/marta/storage.js` owns `state/marta.sqlite`
-  (`bus_observations`, `bus_trip_updates`, `rail_observations`, `rail_arrivals`),
+  (`bus_observations`, `bus_trip_status`, `bus_trip_updates`, `rail_observations`,
+  `rail_arrivals`, `streetcar_observations`),
   positions keep a 14-day hot window (older days archived, `docs/POSITIONS.md`); trip updates/arrivals roll off at 7 days. The observe loop writes; detectors read the latest snapshot.
 - **Detectors** are cores in `src/marta/{bus,rail,streetcar}/<feature>.js`; **bins**
   in `bin/marta/{bus,rail}/<feature>.js` wire them to storage / posting / render.

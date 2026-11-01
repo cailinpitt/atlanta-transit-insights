@@ -62,8 +62,8 @@ function getDb() {
       label TEXT,
       lat REAL,
       lon REAL,
-      bearing INTEGER,
-      speed REAL,                 -- m/s, null when the feed omits it (~43%)
+      bearing INTEGER,            -- degrees from true north; null usually means 0 (omitted)
+      speed REAL,                 -- m/s; MARTA omits zeros, so null (~44%) mostly means stopped
       occupancy TEXT,
       vehicle_ts INTEGER,         -- the feed's per-vehicle timestamp (epoch s)
       start_date TEXT
@@ -196,8 +196,9 @@ function getDb() {
       PRIMARY KEY (line, direction)
     );
 
-    -- Bare ts indexes for the 7-day rolloff. rolloffOldObservations runs every
-    -- observe tick and does DELETE ... WHERE ts < cutoff on the rolled-off tables.
+    -- Bare ts indexes for the rolloffs: rolloffOldObservations (7 days, each
+    -- observe-buses run) on ROLLOFF_TABLES and export-positions (14 days) on
+    -- the position tables, both DELETE by a ts range.
     -- The composite (route|line|..., ts) indexes above can't serve a bare ts
     -- predicate (ts isn't the leftmost column), so without these the DELETE
     -- full-scans the whole table — on rail_arrivals that's millions of rows

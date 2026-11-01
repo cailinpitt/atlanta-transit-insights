@@ -46,11 +46,8 @@ function parseDelaySeconds(v) {
   return m ? Number(m[1]) : null;
 }
 
-// Convert a wall-clock instant in a named tz to epoch ms (standard offset
-// inversion: ask what wall clock the naive-UTC guess shows in the tz, the gap
-// is the offset). Handles EDT/EST without a tz library.
-function zonedToEpoch(y, mo, d, h, mi, s, tz = 'America/New_York') {
-  const asUTC = Date.UTC(y, mo - 1, d, h, mi, s);
+// Offset (ms) of `tz` at instant `ms`: the wall clock it shows, read as UTC, minus `ms`.
+function tzOffsetAt(ms, tz) {
   const parts = new Intl.DateTimeFormat('en-US', {
     timeZone: tz,
     year: 'numeric',
@@ -60,10 +57,10 @@ function zonedToEpoch(y, mo, d, h, mi, s, tz = 'America/New_York') {
     minute: '2-digit',
     second: '2-digit',
     hour12: false,
-  }).formatToParts(new Date(asUTC));
+  }).formatToParts(new Date(ms));
   const g = (t) => Number(parts.find((p) => p.type === t).value);
   // %24 normalizes the "24" some engines emit for midnight.
-  const invUTC = Date.UTC(
+  const wall = Date.UTC(
     g('year'),
     g('month') - 1,
     g('day'),
@@ -71,17 +68,47 @@ function zonedToEpoch(y, mo, d, h, mi, s, tz = 'America/New_York') {
     g('minute'),
     g('second'),
   );
-  return asUTC - (invUTC - asUTC);
+  return wall - Math.floor(ms / 1000) * 1000;
+}
+
+// Convert a wall-clock time in a named tz to epoch ms. The offsets a day either
+// side bracket any DST change; each yields a candidate instant, kept only if it
+// round-trips to the same wall clock.
+//   Repeated fall-back hour (two valid instants): the one closest to `refMs`
+//   (e.g. poll time) if given, else the earlier one.
+//   Skipped spring-forward hour (no valid instant): interpreted with the
+//   pre-transition offset, so 02:30 → 03:30 EDT.
+function zonedToEpoch(y, mo, d, h, mi, s, tz = 'America/New_York', refMs = null) {
+  const asUTC = Date.UTC(y, mo - 1, d, h, mi, s);
+  const DAY = 86_400_000;
+  const before = tzOffsetAt(asUTC - DAY, tz);
+  const after = tzOffsetAt(asUTC + DAY, tz);
+  const valid = [...new Set([asUTC - before, asUTC - after])].filter(
+    (c) => c + tzOffsetAt(c, tz) === asUTC,
+  );
+  if (valid.length === 0) return asUTC - before;
+  if (valid.length === 1 || refMs == null) return Math.min(...valid);
+  return valid.reduce((a, b) => (Math.abs(b - refMs) < Math.abs(a - refMs) ? b : a));
 }
 
 // Parse "MM/DD/YYYY h:mm:ss AM" (America/New_York) → epoch ms, or null.
-function parseEventTime(v) {
+// `refMs` disambiguates the repeated fall-back hour (see zonedToEpoch).
+function parseEventTime(v, refMs = null) {
   if (!v) return null;
   const m = /^(\d{1,2})\/(\d{1,2})\/(\d{4})\s+(\d{1,2}):(\d{2}):(\d{2})\s*([AP]M)$/i.exec(v.trim());
   if (!m) return null;
   let hour = Number(m[4]) % 12;
   if (/PM/i.test(m[7])) hour += 12;
-  return zonedToEpoch(Number(m[3]), Number(m[1]), Number(m[2]), hour, Number(m[5]), Number(m[6]));
+  return zonedToEpoch(
+    Number(m[3]),
+    Number(m[1]),
+    Number(m[2]),
+    hour,
+    Number(m[5]),
+    Number(m[6]),
+    'America/New_York',
+    refMs,
+  );
 }
 
 // Normalize one raw arrival row. `polledAt` (epoch ms, our fetch time) is the
@@ -103,7 +130,7 @@ function parseArrivalRow(row, polledAt = Date.now()) {
     nextArrivalClock: row.NEXT_ARR || null,
     delaySeconds: parseDelaySeconds(row.DELAY),
     eventTime: row.EVENT_TIME || null,
-    eventTs: parseEventTime(row.EVENT_TIME),
+    eventTs: parseEventTime(row.EVENT_TIME, polledAt),
     polledAt,
   };
 }

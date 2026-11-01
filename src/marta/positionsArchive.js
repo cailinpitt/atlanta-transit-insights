@@ -8,51 +8,58 @@ const START_DATE = '2026-09-28';
 const HOT_WINDOW_DAYS = 14;
 
 // Published field lists per kind, in table column order. `ts` is when we
-// polled the feed (epoch ms).
+// polled the feed (epoch ms). A poll that returns no vehicles writes no rows.
 const KINDS = {
   bus: {
     table: 'bus_observations',
     schema: {
-      ts: 'Poll time, epoch ms',
-      route: 'Public route number from the realtime feed',
-      trip_id: 'GTFS trip_id, joins to the MARTA static schedule',
-      vehicle_id: 'GTFS-rt vehicle id',
-      label: 'Vehicle label',
-      lat: 'Latitude',
-      lon: 'Longitude',
-      bearing: 'Bearing in degrees',
-      speed: 'Speed in m/s (null when the feed omits it)',
-      occupancy: 'GTFS-rt occupancy status',
-      vehicle_ts: 'GTFS-rt position timestamp, epoch SECONDS',
-      start_date: 'Trip service date (YYYYMMDD)',
+      ts: 'Integer, not null. Poll time, epoch ms',
+      route: 'String, not null. Public route number from the realtime feed (not GTFS route_id)',
+      trip_id: 'String, nullable. GTFS trip_id, joins to the MARTA static schedule',
+      vehicle_id: 'String, nullable. GTFS-rt vehicle id',
+      label:
+        'String, nullable. GTFS-rt vehicle label as sent by the feed; distinct from vehicle_id (e.g. vehicle 2303 has label "1603")',
+      lat: 'Number, nullable. Latitude',
+      lon: 'Number, nullable. Longitude',
+      bearing:
+        'Integer, nullable. Degrees clockwise from true north. MARTA omits zero-valued fields, so 0 never appears and null usually means heading north (0)',
+      speed:
+        'Number, nullable. Speed in m/s. MARTA omits zero-valued fields, so 0 never appears and null mostly means stopped (~0), not unknown. Some vehicles report implausible values (e.g. a constant 35.76); treat values above ~31 m/s as suspect',
+      occupancy: 'String, nullable. GTFS-rt occupancy status',
+      vehicle_ts:
+        'Integer, nullable. Feed-reported position timestamp, epoch SECONDS, stored as-is. Usually lags ts (median ~23s, p99 ~400s, up to ~25 min); around the fall-back DST change it can be up to ~1h ahead of ts',
+      start_date: 'String, nullable. Trip service date (YYYYMMDD)',
     },
   },
   rail: {
     table: 'rail_observations',
     schema: {
-      ts: 'Poll time, epoch ms',
-      train_id: 'MARTA train id',
-      line: 'Rail line (RED, GOLD, BLUE, GREEN)',
-      direction: 'Direction (N, S, E, W)',
-      destination: 'Destination station',
-      lat: 'Latitude',
-      lon: 'Longitude',
-      delay_sec: 'Reported delay in seconds',
-      event_ts: 'Feed EVENT_TIME for the train, epoch ms',
+      ts: 'Integer, not null. Poll time, epoch ms',
+      train_id:
+        'String, not null. MARTA train id; not unique within a poll, the unique key is (line, direction, train_id)',
+      line: 'String, not null. Rail line (RED, GOLD, BLUE, GREEN)',
+      direction: 'String, nullable. Direction (N, S, E, W)',
+      destination: 'String, nullable. Destination station',
+      lat: 'Number, nullable. Latitude',
+      lon: 'Number, nullable. Longitude',
+      delay_sec: 'Integer, nullable. Reported delay in seconds, positive = late, negative = early',
+      event_ts:
+        'Integer, nullable. Feed EVENT_TIME for the train (America/New_York wall clock), epoch ms',
     },
   },
   streetcar: {
     table: 'streetcar_observations',
     schema: {
-      ts: 'Poll time, epoch ms',
-      vehicle_id: 'OTP vehicle id (e.g. "MARTA:1001")',
-      label: 'Fleet number',
-      line: 'Streetcar line (SC)',
-      direction: 'GTFS direction_id (0 or 1)',
-      trip_id: 'Trip id',
-      lat: 'Latitude',
-      lon: 'Longitude',
-      event_ts: 'Feed lastUpdate for the vehicle, epoch ms',
+      ts: 'Integer, not null. Poll time, epoch ms',
+      vehicle_id: 'String, not null. OTP vehicle id (e.g. "MARTA:1001")',
+      label: 'String, nullable. Fleet number',
+      line: 'String, not null. Streetcar line (SC)',
+      direction: 'String, nullable. GTFS direction_id ("0" or "1")',
+      trip_id:
+        'String, nullable. OTP trip id with a "MARTA:" prefix; strip it to join GTFS trips.txt',
+      lat: 'Number, nullable. Latitude',
+      lon: 'Number, nullable. Longitude',
+      event_ts: 'Integer, nullable. Feed lastUpdate for the vehicle, epoch ms',
     },
   },
 };

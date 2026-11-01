@@ -24,6 +24,66 @@ https://data.atlantatransitalerts.app/positions/{bus,rail,streetcar}/YYYY/MM/YYY
 - `ts` is when we polled the feed (epoch ms). Bus `vehicle_ts` is the GTFS-rt
   timestamp in epoch **seconds**; rail and streetcar `event_ts` are epoch ms.
 - Positions are polled about every 30 seconds.
+- A poll that returns no vehicles writes no rows, so a feed outage and a
+  period with no service look the same in the archive.
+
+## Fields
+
+The authoritative descriptions are in `index.json` (`schema`), generated from
+`src/marta/positionsArchive.js`. Types follow the SQLite schema in
+`src/marta/storage.js`.
+
+### bus
+
+| field | type | null? | notes |
+|-------|------|-------|-------|
+| `ts` | integer | no | poll time, epoch ms |
+| `route` | string | no | public route number from the realtime feed, not the GTFS `route_id`; join on `trip_id` |
+| `trip_id` | string | yes | GTFS `trip_id` |
+| `vehicle_id` | string | yes | GTFS-rt vehicle id |
+| `label` | string | yes | GTFS-rt vehicle label as the feed sends it; a separate identifier from `vehicle_id` (e.g. vehicle `2303` has label `1603`) |
+| `lat`, `lon` | number | yes | |
+| `bearing` | integer | yes | degrees clockwise from true north. MARTA omits zero-valued fields, so `0` never appears and null usually means heading north |
+| `speed` | number | yes | m/s. `0` never appears for the same reason, so null (~44% of rows) mostly means stopped (~0), not unknown. Some vehicles report implausible values (e.g. vehicle 4756 at a constant 35.76 m/s); treat values above ~31 m/s as suspect |
+| `occupancy` | string | yes | GTFS-rt occupancy status |
+| `vehicle_ts` | integer | yes | feed-reported position time, epoch **seconds**, stored as-is. Usually lags `ts` (median ~23s, p99 ~400s, up to ~25 min); around the fall-back DST change MARTA's feed has run up to ~1h ahead of `ts` |
+| `start_date` | string | yes | trip service date, `YYYYMMDD` |
+
+### rail
+
+| field | type | null? | notes |
+|-------|------|-------|-------|
+| `ts` | integer | no | poll time, epoch ms |
+| `train_id` | string | no | not unique within a poll; the unique key is (`line`, `direction`, `train_id`) |
+| `line` | string | no | `RED`, `GOLD`, `BLUE`, `GREEN` |
+| `direction` | string | yes | `N`, `S`, `E`, `W` |
+| `destination` | string | yes | destination station |
+| `lat`, `lon` | number | yes | |
+| `delay_sec` | integer | yes | reported delay, positive = late, negative = early. Null on ~2–4% of rows |
+| `event_ts` | integer | yes | feed `EVENT_TIME` (America/New_York wall clock), epoch ms |
+
+### streetcar
+
+| field | type | null? | notes |
+|-------|------|-------|-------|
+| `ts` | integer | no | poll time, epoch ms |
+| `vehicle_id` | string | no | OTP vehicle id, e.g. `MARTA:1001` |
+| `label` | string | yes | fleet number, e.g. `1001` |
+| `line` | string | no | `SC` |
+| `direction` | string | yes | GTFS `direction_id`, `"0"` or `"1"` |
+| `trip_id` | string | yes | OTP trip id with a `MARTA:` prefix; strip it to join GTFS `trips.txt` |
+| `lat`, `lon` | number | yes | |
+| `event_ts` | integer | yes | feed `lastUpdate`, epoch ms |
+
+## Known gaps and issues
+
+- **2026-10-28 ~01:20 ET to 2026-10-30 ~18:40 ET:** rail and streetcar were
+  effectively dark after a MARTA rail API change (2026-10-29 has 0 rail rows).
+- **2026-10-30 ~18:40 ET:** a ~26.5 min gap on all feeds during the deploy
+  that fixed the above.
+- **2026-11-01 ~06:00Z to 11:00Z:** 354 rail rows have `event_ts` 1h early, from
+  a DST bug in the `EVENT_TIME` parser. The parser is fixed; these rows have
+  not been backfilled. `ts` is unaffected.
 
 ```sh
 curl -sO https://data.atlantatransitalerts.app/positions/rail/2026/10/2026-10-30.ndjson.gz
@@ -37,8 +97,9 @@ df = pd.read_json("https://data.atlantatransitalerts.app/positions/bus/2026/10/2
 
 ## How it runs
 
-`bin/marta/export-positions.js` runs nightly at 02:40 (`cron/marta-crontab.txt`),
-before the 04:23 DB backup:
+`bin/marta/export-positions.js` runs nightly at 02:40 server time
+(America/Chicago, so 03:40 ET; `cron/marta-crontab.txt`), before the 04:23 DB
+backup:
 
 1. For each finished day since 2026-09-28 that isn't uploaded yet, it writes
    one file per kind to `archive/positions/` (the permanent copy on the

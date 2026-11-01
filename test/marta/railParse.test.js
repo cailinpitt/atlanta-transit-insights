@@ -4,6 +4,7 @@ const Fs = require('node:fs');
 const Path = require('node:path');
 const {
   parseTrainData,
+  parseArrivalRow,
   parseDelaySeconds,
   parseEventTime,
   zonedToEpoch,
@@ -78,6 +79,30 @@ test('EVENT_TIME parses America/New_York wall clock to epoch', () => {
   // Winter date, EST (UTC-5): 01/15/2026 9:00:00 AM = 2026-01-15T14:00:00Z.
   assert.equal(zonedToEpoch(2026, 1, 15, 9, 0, 0), Date.UTC(2026, 0, 15, 14, 0, 0));
   assert.equal(parseEventTime('not a time'), null);
+});
+
+test('EVENT_TIME is DST-correct across both 2026 transitions', () => {
+  // Fall-back 2026-11-01: after the repeated hour, wall clock is EST.
+  assert.equal(parseEventTime('11/01/2026 5:07:47 AM'), Date.UTC(2026, 10, 1, 10, 7, 47));
+  assert.equal(zonedToEpoch(2026, 11, 1, 0, 30, 0), Date.UTC(2026, 10, 1, 4, 30, 0));
+  assert.equal(zonedToEpoch(2026, 11, 1, 2, 0, 0), Date.UTC(2026, 10, 1, 7, 0, 0));
+  assert.equal(zonedToEpoch(2026, 10, 31, 23, 0, 0), Date.UTC(2026, 10, 1, 3, 0, 0));
+  // Spring-forward 2026-03-08: 01:59 EST, 03:00 EDT.
+  assert.equal(zonedToEpoch(2026, 3, 8, 1, 59, 0), Date.UTC(2026, 2, 8, 6, 59, 0));
+  assert.equal(zonedToEpoch(2026, 3, 8, 3, 0, 0), Date.UTC(2026, 2, 8, 7, 0, 0));
+  assert.equal(zonedToEpoch(2026, 3, 8, 5, 0, 0), Date.UTC(2026, 2, 8, 9, 0, 0));
+  // Nonexistent 02:30 uses the pre-transition offset (EST) → 03:30 EDT.
+  assert.equal(zonedToEpoch(2026, 3, 8, 2, 30, 0), Date.UTC(2026, 2, 8, 7, 30, 0));
+});
+
+test('repeated fall-back hour resolves to the instant nearest the reference', () => {
+  const edt = Date.UTC(2026, 10, 1, 5, 30, 0);
+  const est = Date.UTC(2026, 10, 1, 6, 30, 0);
+  assert.equal(zonedToEpoch(2026, 11, 1, 1, 30, 0), edt, 'no ref → earlier (EDT)');
+  assert.equal(parseEventTime('11/01/2026 1:30:00 AM', edt + 20_000), edt);
+  assert.equal(parseEventTime('11/01/2026 1:30:00 AM', est + 20_000), est);
+  const row = { IS_REALTIME: 'true', TRAIN_ID: '201', EVENT_TIME: '11/01/2026 1:30:00 AM' };
+  assert.equal(parseArrivalRow(row, est + 15_000).eventTs, est);
 });
 
 test('every realtime arrival row resolves a position; scheduled never does', () => {

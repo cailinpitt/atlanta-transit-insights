@@ -18,25 +18,45 @@ const { runTicks } = require('../../src/marta/observeUtil');
 const TICKS = Number(process.env.MARTA_OBSERVE_RAIL_TICKS || 2);
 const INTERVAL_MS = Number(process.env.MARTA_OBSERVE_RAIL_INTERVAL_MS || 30_000);
 
-async function tick() {
-  const parsed = await fetchTrainData(); // records by default
+// Rail and streetcar fail independently so one outage never drops the other or
+// a later tick. Returns whether the rail fetch succeeded.
+async function tick(
+  _i,
+  { fetchRail = fetchTrainData, fetchStreetcar = fetchStreetcarVehicles } = {},
+) {
+  let rail = null;
+  try {
+    rail = await fetchRail(); // records by default
+  } catch (e) {
+    console.error(`observe-rail: rail fetch failed: ${e.message}`);
+  }
   let streetcarCount = 0;
   try {
-    const sc = await fetchStreetcarVehicles(); // records by default
+    const sc = await fetchStreetcar(); // records by default
     streetcarCount = sc.vehicles.length;
   } catch (e) {
     console.warn(`observe-rail: streetcar fetch failed: ${e.message}`);
   }
+  const railSummary = rail
+    ? `${rail.trains.length} trains, ${rail.arrivals.length} arrivals`
+    : 'rail failed';
   console.log(
-    `observe-rail: ${parsed.trains.length} trains, ${parsed.arrivals.length} arrivals, ` +
-      `${streetcarCount} streetcars @ ${new Date().toISOString()}`,
+    `observe-rail: ${railSummary}, ${streetcarCount} streetcars @ ${new Date().toISOString()}`,
   );
+  return rail != null;
 }
 
 async function main() {
   // The 7-day rolloff is driven by observe-buses (every minute) to avoid two
   // observers running the same DELETE sweep concurrently each minute.
-  await runTicks(tick, { ticks: TICKS, intervalMs: INTERVAL_MS });
+  let railFailed = false;
+  await runTicks(
+    async (i) => {
+      if (!(await tick(i))) railFailed = true;
+    },
+    { ticks: TICKS, intervalMs: INTERVAL_MS },
+  );
+  if (railFailed) process.exitCode = 1;
 }
 
 if (require.main === module) {

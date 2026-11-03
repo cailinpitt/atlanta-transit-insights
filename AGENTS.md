@@ -33,7 +33,7 @@ recorded snapshot (no extra feed fetch), detects → renders → posts → exits
 - **Storage.** `src/marta/storage.js` owns `state/marta.sqlite`
   (`bus_observations`, `bus_trip_status`, `bus_trip_updates`, `rail_observations`,
   `rail_arrivals`, `streetcar_observations`),
-  positions keep a 14-day hot window (older days archived, `docs/POSITIONS.md`); trip updates/arrivals roll off at 7 days. The observe loop writes; detectors read the latest snapshot.
+  positions keep a 14-day hot window (older days archived to Parquet, `docs/POSITIONS.md`); trip updates/arrivals roll off at 7 days. The observe loop writes; detectors read the latest snapshot.
 - **Detectors** are cores in `src/marta/{bus,rail,streetcar}/<feature>.js`; **bins**
   in `bin/marta/{bus,rail}/<feature>.js` wire them to storage / posting / render.
 - **Posting + lifecycle.** `src/marta/shared/`: `bluesky.js` (login/post),
@@ -100,6 +100,7 @@ THIN_GAPS_AND_PULSE,MARTA_ALERTS,MARTA_FEEDS}.md`.
 | Map renderers | `src/marta/map/*.js` |
 | Timelapse + dropout/bridge/ghost model | `src/marta/{bus,rail}/video.js`, `src/shared/videoTracks.js` |
 | Web export (R2 data) | `bin/marta/{export-web,export-daily}.js`, `bin/export-csv.js`, `bin/marta/push-web-data.sh`, `docs/DATA_ORIGIN.md` |
+| Position archive (Parquet + manifests) | `src/marta/{positionsArchive,positionsParquet,positionsPublication}.js`, `bin/marta/export-positions.js`, `scripts/marta/migrate-positions-parquet.js`, `docs/POSITIONS.md` |
 | Ghost / effective-headway phrasing | `src/shared/ghostFormat.js` |
 | Bluesky login / threading / post | `src/marta/shared/bluesky.js` |
 
@@ -116,7 +117,7 @@ Most thresholds are single-file constants — search the relevant
 | Speedmap coverage gate | `bin/marta/bus/speedmap.js` | `MIN_COVERAGE = 0.3` |
 | Rail pulse cold threshold | `src/marta/rail/pulse.js` | `COLD_HEADWAY_MULT 2.5` / `_STRICT 3.5`, `DEFAULT_MIN_COLD_MS 15min` (CTA parity); ticks in `bin/marta/rail/pulse.js` |
 | Trip-update/arrival rolloff | `src/marta/storage.js` | 7-day window (`ROLLOFF_TABLES`) |
-| Position hot window | `src/marta/positionsArchive.js` | `HOT_WINDOW_DAYS = 14`; older days archived, then deleted |
+| Position hot window | `src/marta/positionsArchive.js` | `HOT_WINDOW_DAYS = 14`; older days deleted only once verified + committed in the Parquet manifest |
 | Alert clear window | `src/marta/alert/store.js` | `ALERT_CLEAR_TICKS = 3` ↔ 2-min alert cadence |
 
 ## Dev commands

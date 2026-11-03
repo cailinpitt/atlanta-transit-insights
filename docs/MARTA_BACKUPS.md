@@ -6,7 +6,7 @@ tables from the snapshot, then integrity-checks, gzips, and uploads it.
 
 Vehicle positions (`bus_observations`, `rail_observations`,
 `streetcar_observations`) are **not** in the backup. Finished days are archived
-by `bin/marta/export-positions.js` to `archive/positions/` and to the public
+as Parquet by `bin/marta/export-positions.js` to `archive/positions/` and to the public
 data bucket, which doubles as their off-box copy (`docs/POSITIONS.md`). A
 restored DB starts with empty position tables, so it loses up to 14 days of
 hot-window positions. The archived days are unaffected.

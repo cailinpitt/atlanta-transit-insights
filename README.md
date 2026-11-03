@@ -133,6 +133,8 @@ Detector bins accept `--dry-run` (write the image/text, don't post) and `--check
 |---|---|
 | `npm run marta:export-web [output-path]` | Read `state/marta.sqlite` (readonly) → `alerts.json`. |
 | `bin/marta/push-web-data.sh` | Export → upload changed files to R2 → trigger a site rebuild. See [DATA_ORIGIN.md](docs/DATA_ORIGIN.md). |
+| `npm run marta:export-positions` / `:dry` | Archive finished days of positions to verified Parquet on R2, then trim the position tables to the 14-day hot window (nightly). See [POSITIONS.md](docs/POSITIONS.md). |
+| `npm run marta:migrate-positions` | One-time NDJSON → Parquet migration (`-- --cutover`, then `-- --retire-ndjson`). See [POSITIONS.md](docs/POSITIONS.md#one-time-migration-and-cutover). |
 
 ### Dev
 | Command | Description |
@@ -169,7 +171,7 @@ See [MARTA_FEEDS.md](docs/MARTA_FEEDS.md) for what each feed actually contains.
 MARTA is GTFS-realtime: a vehicle reports `trip_id` + lat/lon, not distance-along-route. `src/marta/bus/shapes.js` reconstructs distance-along-route by projecting each position onto its trip's GTFS shape. The whole detector stack runs on that projected `distFt`. See [BUNCHING.md](docs/BUNCHING.md#the-pdist-analog--srcmartabusshapesjs).
 
 ### Storage
-The observe loop records into `state/marta.sqlite` (`src/marta/storage.js`): `bus_observations`, `bus_trip_status`, `bus_trip_updates`, `rail_observations`, `rail_arrivals`, `streetcar_observations`. Position tables keep a 14-day hot window; older days are archived to gzipped NDJSON and published for download (see [docs/POSITIONS.md](docs/POSITIONS.md)). Trip updates and arrivals roll off after 7 days. Cooldowns, caps, callouts, and `meta_signals` live in the same DB via `src/marta/shared/incidents.js`. SQLite runs in **WAL mode**.
+The observe loop records into `state/marta.sqlite` (`src/marta/storage.js`): `bus_observations`, `bus_trip_status`, `bus_trip_updates`, `rail_observations`, `rail_arrivals`, `streetcar_observations`. Position tables keep a 14-day hot window; older days are archived to sorted, ZSTD-compressed Parquet and published through versioned manifests (see [docs/POSITIONS.md](docs/POSITIONS.md)). Trip updates and arrivals roll off after 7 days. Cooldowns, caps, callouts, and `meta_signals` live in the same DB via `src/marta/shared/incidents.js`. SQLite runs in **WAL mode**.
 
 ## Contributing and issues
 

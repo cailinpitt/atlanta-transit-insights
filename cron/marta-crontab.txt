@@ -114,9 +114,9 @@
 # See docs/REPLAY.md.
 19-59/15 * * * * cd __REPO__ && __NODE__ bin/marta/export-event-tracks.js >> __REPO__/state/logs/export-event-tracks.log 2>&1
 # Archive each finished Atlanta day of vehicle positions to archive/positions/ as
-# gzipped NDJSON, publish it to the same bucket under positions/, then trim the
-# position tables to the 14-day hot window (only days that were uploaded). Runs
-# before the 04:23 backup. See docs/POSITIONS.md.
+# sorted Parquet, publish it to the same bucket under positions/, then trim the
+# position tables to the 14-day hot window (only verified, committed days).
+# Migrate before enabling; runs before the 04:23 backup. See docs/POSITIONS.md.
 40 2 * * * cd __REPO__ && __NODE__ bin/marta/export-positions.js >> __REPO__/state/logs/export-positions.log 2>&1
 # Off-box backup of state/marta.sqlite to Cloudflare R2. Uses SQLite .backup,
 # integrity-checks the snapshot, gzips it, then uploads to the private backup

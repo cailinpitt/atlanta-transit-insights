@@ -4,6 +4,7 @@
   "description": "Bluesky bots that turn MARTA train and bus tracker data into Atlanta-specific transit visualizations",
   "dependencies": {
     "@atproto/api": "^0.18.16",
+    "@duckdb/node-api": "2.0.0-r.1",
     "axios": "^1.15.0",
     "better-sqlite3": "^12.9.0",
     "dotenv": "^16.4.7",
@@ -21,6 +22,7 @@
     "marta:observe-buses": "node scripts/marta/observe-buses.js",
     "marta:export-positions": "node bin/marta/export-positions.js",
     "marta:export-positions:dry": "node bin/marta/export-positions.js --dry-run",
+    "marta:migrate-positions": "node scripts/marta/migrate-positions-parquet.js",
     "marta:observe-bus-tripupdates": "node scripts/marta/observe-bus-tripupdates.js",
     "marta:observe-rail": "node scripts/marta/observe-rail.js",
     "marta:status": "node scripts/marta/observe-status.js",

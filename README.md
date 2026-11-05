@@ -94,6 +94,8 @@ scripts/marta/install-crontab.sh
 
 The installer is a safe **marker-merge** — it replaces only the block between `# MARTA-INSIGHTS-START` / `# MARTA-INSIGHTS-END` and never touches your other cron jobs. It substitutes `__REPO__` / `__NODE__` and creates the `state/logs/` targets. Logs land in `state/logs/` (gitignored).
 
+Every job runs through [`bin/marta/cron-run.sh`](bin/marta/cron-run.sh), which holds a per-job `flock` (`state/locks/<job>.lock`). If a job's previous run is still going, the new tick writes `skipped: previous … run still in progress` to that job's log and exits 0 instead of stacking another process. Overlapping runs once piled up behind a stuck DB lock until the shared server ran out of memory.
+
 ### Log rotation & monitoring
 
 `cron/logrotate.conf` is a template policy; install it with `sudo scripts/install-logrotate.sh`. Liveness can be delegated to [healthchecks.io](https://healthchecks.io) — see `scripts/configure-healthchecks.js` and `cron/healthchecks.env.example`.

@@ -211,6 +211,7 @@ the manifest as `known_gaps`; keep this table in sync with `KNOWN_GAPS` in
 |---|---|---|---|---|
 | 2026-10-28 | 2026-10-30 | rail, streetcar | 01:20 to 18:40 | Effectively dark after a MARTA rail API change; 2026-10-29 has 0 rail rows |
 | 2026-10-30 | 2026-10-30 | bus, rail, streetcar | 18:40 to 19:07 | ~26.5 min gap during the deploy that fixed the rail API change |
+| 2026-11-05 | 2026-11-05 | bus, rail, streetcar | 15:37 to 17:37 | Server ran out of memory and hung; only a few scattered polls recorded |
 
 On 2026-11-01 (~06:00Z to 11:00Z), 403 rail rows were stored with `event_ts`
 1h early, from a DST bug in the `EVENT_TIME` parser. The parser is fixed and

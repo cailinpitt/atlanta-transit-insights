@@ -42,6 +42,12 @@ const KNOWN_GAPS = [
     feeds: ['bus', 'rail', 'streetcar'],
     note: '~26.5 min gap during the deploy that fixed the rail API change',
   },
+  {
+    start: '2026-11-05T15:37:00-05:00',
+    end: '2026-11-05T17:37:00-05:00',
+    feeds: ['bus', 'rail', 'streetcar'],
+    note: 'Server ran out of memory and hung; only a few scattered polls recorded',
+  },
 ];
 
 function field(type, nullable, description, unit) {

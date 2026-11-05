@@ -1,8 +1,15 @@
 # MARTA Database Backups
 
 The MARTA history DB (`state/marta.sqlite`) is backed up off-box to Cloudflare
-R2. The backup script uses SQLite's online `.backup`, drops the position
+R2. The backup script snapshots with `VACUUM INTO`, drops the position
 tables from the snapshot, then integrity-checks, gzips, and uploads it.
+
+`VACUUM INTO` reads in a single transaction, so under WAL it doesn't block the
+cron writers. Don't switch back to the CLI's `.backup`: it restarts whenever
+another process writes, and on the CTA side (same box) it stopped finishing once
+write volume grew, piling up stuck copies until the server ran out of memory
+(Nov 2026). The script holds a `flock` so runs can't overlap and caps the
+snapshot at 2h.
 
 Vehicle positions (`bus_observations`, `rail_observations`,
 `streetcar_observations`) are **not** in the backup. Finished days are archived

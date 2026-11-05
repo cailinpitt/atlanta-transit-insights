@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Off-box backup of the MARTA history DB to Cloudflare R2.
 #
-# Uses SQLite's online `.backup` so the snapshot is WAL-safe while cron writers
+# Uses SQLite's `VACUUM INTO` so the snapshot is WAL-safe while cron writers
 # are active. The position tables are dropped from the snapshot (positions are
 # archived separately by bin/marta/export-positions.js, see docs/POSITIONS.md),
 # then it is integrity-checked, gzipped, uploaded to R2, and a small number of
@@ -30,10 +30,19 @@ if [ ! -f "$DB" ]; then
 fi
 
 mkdir -p "$WORKDIR"
-# Don't leave a multi-GB uncompressed snapshot behind if a step fails.
-trap 'rm -f "${WORKDIR:?}/${OUT}"' ERR
 
-sqlite3 "$DB" ".backup '${WORKDIR}/${OUT}'"
+exec 9>"${WORKDIR}/.backup.lock"
+if ! flock -n 9; then
+  echo "$(date -u '+%Y-%m-%dT%H:%M:%SZ') ERROR: previous backup still running, skipping" >&2
+  exit 1
+fi
+
+# Don't leave a multi-GB uncompressed snapshot behind if a step fails.
+trap 'rm -f "${WORKDIR:?}/${OUT}" "${WORKDIR:?}/${OUT}-journal"' ERR
+
+# VACUUM INTO reads in a single transaction, so under WAL it never blocks
+# writers; `.backup` restarts on every concurrent write and can never finish.
+timeout 2h sqlite3 "$DB" "VACUUM INTO '${WORKDIR}/${OUT}'"
 
 # Drop vehicle positions from the snapshot only. The live DB is untouched, and
 # storage.js recreates the empty tables on a restored copy.

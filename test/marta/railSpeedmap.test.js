@@ -93,3 +93,14 @@ test('end-to-end line speedmap', () => {
   assert.equal(m.line, 'RED');
   if (m.summary.avg != null) assert.ok(m.summary.avg > 0 && m.summary.avg < 75);
 });
+
+test('a repeated feed report does not read as a stopped train', () => {
+  const rows = [
+    { ...obs(0, 2), eventTs: 1 },
+    { ...obs(10_000, 2), eventTs: 1 },
+    { ...obs(20_000, 4), eventTs: 2 },
+  ];
+  const redN = buildSpeedSamples(rows, { lineGeom }).get('RED/N');
+  assert.equal(redN.length, 1, 'the repeat is skipped, leaving one 20s pair');
+  assert.ok(Math.abs(redN[0].mph - 40.9) < 0.5, `mph ${redN[0].mph}`);
+});

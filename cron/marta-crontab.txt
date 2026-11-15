@@ -16,7 +16,8 @@
 # Bus positions: every minute, 2 ticks 30s apart → 30s density (feeds every bus
 # detector). Cheap (~160 rows/fetch).
 * * * * * __REPO__/bin/marta/cron-run.sh observe-buses __NODE__ scripts/marta/observe-buses.js >> __REPO__/state/logs/observe-buses.log 2>&1
-# Rail (trains + arrivals): every minute, 2 ticks 30s apart for position-delta speed.
+# Rail (trains + arrivals) + streetcar: every minute, 6 ticks 10s apart (both feeds
+# refresh positions every ~10-12s) for position-delta speed.
 * * * * * __REPO__/bin/marta/cron-run.sh observe-rail __NODE__ scripts/marta/observe-rail.js >> __REPO__/state/logs/observe-rail.log 2>&1
 # Bus TripUpdates: every 5 min. Stores compact trip-level status, including
 # MARTA-announced cancellations used to enrich ghost-bus detection. Full

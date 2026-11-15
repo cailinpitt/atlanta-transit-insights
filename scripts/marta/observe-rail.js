@@ -7,7 +7,7 @@
 //
 // The Atlanta Streetcar rides along here too: it's the rail's slow cousin
 // (Path-A positions, speed from deltas), so we poll its OTP feed on the same
-// 30s tick and store it in streetcar_observations. The streetcar fetch is
+// 10s tick and store it in streetcar_observations. The streetcar fetch is
 // best-effort — its endpoint is an undocumented rider-app backend, so a hiccup
 // there must never break heavy-rail ingestion.
 require('dotenv').config({ path: require('node:path').join(__dirname, '..', '..', '.env') });
@@ -15,8 +15,9 @@ const { fetchTrainData } = require('../../src/marta/rail/api');
 const { fetchStreetcarVehicles } = require('../../src/marta/streetcar/api');
 const { runTicks } = require('../../src/marta/observeUtil');
 
-const TICKS = Number(process.env.MARTA_OBSERVE_RAIL_TICKS || 2);
-const INTERVAL_MS = Number(process.env.MARTA_OBSERVE_RAIL_INTERVAL_MS || 30_000);
+// Both feeds refresh positions every ~10-12s, so 6 ticks 10s apart per minute.
+const TICKS = Number(process.env.MARTA_OBSERVE_RAIL_TICKS || 6);
+const INTERVAL_MS = Number(process.env.MARTA_OBSERVE_RAIL_INTERVAL_MS || 10_000);
 
 // Rail and streetcar fail independently so one outage never drops the other or
 // a later tick. Returns whether the rail fetch succeeded.

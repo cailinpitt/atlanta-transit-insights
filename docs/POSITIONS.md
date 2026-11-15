@@ -196,7 +196,10 @@ The authoritative descriptions are in the manifest's `feeds`, generated from
 
 ## Collection caveats
 
-- Positions are polled about every 30 seconds.
+- Bus positions are polled about every 30 seconds, matching the feed's refresh.
+  Rail and streetcar were polled about every 30 seconds until 2026-11-14 and
+  about every 10 seconds after that; consecutive rows can repeat a report
+  (same `event_ts`).
 - A poll that returns no vehicles writes no rows, so a feed outage and a
   period with no service look the same in the archive.
 

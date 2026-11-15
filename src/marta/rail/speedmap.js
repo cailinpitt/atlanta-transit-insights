@@ -8,7 +8,7 @@
 const { projectTrain } = require('./lines');
 const { binSamples } = require('../bus/speedmap');
 
-const MIN_DT_MS = 10_000; // need a real time gap (observers tick ~30s apart)
+const MIN_DT_MS = 5_000; // need a real time gap (observers tick ~10s apart)
 const MAX_DT_MS = 5 * 60_000; // a pair spanning a gap/outage isn't a clean sample
 const MAX_MPH = 75; // reject GPS jumps / shape wraparound at Five Points
 const FT_PER_S_TO_MPH = 3600 / 5280;
@@ -48,12 +48,23 @@ function buildSpeedSamples(
     const direction = mergeDirections ? '' : o.direction;
     const key = `${o.line}/${direction}/${id}`;
     if (!byTrain.has(key)) byTrain.set(key, []);
-    byTrain.get(key).push({ ts: o.ts, distFt: proj.distFt, line: o.line, direction });
+    byTrain.get(key).push({
+      ts: o.ts,
+      eventTs: o.eventTs ?? o.event_ts ?? null,
+      distFt: proj.distFt,
+      line: o.line,
+      direction,
+    });
   }
 
   const byLineDir = new Map();
   for (const pts of byTrain.values()) {
     pts.sort((a, b) => a.ts - b.ts);
+    // Polls outpace the feed, so a repeated report (same event_ts) would read as
+    // a stopped train. Keep only the first sighting of each report.
+    for (let i = pts.length - 1; i > 0; i--) {
+      if (pts[i].eventTs != null && pts[i].eventTs === pts[i - 1].eventTs) pts.splice(i, 1);
+    }
     for (let i = 1; i < pts.length; i++) {
       const dt = pts[i].ts - pts[i - 1].ts;
       if (dt < MIN_DT_MS || dt > MAX_DT_MS) continue;
